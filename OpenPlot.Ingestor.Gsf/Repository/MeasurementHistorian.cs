@@ -7,6 +7,7 @@ using System.Diagnostics.Eventing.Reader;
 using System.Globalization;
 using System.IO;
 using System.Net.Http;
+using System.Text;
 using System.Threading.Tasks;
 using static System.Net.WebRequestMethods;
 
@@ -175,17 +176,20 @@ namespace OpenPlot.Ingestor.Gsf.Repository
 
         private static string GetChannels(List<Channel> measurements)
         {
-            string result = "";
-            string prefix = "";
-            foreach (Channel channel in measurements)
-            {
-                result += prefix;
-                result += channel.Id;
-                prefix = ",";
-            }
+            var seen = new HashSet<int>();
+            var sb = new StringBuilder();
 
-            return result;
+            foreach (var ch in measurements)
+            {
+                if (seen.Add(ch.Id)) // só entra 1x por HistorianID
+                {
+                    if (sb.Length > 0) sb.Append(',');
+                    sb.Append(ch.Id);
+                }
+            }
+            return sb.ToString();
         }
+
 
         private static Dictionary<Channel, ITimeSeries> ParseJson(ref Task<string> query, Dictionary<string, Channel> measurements, double framesPerSecond, bool downloadStat)
         {

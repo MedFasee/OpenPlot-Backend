@@ -43,5 +43,6 @@ namespace OpenPlot.Ingestor.Gsf.Utils
         {
             return OA_START.AddDays(oaDate);
         }
+
     }
 }
