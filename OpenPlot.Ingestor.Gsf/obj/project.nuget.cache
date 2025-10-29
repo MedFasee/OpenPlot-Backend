@@ -1,0 +1,60 @@
+{
+  "version": 2,
+  "dgSpecHash": "k4aDlxBX0To=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\tatia\\source\\repos\\Medi.Api\\OpenPlot.Ingestor.Gsf\\OpenPlot.Ingestor.Gsf.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\tatia\\.nuget\\packages\\antlr\\3.5.0.2\\antlr.3.5.0.2.nupkg.sha512",
+    "C:\\Users\\tatia\\.nuget\\packages\\expressionevaluator\\2.0.4\\expressionevaluator.2.0.4.nupkg.sha512",
+    "C:\\Users\\tatia\\.nuget\\packages\\gsf.core\\2.4.28\\gsf.core.2.4.28.nupkg.sha512",
+    "C:\\Users\\tatia\\.nuget\\packages\\microsoft.netcore.platforms\\2.0.0\\microsoft.netcore.platforms.2.0.0.nupkg.sha512",
+    "C:\\Users\\tatia\\.nuget\\packages\\mysql.data\\6.10.9\\mysql.data.6.10.9.nupkg.sha512",
+    "C:\\Users\\tatia\\.nuget\\packages\\newtonsoft.json\\13.0.3\\newtonsoft.json.13.0.3.nupkg.sha512",
+    "C:\\Users\\tatia\\.nuget\\packages\\npgsql\\5.0.18\\npgsql.5.0.18.nupkg.sha512",
+    "C:\\Users\\tatia\\.nuget\\packages\\system.configuration.configurationmanager\\4.4.1\\system.configuration.configurationmanager.4.4.1.nupkg.sha512",
+    "C:\\Users\\tatia\\.nuget\\packages\\system.runtime.compilerservices.unsafe\\4.6.0\\system.runtime.compilerservices.unsafe.4.6.0.nupkg.sha512",
+    "C:\\Users\\tatia\\.nuget\\packages\\system.security.accesscontrol\\4.4.0\\system.security.accesscontrol.4.4.0.nupkg.sha512",
+    "C:\\Users\\tatia\\.nuget\\packages\\system.security.cryptography.protecteddata\\4.4.0\\system.security.cryptography.protecteddata.4.4.0.nupkg.sha512",
+    "C:\\Users\\tatia\\.nuget\\packages\\system.security.permissions\\4.4.1\\system.security.permissions.4.4.1.nupkg.sha512",
+    "C:\\Users\\tatia\\.nuget\\packages\\system.security.principal.windows\\4.4.0\\system.security.principal.windows.4.4.0.nupkg.sha512",
+    "C:\\Users\\tatia\\.nuget\\packages\\system.text.encoding.codepages\\4.4.0\\system.text.encoding.codepages.4.4.0.nupkg.sha512"
+  ],
+  "logs": [
+    {
+      "code": "NU1701",
+      "level": "Warning",
+      "message": "O pacote 'Antlr 3.5.0.2' foi restaurado usando '.NETFramework,Version=v4.6.1, .NETFramework,Version=v4.6.2, .NETFramework,Version=v4.7, .NETFramework,Version=v4.7.1, .NETFramework,Version=v4.7.2, .NETFramework,Version=v4.8, .NETFramework,Version=v4.8.1' em vez da estrutura de destino do projeto 'net8.0'. Esse pacote pode não ser totalmente compatível com o seu projeto.",
+      "projectPath": "C:\\Users\\tatia\\source\\repos\\Medi.Api\\OpenPlot.Ingestor.Gsf\\OpenPlot.Ingestor.Gsf.csproj",
+      "warningLevel": 1,
+      "filePath": "C:\\Users\\tatia\\source\\repos\\Medi.Api\\OpenPlot.Ingestor.Gsf\\OpenPlot.Ingestor.Gsf.csproj",
+      "libraryId": "Antlr",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1701",
+      "level": "Warning",
+      "message": "O pacote 'ExpressionEvaluator 2.0.4' foi restaurado usando '.NETFramework,Version=v4.6.1, .NETFramework,Version=v4.6.2, .NETFramework,Version=v4.7, .NETFramework,Version=v4.7.1, .NETFramework,Version=v4.7.2, .NETFramework,Version=v4.8, .NETFramework,Version=v4.8.1' em vez da estrutura de destino do projeto 'net8.0'. Esse pacote pode não ser totalmente compatível com o seu projeto.",
+      "projectPath": "C:\\Users\\tatia\\source\\repos\\Medi.Api\\OpenPlot.Ingestor.Gsf\\OpenPlot.Ingestor.Gsf.csproj",
+      "warningLevel": 1,
+      "filePath": "C:\\Users\\tatia\\source\\repos\\Medi.Api\\OpenPlot.Ingestor.Gsf\\OpenPlot.Ingestor.Gsf.csproj",
+      "libraryId": "ExpressionEvaluator",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1701",
+      "level": "Warning",
+      "message": "O pacote 'GSF.Core 2.4.28' foi restaurado usando '.NETFramework,Version=v4.6.1, .NETFramework,Version=v4.6.2, .NETFramework,Version=v4.7, .NETFramework,Version=v4.7.1, .NETFramework,Version=v4.7.2, .NETFramework,Version=v4.8, .NETFramework,Version=v4.8.1' em vez da estrutura de destino do projeto 'net8.0'. Esse pacote pode não ser totalmente compatível com o seu projeto.",
+      "projectPath": "C:\\Users\\tatia\\source\\repos\\Medi.Api\\OpenPlot.Ingestor.Gsf\\OpenPlot.Ingestor.Gsf.csproj",
+      "warningLevel": 1,
+      "filePath": "C:\\Users\\tatia\\source\\repos\\Medi.Api\\OpenPlot.Ingestor.Gsf\\OpenPlot.Ingestor.Gsf.csproj",
+      "libraryId": "GSF.Core",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,500 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\openplot.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|solutionrelative:medi.api\\openplot.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{0CBD728A-27C9-4E7B-910C-7E875CF12449}|OpenPlot.XmlImporter\\OpenPlot.XmlImporter.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\openplot.xmlimporter\\xmlimporter.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{0CBD728A-27C9-4E7B-910C-7E875CF12449}|OpenPlot.XmlImporter\\OpenPlot.XmlImporter.csproj|solutionrelative:openplot.xmlimporter\\xmlimporter.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{0CBD728A-27C9-4E7B-910C-7E875CF12449}|OpenPlot.XmlImporter\\OpenPlot.XmlImporter.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\openplot.xmlimporter\\openplot.xmlimporter.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
+      "RelativeMoniker": "D:0:0:{0CBD728A-27C9-4E7B-910C-7E875CF12449}|OpenPlot.XmlImporter\\OpenPlot.XmlImporter.csproj|solutionrelative:openplot.xmlimporter\\openplot.xmlimporter.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{384A1675-4D1C-4310-91AE-FED64C9AB2C5}|Medi.Ingestor.Gsf\\Medi.Ingestor.Gsf.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.ingestor.gsf\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{384A1675-4D1C-4310-91AE-FED64C9AB2C5}|Medi.Ingestor.Gsf\\Medi.Ingestor.Gsf.csproj|solutionrelative:medi.ingestor.gsf\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{384A1675-4D1C-4310-91AE-FED64C9AB2C5}|Medi.Ingestor.Gsf\\Medi.Ingestor.Gsf.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.ingestor.gsf\\dbops.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{384A1675-4D1C-4310-91AE-FED64C9AB2C5}|Medi.Ingestor.Gsf\\Medi.Ingestor.Gsf.csproj|solutionrelative:medi.ingestor.gsf\\dbops.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\features\\runs\\runsendpoints.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|solutionrelative:medi.api\\features\\runs\\runsendpoints.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\features\\search\\searchendpoints.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|solutionrelative:medi.api\\features\\search\\searchendpoints.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\data\\sql\\searchsql.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|solutionrelative:medi.api\\data\\sql\\searchsql.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\Medi.Api.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\Medi.Api.csproj|solutionrelative:medi.api\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\appsettings.development.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|solutionrelative:medi.api\\appsettings.development.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\Medi.Api.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\Medi.Api.csproj|solutionrelative:medi.api\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\Medi.Api.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\features\\auth\\authendpoints.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\Medi.Api.csproj|solutionrelative:medi.api\\features\\auth\\authendpoints.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\auth\\infrastructure\\auth\\models\\userrecord.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|solutionrelative:medi.api\\auth\\infrastructure\\auth\\models\\userrecord.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\auth\\infrastructure\\auth\\options\\userstoreoptions.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|solutionrelative:medi.api\\auth\\infrastructure\\auth\\options\\userstoreoptions.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\auth\\web\\session\\sessionoptionsex.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|solutionrelative:medi.api\\auth\\web\\session\\sessionoptionsex.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\auth\\services\\realauthservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|solutionrelative:medi.api\\auth\\services\\realauthservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{384A1675-4D1C-4310-91AE-FED64C9AB2C5}|Medi.Ingestor.Gsf\\Medi.Ingestor.Gsf.csproj|C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\medi.ingestor.gsf\\app.config||{FA3CD31E-987B-443A-9B81-186104E8DAC1}",
+      "RelativeMoniker": "D:0:0:{384A1675-4D1C-4310-91AE-FED64C9AB2C5}|Medi.Ingestor.Gsf\\Medi.Ingestor.Gsf.csproj|solutionrelative:medi.ingestor.gsf\\app.config||{FA3CD31E-987B-443A-9B81-186104E8DAC1}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\auth\\infrastructure\\auth\\options\\authoptions.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|solutionrelative:medi.api\\auth\\infrastructure\\auth\\options\\authoptions.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\auth\\services\\mockauthservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|solutionrelative:medi.api\\auth\\services\\mockauthservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\auth\\infrastructure\\auth\\jsonuserstore.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|solutionrelative:medi.api\\auth\\infrastructure\\auth\\jsonuserstore.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\auth\\infrastructure\\auth\\iuserstore.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|solutionrelative:medi.api\\auth\\infrastructure\\auth\\iuserstore.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\auth\\services\\iauthservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\OpenPlot.csproj|solutionrelative:medi.api\\auth\\services\\iauthservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\Medi.Api.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\auth\\services\\authservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\Medi.Api.csproj|solutionrelative:medi.api\\auth\\services\\authservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\Medi.Api.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\auth\\contracts\\responses\\loginresponse.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\Medi.Api.csproj|solutionrelative:medi.api\\auth\\contracts\\responses\\loginresponse.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\Medi.Api.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\auth\\contracts\\requests\\loginrequest.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\Medi.Api.csproj|solutionrelative:medi.api\\auth\\contracts\\requests\\loginrequest.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\Medi.Api.csproj|c:\\users\\win 10\\onedrive\\documentos\\openplot\\medi.api\\medi.api\\auth\\contracts\\responses\\apiresponse.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4C532144-E441-4CD0-A669-0D89C9FEDBD3}|Medi.Api\\Medi.Api.csproj|solutionrelative:medi.api\\auth\\contracts\\responses\\apiresponse.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{384A1675-4D1C-4310-91AE-FED64C9AB2C5}|Medi.Ingestor.Gsf\\Medi.Ingestor.Gsf.csproj|C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\medi.ingestor.gsf\\systemdata.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{384A1675-4D1C-4310-91AE-FED64C9AB2C5}|Medi.Ingestor.Gsf\\Medi.Ingestor.Gsf.csproj|solutionrelative:medi.ingestor.gsf\\systemdata.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 214,
+          "SelectedChildIndex": 11,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 16,
+              "Title": "App.config",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Ingestor.Gsf\\App.config",
+              "RelativeDocumentMoniker": "Medi.Ingestor.Gsf\\App.config",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Ingestor.Gsf\\App.config",
+              "RelativeToolTip": "Medi.Ingestor.Gsf\\App.config",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAsAAACGAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000601|",
+              "WhenOpened": "2025-10-18T14:23:42.725Z",
+              "IsPinned": true,
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{004be353-6879-467c-9d1e-9ac23cdf6d49}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:1:0:{d212f56b-c48a-434c-a121-1c5d80b59b9f}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{34e76e81-ee4a-11d0-ae2e-00a0c90fffc3}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{d78612c7-9962-4b83-95d9-268046dad23a}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:2:0:{d212f56b-c48a-434c-a121-1c5d80b59b9f}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "XmlImporter.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\OpenPlot.XmlImporter\\XmlImporter.cs",
+              "RelativeDocumentMoniker": "OpenPlot.XmlImporter\\XmlImporter.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\OpenPlot.XmlImporter\\XmlImporter.cs",
+              "RelativeToolTip": "OpenPlot.XmlImporter\\XmlImporter.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAoAAAATAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T22:02:00.636Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "RunsEndpoints.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Features\\Runs\\RunsEndpoints.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Features\\Runs\\RunsEndpoints.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Features\\Runs\\RunsEndpoints.cs",
+              "RelativeToolTip": "Medi.Api\\Features\\Runs\\RunsEndpoints.cs",
+              "ViewState": "AgIAACQAAAAAAAAAAAAswEkAAAAIAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T22:00:15.389Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "DbOps.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Ingestor.Gsf\\DbOps.cs",
+              "RelativeDocumentMoniker": "Medi.Ingestor.Gsf\\DbOps.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Ingestor.Gsf\\DbOps.cs",
+              "RelativeToolTip": "Medi.Ingestor.Gsf\\DbOps.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAADQAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T21:54:01.849Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "Program.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Ingestor.Gsf\\Program.cs",
+              "RelativeDocumentMoniker": "Medi.Ingestor.Gsf\\Program.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Ingestor.Gsf\\Program.cs",
+              "RelativeToolTip": "Medi.Ingestor.Gsf\\Program.cs",
+              "ViewState": "AgIAAOIAAAAAAAAAAAAswO8AAAA8AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-19T13:31:05.42Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "OpenPlot.XmlImporter",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\OpenPlot.XmlImporter\\OpenPlot.XmlImporter.csproj",
+              "RelativeDocumentMoniker": "OpenPlot.XmlImporter\\OpenPlot.XmlImporter.csproj",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\OpenPlot.XmlImporter\\OpenPlot.XmlImporter.csproj",
+              "RelativeToolTip": "OpenPlot.XmlImporter\\OpenPlot.XmlImporter.csproj",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2025-10-29T18:11:55.069Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "OpenPlot.csproj",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\OpenPlot.csproj",
+              "RelativeDocumentMoniker": "Medi.Api\\OpenPlot.csproj",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\OpenPlot.csproj",
+              "RelativeToolTip": "Medi.Api\\OpenPlot.csproj",
+              "ViewState": "AgIAAAMAAAAAAAAAAAAIwBMAAAAKAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2025-10-29T17:29:16.694Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "SearchEndpoints.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Features\\Search\\SearchEndpoints.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Features\\Search\\SearchEndpoints.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Features\\Search\\SearchEndpoints.cs",
+              "RelativeToolTip": "Medi.Api\\Features\\Search\\SearchEndpoints.cs",
+              "ViewState": "AgIAAGMAAAAAAAAAAAAWwG8AAAAOAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T22:00:40.134Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "SearchSql.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Data\\Sql\\SearchSql.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Data\\Sql\\SearchSql.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Data\\Sql\\SearchSql.cs",
+              "RelativeToolTip": "Medi.Api\\Data\\Sql\\SearchSql.cs",
+              "ViewState": "AgIAAA0AAAAAAAAAAAAWwB0AAAAOAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T21:59:50.21Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "appsettings.Development.json",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\appsettings.Development.json",
+              "RelativeDocumentMoniker": "Medi.Api\\appsettings.Development.json",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\appsettings.Development.json",
+              "RelativeToolTip": "Medi.Api\\appsettings.Development.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAoAAAAqAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2025-10-29T20:34:06.606Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 12,
+              "Title": "UserRecord.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Infrastructure\\Auth\\Models\\UserRecord.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Auth\\Infrastructure\\Auth\\Models\\UserRecord.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Infrastructure\\Auth\\Models\\UserRecord.cs",
+              "RelativeToolTip": "Medi.Api\\Auth\\Infrastructure\\Auth\\Models\\UserRecord.cs",
+              "ViewState": "AgIAAAIAAAAAAAAAAAAYwBAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T18:28:30.184Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "Program.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Program.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Program.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Program.cs",
+              "RelativeToolTip": "Medi.Api\\Program.cs",
+              "ViewState": "AgIAAIUAAAAAAAAAAAAmwJEAAAARAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-22T19:12:25.71Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 11,
+              "Title": "AuthEndpoints.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Features\\Auth\\AuthEndpoints.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Features\\Auth\\AuthEndpoints.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Features\\Auth\\AuthEndpoints.cs",
+              "RelativeToolTip": "Medi.Api\\Features\\Auth\\AuthEndpoints.cs",
+              "ViewState": "AgIAABUAAAAAAAAAAAAuwB8AAAAQAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T17:32:09.652Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
+              "Title": "appsettings.json",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\appsettings.json",
+              "RelativeDocumentMoniker": "Medi.Api\\appsettings.json",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\appsettings.json",
+              "RelativeToolTip": "Medi.Api\\appsettings.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA4AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2025-10-29T17:40:48.913Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 17,
+              "Title": "AuthOptions.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Infrastructure\\Auth\\Options\\AuthOptions.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Auth\\Infrastructure\\Auth\\Options\\AuthOptions.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Infrastructure\\Auth\\Options\\AuthOptions.cs",
+              "RelativeToolTip": "Medi.Api\\Auth\\Infrastructure\\Auth\\Options\\AuthOptions.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAkAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T20:52:15.883Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 14,
+              "Title": "SessionOptionsEx.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Web\\Session\\SessionOptionsEx.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Auth\\Web\\Session\\SessionOptionsEx.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Web\\Session\\SessionOptionsEx.cs",
+              "RelativeToolTip": "Medi.Api\\Auth\\Web\\Session\\SessionOptionsEx.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T20:52:33.516Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 13,
+              "Title": "UserStoreOptions.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Infrastructure\\Auth\\Options\\UserStoreOptions.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Auth\\Infrastructure\\Auth\\Options\\UserStoreOptions.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Infrastructure\\Auth\\Options\\UserStoreOptions.cs",
+              "RelativeToolTip": "Medi.Api\\Auth\\Infrastructure\\Auth\\Options\\UserStoreOptions.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAQAAAAzAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T20:53:01.537Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 15,
+              "Title": "RealAuthService.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Services\\RealAuthService.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Auth\\Services\\RealAuthService.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Services\\RealAuthService.cs",
+              "RelativeToolTip": "Medi.Api\\Auth\\Services\\RealAuthService.cs",
+              "ViewState": "AgIAADIAAAAAAAAAAAAAwEIAAAAOAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T21:07:45.028Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 18,
+              "Title": "MockAuthService.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Services\\MockAuthService.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Auth\\Services\\MockAuthService.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Services\\MockAuthService.cs",
+              "RelativeToolTip": "Medi.Api\\Auth\\Services\\MockAuthService.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T20:16:41.479Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 19,
+              "Title": "JsonUserStore.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Infrastructure\\Auth\\JsonUserStore.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Auth\\Infrastructure\\Auth\\JsonUserStore.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Infrastructure\\Auth\\JsonUserStore.cs",
+              "RelativeToolTip": "Medi.Api\\Auth\\Infrastructure\\Auth\\JsonUserStore.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABoAAABkAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T20:12:57.029Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 20,
+              "Title": "IUserStore.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Infrastructure\\Auth\\IUserStore.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Auth\\Infrastructure\\Auth\\IUserStore.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Infrastructure\\Auth\\IUserStore.cs",
+              "RelativeToolTip": "Medi.Api\\Auth\\Infrastructure\\Auth\\IUserStore.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T20:12:44.145Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 23,
+              "Title": "LoginResponse.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Contracts\\Responses\\LoginResponse.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Auth\\Contracts\\Responses\\LoginResponse.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Contracts\\Responses\\LoginResponse.cs",
+              "RelativeToolTip": "Medi.Api\\Auth\\Contracts\\Responses\\LoginResponse.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAgAAAAnAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T17:31:04.203Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 21,
+              "Title": "IAuthService.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Services\\IAuthService.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Auth\\Services\\IAuthService.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Services\\IAuthService.cs",
+              "RelativeToolTip": "Medi.Api\\Auth\\Services\\IAuthService.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T18:01:37.924Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 22,
+              "Title": "AuthService.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Services\\AuthService.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Auth\\Services\\AuthService.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Services\\AuthService.cs",
+              "RelativeToolTip": "Medi.Api\\Auth\\Services\\AuthService.cs",
+              "ViewState": "AgIAABYAAAAAAAAAAADwvyAAAAAjAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T18:00:00.657Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 24,
+              "Title": "LoginRequest.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Contracts\\Requests\\LoginRequest.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Auth\\Contracts\\Requests\\LoginRequest.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Contracts\\Requests\\LoginRequest.cs",
+              "RelativeToolTip": "Medi.Api\\Auth\\Contracts\\Requests\\LoginRequest.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAASAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T17:30:54.781Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 25,
+              "Title": "ApiResponse.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Contracts\\Responses\\ApiResponse.cs",
+              "RelativeDocumentMoniker": "Medi.Api\\Auth\\Contracts\\Responses\\ApiResponse.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Api\\Auth\\Contracts\\Responses\\ApiResponse.cs",
+              "RelativeToolTip": "Medi.Api\\Auth\\Contracts\\Responses\\ApiResponse.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-29T17:30:45.872Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 26,
+              "Title": "SystemData.cs",
+              "DocumentMoniker": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Ingestor.Gsf\\SystemData.cs",
+              "RelativeDocumentMoniker": "Medi.Ingestor.Gsf\\SystemData.cs",
+              "ToolTip": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\Medi.Api\\Medi.Ingestor.Gsf\\SystemData.cs",
+              "RelativeToolTip": "Medi.Ingestor.Gsf\\SystemData.cs",
+              "ViewState": "AgIAAHEAAAAAAAAAAADwv38AAABzAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-25T21:13:46.891Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

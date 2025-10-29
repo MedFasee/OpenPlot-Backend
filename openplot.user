@@ -1,0 +1,15 @@
+[
+  {
+    "Name": "Novo Perfil",
+    "Projects": [
+      {
+        "Path": "Medi.Api\\OpenPlot.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "Medi.Ingestor.Gsf\\Medi.Ingestor.Gsf.csproj",
+        "Action": "Start"
+      }
+    ]
+  }
+]
