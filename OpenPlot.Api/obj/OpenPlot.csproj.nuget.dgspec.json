@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\Medi.Api\\OpenPlot.csproj": {}
+    "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.Api\\OpenPlot.csproj": {}
   },
   "projects": {
-    "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\Medi.Api\\OpenPlot.csproj": {
+    "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.Api\\OpenPlot.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\Medi.Api\\OpenPlot.csproj",
+        "projectUniqueName": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.Api\\OpenPlot.csproj",
         "projectName": "OpenPlot",
-        "projectPath": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\Medi.Api\\OpenPlot.csproj",
+        "projectPath": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.Api\\OpenPlot.csproj",
         "packagesPath": "C:\\Users\\Win 10\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\Medi.Api\\obj\\",
+        "outputPath": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.Api\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

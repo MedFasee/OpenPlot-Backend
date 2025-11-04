@@ -30,6 +30,7 @@ C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\o
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\OpenPlot.XmlImporter.AssemblyInfoInputs.cache
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\OpenPlot.XmlImporter.AssemblyInfo.cs
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\OpenPlot.XmlImporter.csproj.CoreCompileInputs.cache
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\OpenPlot.XmlImporter.sourcelink.json
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\OpenPlot.XmlImporter.dll
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\refint\OpenPlot.XmlImporter.dll
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\OpenPlot.XmlImporter.pdb
