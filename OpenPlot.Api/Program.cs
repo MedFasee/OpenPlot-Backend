@@ -4,6 +4,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
 // ==== OpenPlot usings ====
+using OpenPlot.Features.Import;
 using OpenPlot.Features.Auth;                        // MapAuthEndpoints + JwtOptions
 using OpenPlot.Auth.Contracts.Requests;              // LoginRequest
 using OpenPlot.Auth.Contracts.Responses;             // LoginResponse
@@ -41,7 +42,7 @@ builder.Services.AddCors(opt =>
 
 // ---------- Conexão BD ----------
 var cs = builder.Configuration.GetConnectionString("Db")
-         ?? "Host=localhost;Port=5432;Database=medi;Username=postgres;Password=postgres";
+         ?? "Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=postgres";
 builder.Services.AddScoped<IDbConnectionFactory>(_ => new NpgsqlConnectionFactory(cs));
 
 // ---------- Serviços utilitários ----------
@@ -153,9 +154,10 @@ app.UseAuthorization();
 app.MapGet("/", () => Results.Ok(new { ok = true, now = DateTime.UtcNow }));
 
 app.MapCatalog();
+app.MapConfig();
 app.MapSearch();
 app.MapRuns();
-
-app.MapAuthEndpoints();
+app.MapImport();
+app.MapAuth();
 
 app.Run();

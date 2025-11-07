@@ -16,9 +16,29 @@
     ]
   },
   {
+    "ContainingType": "ConfigEndpoints\u002B\u003C\u003Ec",
+    "Method": "\u003CMapConfig\u003Eb__0_0",
+    "RelativePath": "arquivos",
+    "HttpMethod": "GET",
+    "IsController": false,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "System.Void",
+        "MediaTypes": [],
+        "StatusCode": 200
+      }
+    ],
+    "Tags": [
+      "Config"
+    ],
+    "EndpointName": "GetArquivos"
+  },
+  {
     "ContainingType": "OpenPlot.Features.Auth.AuthEndpoints\u002B\u003C\u003Ec",
-    "Method": "\u003CMapAuthEndpoints\u003Eb__1_0",
-    "RelativePath": "api/v1/auth/login",
+    "Method": "\u003CMapAuth\u003Eb__1_0",
+    "RelativePath": "auth/login",
     "HttpMethod": "POST",
     "IsController": false,
     "Order": 0,
@@ -38,10 +58,8 @@
         "StatusCode": 200
       },
       {
-        "Type": "Microsoft.AspNetCore.Mvc.ProblemDetails",
-        "MediaTypes": [
-          "application/problem\u002Bjson"
-        ],
+        "Type": "System.Void",
+        "MediaTypes": [],
         "StatusCode": 401
       }
     ],
@@ -51,8 +69,8 @@
   },
   {
     "ContainingType": "OpenPlot.Features.Auth.AuthEndpoints\u002B\u003C\u003Ec",
-    "Method": "\u003CMapAuthEndpoints\u003Eb__1_1",
-    "RelativePath": "api/v1/auth/logout",
+    "Method": "\u003CMapAuth\u003Eb__1_1",
+    "RelativePath": "auth/logout",
     "HttpMethod": "POST",
     "IsController": false,
     "Order": 0,
@@ -70,8 +88,8 @@
   },
   {
     "ContainingType": "OpenPlot.Features.Auth.AuthEndpoints\u002B\u003C\u003Ec",
-    "Method": "\u003CMapAuthEndpoints\u003Eb__1_2",
-    "RelativePath": "api/v1/auth/me",
+    "Method": "\u003CMapAuth\u003Eb__1_2",
+    "RelativePath": "auth/me",
     "HttpMethod": "GET",
     "IsController": false,
     "Order": 0,
@@ -123,6 +141,31 @@
         "MediaTypes": [],
         "StatusCode": 200
       }
+    ]
+  },
+  {
+    "ContainingType": "OpenPlot.Features.Import.ImportEndpoints\u002B\u003C\u003Ec",
+    "Method": "\u003CMapImport\u003Eb__0_0",
+    "RelativePath": "import/xml",
+    "HttpMethod": "POST",
+    "IsController": false,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "req",
+        "Type": "OpenPlot.Features.Import.ImportEndpoints\u002BImportXmlRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Void",
+        "MediaTypes": [],
+        "StatusCode": 200
+      }
+    ],
+    "Tags": [
+      "Import"
     ]
   },
   {

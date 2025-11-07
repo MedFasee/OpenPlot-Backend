@@ -10,8 +10,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
-
-
 namespace OpenPlot.Features.Auth;
 
 public static class AuthEndpoints
@@ -24,16 +22,17 @@ public static class AuthEndpoints
         public int ExpirationHours { get; init; } = 8;
     }
 
-    public static IEndpointRouteBuilder MapAuthEndpoints(this IEndpointRouteBuilder app)
+    // alterado o nome da extensão
+    public static IEndpointRouteBuilder MapAuth(this IEndpointRouteBuilder app)
     {
-        // Segue seu versionamento: /api/v1/auth
-        var grp = app.MapGroup("/api/v1/auth").WithTags("Auth");
+        var grp = app.MapGroup("/auth")
+                     .WithTags("Auth");
 
         // POST /api/v1/auth/login
         grp.MapPost("/login",
             async ([FromBody] LoginRequest req,
-                   IAuthService auth,                 
-                   ISessionUserService session,       
+                   IAuthService auth,
+                   ISessionUserService session,
                    IOptions<JwtOptions> jwtOpt,
                    CancellationToken ct) =>
             {
@@ -43,20 +42,18 @@ public static class AuthEndpoints
                                            title: "Falha de autenticação",
                                            detail: error);
 
-                // mantém a sessão como antes (compat c/ seu front atual)
                 session.SetCurrentUser(resp);
 
-                // ===== JWT real =====
                 var now = DateTime.UtcNow;
                 var jwt = jwtOpt.Value;
 
                 var claims = new List<Claim>
-            {
-                new(JwtRegisteredClaimNames.Sub, resp.Sub),
-                new(JwtRegisteredClaimNames.UniqueName, resp.Username),
-                new(JwtRegisteredClaimNames.Email, resp.Email ?? string.Empty),
-                new("sid", resp.SessionId ?? Guid.NewGuid().ToString("N"))
-            };
+                {
+                    new(JwtRegisteredClaimNames.Sub, resp.Sub),
+                    new(JwtRegisteredClaimNames.UniqueName, resp.Username),
+                    new(JwtRegisteredClaimNames.Email, resp.Email ?? string.Empty),
+                    new("sid", resp.SessionId ?? Guid.NewGuid().ToString("N"))
+                };
 
                 if (resp.Roles is not null)
                     claims.AddRange(resp.Roles.Select(r => new Claim(ClaimTypes.Role, r)));
@@ -87,11 +84,11 @@ public static class AuthEndpoints
                     Status = StatusCodes.Status200OK,
                     Data = new LoginEnvelope
                     {
-                        Token = tokenStr,                         // <- agora é JWT real
+                        Token = tokenStr,
                         Usuario = new UsuarioDto
                         {
-                            Nome = !string.IsNullOrWhiteSpace(resp.DisplayName) ? resp.DisplayName! : resp.Username,
-                            Email = !string.IsNullOrWhiteSpace(resp.Email) ? resp.Email! : $"{resp.Username}@medplot.com",
+                            Nome = resp.DisplayName ?? resp.Username,
+                            Email = resp.Email ?? $"{resp.Username}@medplot.com",
                             Role = MapRole(resp.Roles)
                         }
                     }
@@ -100,9 +97,9 @@ public static class AuthEndpoints
                 return Results.Ok(envelope);
             })
         .Produces<ApiResponse<LoginEnvelope>>(StatusCodes.Status200OK)
-        .ProducesProblem(StatusCodes.Status401Unauthorized);
+        .Produces(StatusCodes.Status401Unauthorized);
 
-        // POST /api/v1/auth/logout (agora exige token)
+        // POST /api/v1/auth/logout
         grp.MapPost("/logout", (ISessionUserService session) =>
         {
             var user = session.GetCurrentUser();
@@ -114,13 +111,11 @@ public static class AuthEndpoints
         })
         .RequireAuthorization();
 
-        // GET /api/v1/auth/me (exige token)
+        // GET /api/v1/auth/me
         grp.MapGet("/me", (ISessionUserService session) =>
         {
             var user = session.GetCurrentUser();
-            return user is not null
-                ? Results.Ok(user)
-                : Results.Unauthorized();
+            return user is not null ? Results.Ok(user) : Results.Unauthorized();
         })
         .RequireAuthorization();
 
