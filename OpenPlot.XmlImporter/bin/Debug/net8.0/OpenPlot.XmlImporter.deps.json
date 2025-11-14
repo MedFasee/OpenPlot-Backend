@@ -8,7 +8,7 @@
     ".NETCoreApp,Version=v8.0": {
       "OpenPlot.XmlImporter/1.0.0": {
         "dependencies": {
-          "Microsoft.AspNetCore.Authentication.JwtBearer": "8.0.21",
+          "Microsoft.AspNetCore.Authentication.JwtBearer": "8.0.22",
           "Npgsql": "5.0.18",
           "System.IdentityModel.Tokens.Jwt": "7.7.1"
         },
@@ -16,14 +16,14 @@
           "OpenPlot.XmlImporter.dll": {}
         }
       },
-      "Microsoft.AspNetCore.Authentication.JwtBearer/8.0.21": {
+      "Microsoft.AspNetCore.Authentication.JwtBearer/8.0.22": {
         "dependencies": {
           "Microsoft.IdentityModel.Protocols.OpenIdConnect": "7.1.2"
         },
         "runtime": {
           "lib/net8.0/Microsoft.AspNetCore.Authentication.JwtBearer.dll": {
-            "assemblyVersion": "8.0.21.0",
-            "fileVersion": "8.0.2125.47515"
+            "assemblyVersion": "8.0.22.0",
+            "fileVersion": "8.0.2225.52808"
           }
         }
       },
@@ -124,12 +124,12 @@
       "serviceable": false,
       "sha512": ""
     },
-    "Microsoft.AspNetCore.Authentication.JwtBearer/8.0.21": {
+    "Microsoft.AspNetCore.Authentication.JwtBearer/8.0.22": {
       "type": "package",
       "serviceable": true,
-      "sha512": "sha512-ZuUpJ4DvmVArmTlyGGg+b9IdKgd8Kw0SmEzhjy4dQw8R6rxfNqCXfGvGm3ld7xlrgthJFou/le9tadsSyjFLuw==",
-      "path": "microsoft.aspnetcore.authentication.jwtbearer/8.0.21",
-      "hashPath": "microsoft.aspnetcore.authentication.jwtbearer.8.0.21.nupkg.sha512"
+      "sha512": "sha512-3lqhBK+t4u8Ajl2je5UC9jCoDI+8zLz/YBVjwxQKfFF9NyzACf4QQmlmKnpH/LdkVSxCjLwvJ1ko4k0EAgy8cg==",
+      "path": "microsoft.aspnetcore.authentication.jwtbearer/8.0.22",
+      "hashPath": "microsoft.aspnetcore.authentication.jwtbearer.8.0.22.nupkg.sha512"
     },
     "Microsoft.IdentityModel.Abstractions/7.7.1": {
       "type": "package",

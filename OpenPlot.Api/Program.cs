@@ -29,7 +29,7 @@ builder.Services.Configure<SessionOptionsEx>(builder.Configuration.GetSection("S
 
 // ---------- CORS ----------
 var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-              ?? new[] { "http://localhost:5173", "http://127.0.0.1:5173" };
+              ?? new[] { "http://localhost:5173", "http://127.17.0.2:5173", "http://127.17.0.1:5173" };
 
 builder.Services.AddCors(opt =>
 {
@@ -153,11 +153,11 @@ app.UseAuthorization();
 // ==========================================
 app.MapGet("/", () => Results.Ok(new { ok = true, now = DateTime.UtcNow }));
 
-app.MapCatalog();
+app.MapAuth();
 app.MapConfig();
 app.MapSearch();
 app.MapRuns();
 app.MapImport();
-app.MapAuth();
+
 
 app.Run();

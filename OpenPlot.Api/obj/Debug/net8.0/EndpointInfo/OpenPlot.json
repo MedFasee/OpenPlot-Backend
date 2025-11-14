@@ -74,6 +74,29 @@
         }
       }
     },
+    "/arquivos/{pdcName}/terminais": {
+      "get": {
+        "tags": [
+          "Config"
+        ],
+        "operationId": "GetPdcTerminais",
+        "parameters": [
+          {
+            "name": "pdcName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/import/xml": {
       "post": {
         "tags": [
@@ -151,18 +174,6 @@
               "format": "uuid"
             }
           }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/catalog/arquivos": {
-      "get": {
-        "tags": [
-          "OpenPlot"
         ],
         "responses": {
           "200": {
