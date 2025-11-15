@@ -153,7 +153,7 @@ FROM openplot.search_runs WHERE id = @id";
             };
 
             return Results.Json(new { status = 200, data });
-        }).RequireAuthorization();
+        });
 
         return app;
     }
