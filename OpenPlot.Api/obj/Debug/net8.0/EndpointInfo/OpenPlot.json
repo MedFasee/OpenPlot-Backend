@@ -74,7 +74,7 @@
         }
       }
     },
-    "/arquivos/{pdcName}/terminais": {
+    "/xml/{pdcName}/terminais": {
       "get": {
         "tags": [
           "Config"

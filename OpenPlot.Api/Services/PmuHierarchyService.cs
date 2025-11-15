@@ -34,7 +34,10 @@ public sealed class PmuHierarchyService : IPmuHierarchyService
                                         tensao = Math.Round((gVolt.Key) / 1000.0, 2),
                                         area = gArea.Key,
                                         estado = gState.Key,
-                                        estacao = p.station
+                                        estacao = p.station,
+                                        Grandezas = p.Grandezas ?? Array.Empty<string>(),
+                                        Fases = p.Fases ?? Array.Empty<string>(),
+                                        adicionais = p.Adicionais ?? Array.Empty<string>(),
                                     }).ToList()
                             }).ToList()
                     }).ToList()
@@ -51,4 +54,9 @@ public sealed class PmuMeta
     public string? area { get; set; }
     public string? state { get; set; }
     public string? station { get; set; }
+
+    // Novas propriedades (para habilitação de possibilidades no front)
+    public IReadOnlyList<string>? Grandezas { get; set; }
+    public IReadOnlyList<string>? Fases { get; set; }
+    public IReadOnlyList<string>? Adicionais { get; set; }
 }

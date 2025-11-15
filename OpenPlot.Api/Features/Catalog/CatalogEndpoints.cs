@@ -63,9 +63,9 @@ public static class ConfigEndpoints
         .WithTags("Config");
 
         // ============================================================
-        // GET /arquivos/{pdcName}/terminais
+        // GET /xml/{pdcName}/terminais
         // ============================================================
-        app.MapGet("arquivos/{pdcName}/terminais", async (
+        app.MapGet("xml/{pdcName}/terminais", async (
             [FromRoute] string pdcName,
             [FromServices] IDbConnectionFactory dbf
         ) =>

@@ -36,32 +36,6 @@
     "EndpointName": "GetArquivos"
   },
   {
-    "ContainingType": "ConfigEndpoints\u002B\u003C\u003Ec",
-    "Method": "\u003CMapConfig\u003Eb__0_1",
-    "RelativePath": "arquivos/{pdcName}/terminais",
-    "HttpMethod": "GET",
-    "IsController": false,
-    "Order": 0,
-    "Parameters": [
-      {
-        "Name": "pdcName",
-        "Type": "System.String",
-        "IsRequired": true
-      }
-    ],
-    "ReturnTypes": [
-      {
-        "Type": "System.Void",
-        "MediaTypes": [],
-        "StatusCode": 200
-      }
-    ],
-    "Tags": [
-      "Config"
-    ],
-    "EndpointName": "GetPdcTerminais"
-  },
-  {
     "ContainingType": "OpenPlot.Features.Auth.AuthEndpoints\u002B\u003C\u003Ec",
     "Method": "\u003CMapAuth\u003Eb__1_0",
     "RelativePath": "auth/login",
@@ -272,5 +246,31 @@
         "StatusCode": 200
       }
     ]
+  },
+  {
+    "ContainingType": "ConfigEndpoints\u002B\u003C\u003Ec",
+    "Method": "\u003CMapConfig\u003Eb__0_1",
+    "RelativePath": "xml/{pdcName}/terminais",
+    "HttpMethod": "GET",
+    "IsController": false,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "pdcName",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Void",
+        "MediaTypes": [],
+        "StatusCode": 200
+      }
+    ],
+    "Tags": [
+      "Config"
+    ],
+    "EndpointName": "GetPdcTerminais"
   }
 ]
