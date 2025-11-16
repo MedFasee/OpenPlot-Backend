@@ -8,6 +8,7 @@ using System.Xml.Schema;
 
 namespace OpenPlot.Ingestor.Gsf
 {
+    /*
     public class SystemData
     {
         public int NominalFrequency { get; }
@@ -19,6 +20,7 @@ namespace OpenPlot.Ingestor.Gsf
         public string Password { get; }
         public string Database { get; }
         public List<Terminal> Terminals { get; private set; }
+
 
         public SystemData(string ip, int port, string name, int nominalFrequency, DatabaseType type, string user, string pass, string db)
         {
@@ -32,7 +34,9 @@ namespace OpenPlot.Ingestor.Gsf
             Database = db;
             Terminals = new List<Terminal>();
         }
+        */
 
+    /*
         private static SystemData BuildPdcConfig(XNamespace nameSpace, XElement system)
         {
             SystemData result = null;
@@ -108,7 +112,8 @@ namespace OpenPlot.Ingestor.Gsf
 
             return result;
         }
-
+    */
+    /*
         private static Terminal ParseTerminal(XNamespace nameSpace, XElement terminal, int nominalFrequency, DatabaseType dbType)
         {
             Terminal result;
@@ -125,7 +130,7 @@ namespace OpenPlot.Ingestor.Gsf
                 var equipmentRate = terminal.Element(nameSpace + "equipmentRate") == null ? nominalFrequency : (int)terminal.Element(nameSpace + "equipmentRate");
                 var channels = terminal.Element(nameSpace + "measurements").Elements();
 
-                result = new Terminal(idName, idNumber, idName, equipmentRate, voltageLevel, area, state, station, ParseChannels(nameSpace, channels, dbType));
+                result = new Terminal(idName, idNumber, idName, equipmentRate, voltageLevel, area, state, station);
             }
             catch (ArgumentNullException e)
             {
@@ -134,7 +139,9 @@ namespace OpenPlot.Ingestor.Gsf
 
             return result;
         }
+    */
 
+    /*
         private static List<Channel> ParseChannels(XNamespace nameSpace, IEnumerable<XElement> channels, DatabaseType dbType)
         {
             List<Channel> result = new List<Channel>();
@@ -216,7 +223,9 @@ namespace OpenPlot.Ingestor.Gsf
 
             return result;
         }
+    */
 
+    /*
         public static SystemData ReadConfig(string cfgFile)
         {
 
@@ -251,5 +260,6 @@ namespace OpenPlot.Ingestor.Gsf
 
             return result;
         }
+    */
     }
-}
+

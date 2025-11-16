@@ -20,6 +20,7 @@ public static class AuthEndpoints
         public string Audience { get; init; } = default!;
         public string SigningKey { get; init; } = default!;
         public int ExpirationHours { get; init; } = 8;
+        public string? CookieName { get; set; } = "AuthToken";
     }
 
     // alterado o nome da extensão
@@ -34,6 +35,7 @@ public static class AuthEndpoints
                    IAuthService auth,
                    ISessionUserService session,
                    IOptions<JwtOptions> jwtOpt,
+                   HttpContext http,
                    CancellationToken ct) =>
             {
                 var (ok, resp, error) = await auth.AuthenticateAsync(req, ct);
@@ -100,24 +102,25 @@ public static class AuthEndpoints
         .Produces(StatusCodes.Status401Unauthorized);
 
         // POST /api/v1/auth/logout
-        grp.MapPost("/logout", (ISessionUserService session) =>
+        grp.MapPost("/logout", (ISessionUserService session,
+                        IOptions<JwtOptions> jwtOpt,
+                        HttpContext http) =>
         {
             var user = session.GetCurrentUser();
             if (user is null)
                 return Results.Unauthorized();
 
             session.Clear();
-            return Results.Ok(new { message = "Sessão encerrada" });
-        })
-        .RequireAuthorization();
 
-        // GET /api/v1/auth/me
-        grp.MapGet("/me", (ISessionUserService session) =>
-        {
-            var user = session.GetCurrentUser();
-            return user is not null ? Results.Ok(user) : Results.Unauthorized();
-        })
-        .RequireAuthorization();
+            var jwt = jwtOpt.Value;
+            var cookieName = string.IsNullOrWhiteSpace(jwt.CookieName)
+                ? "AuthToken"
+                : jwt.CookieName;
+
+            http.Response.Cookies.Delete(cookieName);
+
+            return Results.Ok(new { message = "Sessão encerrada" });
+        });
 
         return app;
     }

@@ -84,6 +84,10 @@ builder.Services.AddScoped<IAuthService>(sp =>
 // ---------- JWT ----------
 builder.Services.Configure<AuthEndpoints.JwtOptions>(builder.Configuration.GetSection("Jwt"));
 var jwt = builder.Configuration.GetSection("Jwt").Get<AuthEndpoints.JwtOptions>() ?? new();
+
+// nome do cookie onde vamos guardar o token
+var jwtCookieName = jwt.CookieName ?? "AuthToken";
+
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(o =>
@@ -98,6 +102,30 @@ builder.Services
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey ?? "dev-key")),
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromMinutes(2)
+        };
+
+        // PONTO-CHAVE: ler token também do cookie
+        o.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                // Se já vier Authorization: Bearer ..., respeita isso
+                var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+                if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Token = authHeader.Substring("Bearer ".Length).Trim();
+                    return Task.CompletedTask;
+                }
+
+                // Senão, tenta pegar do cookie
+                if (context.Request.Cookies.TryGetValue(jwtCookieName, out var cookieToken) &&
+                    !string.IsNullOrWhiteSpace(cookieToken))
+                {
+                    context.Token = cookieToken;
+                }
+
+                return Task.CompletedTask;
+            }
         };
     });
 

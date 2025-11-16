@@ -9,28 +9,23 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-
 namespace OpenPlot.Ingestor.Gsf
 {
     internal static class Program
     {
         // ----------------- CONFIG -----------------
         private static string PgConnString;
-        private static string XmlPath;
         private static int PollIntervalSeconds;
         private static int ChunkMinutes;
         private static int MaxParallelChunks;
-        private static SystemData SystemCfg;
 
         private static void Main()
         {
             try
             {
                 LoadConfig();
-                SystemCfg = SystemData.ReadConfig(XmlPath);
 
                 Console.WriteLine("[ingestor] iniciado. Ctrl+C para sair.");
-                Console.WriteLine("[ingestor] XML: " + XmlPath);
                 Console.WriteLine("[ingestor] DB:  " + PgConnString);
 
                 while (true)
@@ -55,7 +50,7 @@ namespace OpenPlot.Ingestor.Gsf
 
                             Guid id = Guid.Empty;
                             string source = null, terminalId = null, signalsJson = null, pmusJson = null;
-                            DateTime from = default, to = default;
+                            DateTime from = default(DateTime), to = default(DateTime);
                             int selectRate = 0;
 
                             using (var cmd = new NpgsqlCommand(pickSql, conn, tx))
@@ -95,34 +90,67 @@ namespace OpenPlot.Ingestor.Gsf
                                     var fromUtc = from.Kind == DateTimeKind.Utc ? from : from.ToUniversalTime();
                                     var toUtc = to.Kind == DateTimeKind.Utc ? to : to.ToUniversalTime();
 
+                                    // ================================
+                                    // 1) Monta SystemData a partir do BD
+                                    //    (usa cache interno por pdc_id)
+                                    // ================================
+                                    // 1) Monta SystemData a partir do BD (usa cache interno por pdc_id)
+                                    var sysCfg = DbSystemDataFactory.BuildByPdcName(
+                                        PgConnString,
+                                        source,
+                                        TimeSpan.FromMinutes(10)
+                                    );
+
+
+
                                     // ========= NOVO CAMINHO: pmus em search_runs =========
                                     var pmuList = TryParsePmus(pmusJson);
                                     if (pmuList != null && pmuList.Count > 0)
                                     {
                                         foreach (var pmuIdName in pmuList)
                                         {
-                                            var term = TerminalResolver.Resolve(SystemCfg, pmuIdName); // mantém o Terminal do XML (metadados)
+                                            // Terminal vem do SystemData montado pelo DB
+                                            var term = TerminalResolver.Resolve(sysCfg, pmuIdName);
                                             var channels = LoadChannelsFromDb(conn, source, pmuIdName); // canais vindos do DB (Id = historian_point)
 
                                             if (channels == null || channels.Count == 0)
                                                 throw new Exception("Nenhum canal encontrado no DB para a PMU '" + pmuIdName + "'.");
 
-                                            FetchAndInsert(conn, id, source ?? SystemCfg.Name, SystemCfg,
-                                                           term, channels, fromUtc, toUtc, selectRate);
-
+                                            FetchAndInsert(
+                                                conn,
+                                                id,
+                                                source ?? sysCfg.Name,
+                                                sysCfg,
+                                                term,
+                                                channels,
+                                                fromUtc,
+                                                toUtc,
+                                                selectRate
+                                            );
                                         }
                                     }
                                     else
                                     {
+                                        /*
                                         // ========= MODO LEGADO (inalterado) =========
-                                        var term = TerminalResolver.Resolve(SystemCfg, terminalId);
+                                        var term = TerminalResolver.Resolve(sysCfg, terminalId);
                                         var signals = ParseSignals(signalsJson);
                                         var channels = TerminalResolver.MapChannels(term, signals);
                                         if (channels == null || channels.Count == 0)
                                             throw new Exception("Nenhum canal mapeado para os sinais requisitados.");
 
-                                        FetchAndInsert(conn, id, source ?? SystemCfg.Name, SystemCfg,
-                                                       term, channels, fromUtc, toUtc, selectRate);
+                                        FetchAndInsert(
+                                            conn,
+                                            id,
+                                            source ?? sysCfg.Name,
+                                            sysCfg,
+                                            term,
+                                            channels,
+                                            fromUtc,
+                                            toUtc,
+                                            selectRate
+                                        );
+                                        */
                                     }
 
                                     using (var tx2 = conn.BeginTransaction())
@@ -133,15 +161,19 @@ namespace OpenPlot.Ingestor.Gsf
                                 }
                                 catch (Exception ex)
                                 {
-                                    Console.WriteLine($"[erro] job {id}: {ex.Message}");
-                                    try {
+                                    Console.WriteLine("[erro] job " + id + ": " + ex.Message);
+                                    try
+                                    {
                                         using (var tx2 = conn.BeginTransaction())
                                         {
                                             DbOps.UpdateStatus(conn, tx2, id, "done", 100, "Concluído");
                                             tx2.Commit();
                                         }
                                     }
-                                    catch { /* noop */ }
+                                    catch
+                                    {
+                                        // noop
+                                    }
 
                                     using (var tx2 = conn.BeginTransaction())
                                     {
@@ -162,6 +194,7 @@ namespace OpenPlot.Ingestor.Gsf
                 Console.WriteLine("[fatal] " + exTop.Message);
             }
         }
+
         // ----------------- PIPELINE -----------------
         private static void FetchAndInsert(
             NpgsqlConnection conn,
@@ -210,14 +243,29 @@ namespace OpenPlot.Ingestor.Gsf
                     // 4) dedupe (meia-aberta no SQL também)
                     if (ChunkAlreadyPresentDb(PgConnString, pdcPmuId, allSignalIds, cs, ce))
                     {
-                        Console.WriteLine($"[skip] {cs:yyyy-MM-dd HH:mm}-{ce:HH:mm} (já existente)");
+                        Console.WriteLine("[skip] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " (já existente)");
                         return;
                     }
 
                     // 5) consulta historian
                     var repo = RepositoryFactory.Create(systemCfg);
+
+                    // Escolhe o “código da PMU” conforme o tipo de banco
+                    // - MedFasee  -> usa idNumber (o <idNumber> do XML)
+                    // - Historian -> usa id_name (term.Id)
+                    string terminalCode;
+
+                    if (systemCfg.Type == DatabaseType.Medfasee)
+                    {
+                        terminalCode = term.IdNumber.ToString();
+                    }
+                    else
+                    {
+                        terminalCode = term.Id; // openpdc / openhistorian2 usam id_name
+                    }
+
                     var dict = repo.QueryTerminalSeries(
-                        term.IdNumber.ToString(),   // *** esta implementação precisa do número
+                        terminalCode,
                         cs, ce,
                         channels,
                         selectRate,
@@ -226,7 +274,7 @@ namespace OpenPlot.Ingestor.Gsf
 
                     if (dict == null || dict.Count == 0)
                     {
-                        Console.WriteLine($"[info] {cs:yyyy-MM-dd HH:mm}-{ce:HH:mm} sem dados");
+                        Console.WriteLine("[info] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " sem dados");
                         return;
                     }
 
@@ -255,13 +303,14 @@ namespace OpenPlot.Ingestor.Gsf
                             {
                                 foreach (var kv in dict)
                                 {
-                                    var ch = kv.Key;
+                                    var ch = kv.Key;      // Channel
                                     var series = kv.Value;
                                     if (series == null || series.Count == 0) continue;
 
-                                    int sigId;
-                                    if (!signalMap.TryGetValue(ch.Id, out sigId))
-                                        continue; // canal não existe no catálogo para este pdc_pmu
+                                    var key = (ch.Id, ch.Quantity, ch.Phase, ch.Value);
+
+                                    if (!signalMap.TryGetValue(key, out var sigId))
+                                        continue; // não mapeado no catálogo (signal)
 
                                     var ts = series.GetTimestamps();
                                     var rd = series.GetReadings();
@@ -280,6 +329,7 @@ namespace OpenPlot.Ingestor.Gsf
                                         imp.Write(val, NpgsqlTypes.NpgsqlDbType.Double);
                                     }
                                 }
+
                                 imp.Complete();
                             }
 
@@ -293,32 +343,28 @@ namespace OpenPlot.Ingestor.Gsf
                             }
 
                             txCopy.Commit();
-                            Console.WriteLine($"[ok] {cs:yyyy-MM-dd HH:mm}-{ce:HH:mm} inserido");
+                            Console.WriteLine("[ok] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " inserido");
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[erro-chunk] {cs:yyyy-MM-dd HH:mm}-{ce:HH:mm}: {ex.Message}");
+                    Console.WriteLine("[erro-chunk] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + ": " + ex.Message);
                 }
             });
         }
 
         // ----------------- HELPERS (BD / MAPAS) -----------------
 
-        // ===== Helpers =====
-
-        // ===== Helpers =====
-
         static List<OpenPlot.Ingestor.Gsf.Channel> LoadChannelsFromDb(NpgsqlConnection conn, string source, string pmuIdName)
         {
             const string sql = @"
         SELECT
-            s.historian_point,         -- INTEGER no seu schema
-            s.name,                    -- TENSAO_A / FREQUENCIA / ...
-            s.quantity,                -- 'Voltage' | 'Current' | 'Frequency'
-            s.phase,                   -- 'A' | 'B' | 'C' | 'None'
-            s.component                -- 'MAG' | 'ANG' | 'FREQ' | 'DFREQ'
+            s.historian_point,
+            s.name,
+            s.quantity,
+            s.phase,
+            s.component
         FROM openplot.signal s
         JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = s.pdc_pmu_id
         JOIN openplot.pmu     p   ON p.pmu_id       = ppm.pmu_id
@@ -338,7 +384,6 @@ namespace OpenPlot.Ingestor.Gsf
                 {
                     while (rdr.Read())
                     {
-                        // Leitura segura (C# 7.3)
                         var pointId = rdr.IsDBNull(0) ? 0 : rdr.GetInt32(0);
                         var chName = rdr.IsDBNull(1) ? "" : rdr.GetString(1);
                         var qtyStr = rdr.IsDBNull(2) ? "" : rdr.GetString(2);
@@ -349,7 +394,6 @@ namespace OpenPlot.Ingestor.Gsf
                         var vtype = GetValueTypeFromDb(qty, compStr);
                         var phase = GetPhaseFromDb(phaseStr);
 
-                        // Para Frequency/DFREQ o ValueType é NONE (valor escalar)
                         list.Add(new OpenPlot.Ingestor.Gsf.Channel(pointId, chName, phase, vtype, qty));
                     }
                 }
@@ -360,21 +404,19 @@ namespace OpenPlot.Ingestor.Gsf
 
         // ---------- Mapas: DB -> enums usados por Channel ----------
 
-        // Substitui o antigo GetQuantityFromDb(string) por:
         static OpenPlot.Ingestor.Gsf.ChannelQuantity GetQuantityFromDb(string qty, string component)
         {
             if (string.Equals(qty, "Voltage", StringComparison.OrdinalIgnoreCase)) return OpenPlot.Ingestor.Gsf.ChannelQuantity.VOLTAGE;
             if (string.Equals(qty, "Current", StringComparison.OrdinalIgnoreCase)) return OpenPlot.Ingestor.Gsf.ChannelQuantity.CURRENT;
 
-            // <- AQUI a diferença: Frequency x DFREQ
             if (string.Equals(qty, "Frequency", StringComparison.OrdinalIgnoreCase))
             {
                 if (string.Equals(component, "DFREQ", StringComparison.OrdinalIgnoreCase))
                     return OpenPlot.Ingestor.Gsf.ChannelQuantity.DFREQ;
-                return OpenPlot.Ingestor.Gsf.ChannelQuantity.FREQUENCY; // component = FREQ
+                return OpenPlot.Ingestor.Gsf.ChannelQuantity.FREQUENCY;
             }
 
-            return OpenPlot.Ingestor.Gsf.ChannelQuantity.ANALOG; // fallback seguro
+            return OpenPlot.Ingestor.Gsf.ChannelQuantity.ANALOG;
         }
 
         static OpenPlot.Ingestor.Gsf.ChannelPhase GetPhaseFromDb(string ph)
@@ -387,14 +429,12 @@ namespace OpenPlot.Ingestor.Gsf
 
         static OpenPlot.Ingestor.Gsf.ChannelValueType GetValueTypeFromDb(OpenPlot.Ingestor.Gsf.ChannelQuantity q, string component)
         {
-            // Tensões/correntes: MAG/ANG
             if (q == OpenPlot.Ingestor.Gsf.ChannelQuantity.VOLTAGE || q == OpenPlot.Ingestor.Gsf.ChannelQuantity.CURRENT)
             {
                 if (string.Equals(component, "MAG", StringComparison.OrdinalIgnoreCase)) return OpenPlot.Ingestor.Gsf.ChannelValueType.ABSOLUTE;
                 if (string.Equals(component, "ANG", StringComparison.OrdinalIgnoreCase)) return OpenPlot.Ingestor.Gsf.ChannelValueType.ANGLE;
             }
 
-            // Freq/DFreq: valor escalar
             return OpenPlot.Ingestor.Gsf.ChannelValueType.NONE;
         }
 
@@ -422,8 +462,6 @@ namespace OpenPlot.Ingestor.Gsf
             }
         }
 
-
-        // pdc + pmu por nome → pdc_pmu_id
         private static (int pdcId, int pmuId, int pdcPmuId) GetPdcContext(NpgsqlConnection conn, string pdcName, string pmuIdName)
         {
             using (var cmd = new NpgsqlCommand(@"
@@ -439,38 +477,81 @@ namespace OpenPlot.Ingestor.Gsf
                 using (var r = cmd.ExecuteReader())
                 {
                     if (!r.Read())
-                        throw new Exception($"Contexto pdc/pmu não encontrado (pdc='{pdcName}', pmu='{pmuIdName}').");
+                        throw new Exception("Contexto pdc/pmu não encontrado (pdc='" + pdcName + "', pmu='" + pmuIdName + "').");
                     return (r.GetInt32(0), r.GetInt32(1), r.GetInt32(2));
                 }
             }
         }
 
-        // historian_point (Channel.Id) → signal_id para um pdc_pmu
-        private static Dictionary<int, int> LoadSignalMap(NpgsqlConnection conn, int pdcPmuId, IEnumerable<Channel> channels)
+        private static Dictionary<(int hist,
+                           OpenPlot.Ingestor.Gsf.ChannelQuantity qty,
+                           OpenPlot.Ingestor.Gsf.ChannelPhase phase,
+                           OpenPlot.Ingestor.Gsf.ChannelValueType val), int>
+    LoadSignalMap(
+        NpgsqlConnection conn,
+        int pdcPmuId,
+        IEnumerable<Channel> channels)
         {
-            var histIds = channels.Select(c => c.Id).Distinct().ToArray();
-            if (histIds.Length == 0) return new Dictionary<int, int>();
+            var chList = channels.ToList();
+            if (chList.Count == 0)
+                return new Dictionary<(int hist,
+                                       ChannelQuantity qty,
+                                       ChannelPhase phase,
+                                       ChannelValueType val), int>();
+
+            var histIds = chList.Select(c => c.Id).Distinct().ToArray();
+            if (histIds.Length == 0)
+                return new Dictionary<(int hist,
+                                       ChannelQuantity qty,
+                                       ChannelPhase phase,
+                                       ChannelValueType val), int>();
 
             using (var cmd = new NpgsqlCommand(@"
-                SELECT historian_point, signal_id
-                  FROM openplot.signal
-                 WHERE pdc_pmu_id = @pp
-                   AND historian_point = ANY(@hids);", conn))
+        SELECT
+            historian_point,
+            quantity::text,
+            phase::text,
+            component::text,
+            signal_id
+        FROM openplot.signal
+        WHERE pdc_pmu_id = @pp
+          AND historian_point = ANY(@hids);", conn))
             {
                 cmd.Parameters.AddWithValue("pp", pdcPmuId);
                 cmd.Parameters.AddWithValue("hids", histIds);
 
                 using (var r = cmd.ExecuteReader())
                 {
-                    var map = new Dictionary<int, int>();
+                    var map = new Dictionary<(int,
+                                              OpenPlot.Ingestor.Gsf.ChannelQuantity,
+                                              OpenPlot.Ingestor.Gsf.ChannelPhase,
+                                              OpenPlot.Ingestor.Gsf.ChannelValueType), int>();
+
                     while (r.Read())
-                        map[r.GetInt32(0)] = r.GetInt32(1);
+                    {
+                        var hist = r.GetInt32(0);
+                        var qtyStr = r.IsDBNull(1) ? "" : r.GetString(1);  // "Voltage", "Frequency"
+                        var phaseStr = r.IsDBNull(2) ? "" : r.GetString(2);  // "A","B","C","None"
+                        var compStr = r.IsDBNull(3) ? "" : r.GetString(3);  // "MAG","ANG","FREQ","DFREQ"
+                        var sigId = r.GetInt32(4);
+
+                        var qty = GetQuantityFromDb(qtyStr, compStr);
+                        var phase = GetPhaseFromDb(phaseStr);
+                        var vtype = GetValueTypeFromDb(qty, compStr);
+
+                        var key = (hist, qty, phase, vtype);
+
+                        if (!map.ContainsKey(key))
+                            map[key] = sigId;
+                    }
+
                     return map;
                 }
             }
         }
 
-        // dedupe meia-aberta [from, to)
+
+
         private static bool ChunkAlreadyPresentDb(string connString, int pdcPmuId, int[] signalIds, DateTime from, DateTime to)
         {
             if (signalIds == null || signalIds.Length == 0) return false;
@@ -493,7 +574,6 @@ namespace OpenPlot.Ingestor.Gsf
                     var countObj = cmd.ExecuteScalar();
                     var count = (countObj == null || countObj is DBNull) ? 0L : Convert.ToInt64(countObj);
 
-                    // se cada signal já tem ao menos 1 ponto no intervalo, consideramos presente
                     return count >= signalIds.Length;
                 }
             }
@@ -513,7 +593,6 @@ namespace OpenPlot.Ingestor.Gsf
             }
         }
 
-        // OA (geralmente local no MedPlot) → UTC consistente
         private static DateTime FromOADateUtc(double oa)
         {
             var dtLocal = DateTime.FromOADate(oa);
@@ -523,21 +602,19 @@ namespace OpenPlot.Ingestor.Gsf
         private static void LoadConfig()
         {
             PgConnString = ConfigurationManager.AppSettings["Db"];
-            XmlPath = ConfigurationManager.AppSettings["MedPlotXml"];
             PollIntervalSeconds = ReadInt("PollIntervalSeconds", 2);
             ChunkMinutes = ReadInt("ChunkMinutes", 10);
             MaxParallelChunks = ReadInt("MaxParallelChunks", 2);
 
             if (string.IsNullOrWhiteSpace(PgConnString))
                 throw new Exception("App.config: defina AppSettings key=Db.");
-            if (string.IsNullOrWhiteSpace(XmlPath))
-                throw new Exception("App.config: defina AppSettings key=MedPlotXml.");
         }
 
         private static int ReadInt(string key, int def)
         {
             var v = ConfigurationManager.AppSettings[key];
-            return int.TryParse(v, out var n) ? n : def;
+            int n;
+            return int.TryParse(v, out n) ? n : def;
         }
     }
 }

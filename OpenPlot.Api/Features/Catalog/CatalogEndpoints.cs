@@ -139,7 +139,7 @@ ORDER BY m.area, m.state, m.volt_level, m.station, m.id_name;";
                                                     estacao = t.station,
                                                     estado = t.state,
                                                     area = t.area,
-                                                    tensao = t.volt_level ?? 0,
+                                                    tensao = (decimal)Math.Round((t.volt_level ?? 0) / 1000.0, 2),
                                                     lat = t.lat,
                                                     lon = t.lon
                                                 };

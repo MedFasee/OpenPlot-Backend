@@ -203,6 +203,402 @@ ORDER BY pu.area       NULLS LAST,
             return Results.Json(new { status = 200, data });
         });
 
+        // -------------------------------
+        // 2) /plots/voltage-phase/by-run
+        // -------------------------------
+        app.MapGet("/plots/voltage-phase/by-run",
+        async Task<IResult> (
+            [AsParameters] ByRunQuery q,
+            [FromServices] IDbConnectionFactory dbf,
+            [FromQuery] DateTime? from,
+            [FromQuery] DateTime? to
+        ) =>
+        {
+            if (string.IsNullOrWhiteSpace(q.Phase))
+                return Results.BadRequest("phase é obrigatório (A|B|C).");
+            var uphase = q.Phase.Trim().ToUpperInvariant();
+            if (!new[] { "A", "B", "C" }.Contains(uphase))
+                return Results.BadRequest("phase deve ser A, B ou C.");
+
+            var maxPts = Math.Max(q.MaxPoints, 100);
+            var unit = (q.Unit ?? "raw").Trim().ToLowerInvariant();
+
+            DateTime? fromUtc = from?.ToUniversalTime();
+            DateTime? toUtc = to?.ToUniversalTime();
+            if (fromUtc.HasValue && toUtc.HasValue && fromUtc >= toUtc)
+                return Results.BadRequest("from < to");
+
+            using var db = dbf.Create();
+
+            const string sql = @"
+WITH run AS (
+  SELECT id, source AS pdc_name, from_ts, to_ts, pmus, signals
+  FROM openplot.search_runs
+  WHERE id = @run_id::uuid
+),
+run_window AS (
+  SELECT
+    CASE WHEN pg_typeof(r.from_ts)::text = 'timestamp without time zone'
+         THEN r.from_ts::timestamptz ELSE r.from_ts END AS from_utc,
+    CASE WHEN pg_typeof(r.to_ts)::text = 'timestamp without time zone'
+         THEN r.to_ts::timestamptz ELSE r.to_ts   END AS to_utc,
+    r.pdc_name, r.signals, r.pmus
+  FROM run r
+),
+win AS (
+  SELECT
+    COALESCE(@from_utc, rw.from_utc) AS from_utc,
+    COALESCE(@to_utc,   rw.to_utc)   AS to_utc,
+    rw.pdc_name, rw.signals, rw.pmus
+  FROM run_window rw
+),
+src AS (
+  SELECT w.pdc_name,
+         w.from_utc AS from_ts,
+         w.to_utc   AS to_ts,
+         CASE
+           WHEN jsonb_typeof(w.signals) = 'array' AND jsonb_array_length(w.signals) > 0 THEN w.signals
+           WHEN jsonb_typeof(w.pmus)    = 'array' AND jsonb_array_length(w.pmus)    > 0 THEN w.pmus
+           ELSE '[]'::jsonb
+         END AS arr
+  FROM win w
+),
+elems AS (
+  SELECT pdc_name, from_ts, to_ts, jsonb_array_elements(arr) AS elem
+  FROM src
+),
+pmu_ids AS (
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN openplot.pmu p ON p.id_name = btrim(r.elem::text, '""')
+  WHERE jsonb_typeof(r.elem) = 'string'
+  UNION ALL
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN LATERAL (
+    SELECT NULLIF(TRIM(r.elem->>'pmu'), '')     AS key_pmu,
+           NULLIF(TRIM(r.elem->>'id_name'), '') AS key_idname
+  ) k ON TRUE
+  JOIN openplot.pmu p ON p.id_name = COALESCE(k.key_pmu, k.key_idname)
+  WHERE jsonb_typeof(r.elem) = 'object'
+    AND COALESCE(k.key_pmu, k.key_idname) IS NOT NULL
+  UNION ALL
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN LATERAL (SELECT NULLIF(r.elem->>'pdc_pmu_id','')::int AS key_pdc_pmu_id) k ON TRUE
+  JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = k.key_pdc_pmu_id
+  JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
+  WHERE jsonb_typeof(r.elem) = 'object'
+  UNION ALL
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN LATERAL (SELECT NULLIF(r.elem->>'signal_id','')::int AS key_signal_id) k ON TRUE
+  JOIN openplot.signal s ON s.signal_id = k.key_signal_id
+  JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = s.pdc_pmu_id
+  JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
+  WHERE jsonb_typeof(r.elem) = 'object'
+),
+pdc_ctx AS (
+  SELECT w.pdc_name, w.from_ts, w.to_ts, pdc.pdc_id
+  FROM src w
+  JOIN openplot.pdc pdc ON LOWER(pdc.name) = LOWER(w.pdc_name)
+),
+ctx AS (
+  SELECT pc.pdc_name, pc.from_ts, pc.to_ts, pid.id_name, pid.pmu_id, pc.pdc_id
+  FROM pdc_ctx pc
+  JOIN pmu_ids pid ON pid.pdc_name = pc.pdc_name
+),
+sig AS (
+  SELECT s.signal_id, s.pdc_pmu_id, s.phase, s.component,
+         c.id_name, c.pdc_name, pmu.volt_level
+  FROM ctx c
+  JOIN openplot.pdc_pmu pp ON pp.pdc_id = c.pdc_id AND pp.pmu_id = c.pmu_id
+  JOIN openplot.signal s   ON s.pdc_pmu_id = pp.pdc_pmu_id
+  JOIN openplot.pmu pmu    ON pmu.pmu_id   = c.pmu_id
+  WHERE UPPER(s.phase::text) = UPPER(@phase)
+    AND LOWER(s.quantity::text) IN ('voltage','v')
+    AND LOWER(s.component::text) IN ('mag','magnitude','mod')
+),
+raw AS (
+  SELECT m.signal_id, m.ts, m.value
+  FROM openplot.measurements m
+  WHERE m.ts >= ((SELECT from_utc FROM win) + '3 hours'::interval)
+    AND m.ts <= ((SELECT to_utc FROM win) + '3 hours'::interval)
+)
+SELECT
+  s.signal_id, s.pdc_pmu_id, s.phase, s.component,
+  s.id_name, s.pdc_name, s.volt_level,
+  r.ts, r.value
+FROM sig s
+JOIN raw r USING (signal_id)
+ORDER BY s.signal_id, r.ts;";
+
+            var rows = (await db.QueryAsync<VoltRow>(sql, new
+            {
+                run_id = q.RunId,
+                phase = uphase,
+                from_utc = fromUtc,
+                to_utc = toUtc
+            })).ToList();
+
+            if (rows.Count == 0)
+                return Results.NotFound("Nada encontrado para esse run_id/phase no intervalo solicitado.");
+
+            var series = rows
+                .GroupBy(r => r.Signal_Id)
+                .Select(g =>
+                {
+                    var any = g.First();
+                    double vb = 1.0;
+                    if (unit == "pu" && any.Volt_Level.HasValue && any.Volt_Level.Value > 0)
+                        vb = (any.Volt_Level.Value / Math.Sqrt(3.0));
+
+                    var downs = TimeBucketDownsampleMinMax(g.Select(r => (r.Ts, r.Value)), maxPts);
+                    return new
+                    {
+                        pmu = any.Id_Name,
+                        pdc = any.Pdc_Name,
+                        signal_id = any.Signal_Id,
+                        pdc_pmu_id = any.Pdc_Pmu_Id,
+                        meta = new { phase = any.Phase, component = any.Component, volt_level_kV  = Math.Round((any.Volt_Level ?? 0) / 1000.0, 2) },
+                        points = downs.Select(p => new object[] { p.ts, unit == "pu" ? p.val / vb : p.val })
+                    };
+                })
+                .ToList();
+
+            var first = rows.First();
+            return Results.Ok(new
+            {
+                run_id = q.RunId,
+                unit = unit,
+                phase = uphase,
+                resolved = new { pdc = first.Pdc_Name, pmu_count = series.Count },
+                window = new { from = fromUtc ?? rows.Min(r => r.Ts), to = toUtc ?? rows.Max(r => r.Ts) },
+                series
+            });
+        });
+
+        // -------------------------------
+        // 3) /plots/current-phase/by-run (RAW em A)
+        // -------------------------------
+        app.MapGet("/plots/current-phase/by-run",
+        async Task<IResult> (
+            [AsParameters] ByRunQuery q,
+            [FromServices] IDbConnectionFactory dbf,
+            [FromQuery] DateTime? from,
+            [FromQuery] DateTime? to
+        ) =>
+        {
+            if (string.IsNullOrWhiteSpace(q.Phase))
+                return Results.BadRequest("phase é obrigatório (A|B|C).");
+            var uphase = q.Phase.Trim().ToUpperInvariant();
+            if (!new[] { "A", "B", "C" }.Contains(uphase))
+                return Results.BadRequest("phase deve ser A, B ou C.");
+
+            var maxPts = Math.Max(q.MaxPoints, 100);
+
+            DateTime? fromUtc = from?.ToUniversalTime();
+            DateTime? toUtc = to?.ToUniversalTime();
+            if (fromUtc.HasValue && toUtc.HasValue && fromUtc >= toUtc)
+                return Results.BadRequest("from < to");
+
+            using var db = dbf.Create();
+
+            const string sql = @"
+WITH run AS (
+  SELECT id, source AS pdc_name, from_ts, to_ts, pmus, signals
+  FROM openplot.search_runs
+  WHERE id = @run_id::uuid
+),
+run_window AS (
+  SELECT
+    CASE WHEN pg_typeof(r.from_ts)::text = 'timestamp without time zone'
+         THEN r.from_ts::timestamptz ELSE r.from_ts END AS from_utc,
+    CASE WHEN pg_typeof(r.to_ts)::text = 'timestamp without time zone'
+         THEN r.to_ts::timestamptz ELSE r.to_ts   END AS to_utc,
+    r.pdc_name, r.signals, r.pmus
+  FROM run r
+),
+win AS (
+  SELECT
+    COALESCE(@from_utc, rw.from_utc) AS from_utc,
+    COALESCE(@to_utc,   rw.to_utc)   AS to_utc,
+    rw.pdc_name, rw.signals, rw.pmus
+  FROM run_window rw
+),
+src AS (
+  SELECT w.pdc_name,
+         w.from_utc AS from_ts,
+         w.to_utc   AS to_ts,
+         CASE
+           WHEN jsonb_typeof(w.signals) = 'array' AND jsonb_array_length(w.signals) > 0 THEN w.signals
+           WHEN jsonb_typeof(w.pmus)    = 'array' AND jsonb_array_length(w.pmus)    > 0 THEN w.pmus
+           ELSE '[]'::jsonb
+         END AS arr
+  FROM win w
+),
+elems AS (
+  SELECT pdc_name, from_ts, to_ts, jsonb_array_elements(arr) AS elem
+  FROM src
+),
+pmu_ids AS (
+  SELECT e.pdc_name, e.from_ts, e.to_ts, p.pmu_id, p.id_name
+  FROM elems e
+  JOIN openplot.pmu p ON p.id_name = btrim(e.elem::text, '""')
+  WHERE jsonb_typeof(e.elem) = 'string'
+  UNION ALL
+  SELECT e.pdc_name, e.from_ts, e.to_ts, p.pmu_id, p.id_name
+  FROM elems e
+  JOIN LATERAL (
+    SELECT NULLIF(TRIM(e.elem->>'pmu'), '')     AS key_pmu,
+           NULLIF(TRIM(e.elem->>'id_name'), '') AS key_idname
+  ) k ON TRUE
+  JOIN openplot.pmu p ON p.id_name = COALESCE(k.key_pmu, k.key_idname)
+  WHERE jsonb_typeof(e.elem) = 'object' AND COALESCE(k.key_pmu, k.key_idname) IS NOT NULL
+  UNION ALL
+  SELECT e.pdc_name, e.from_ts, e.to_ts, p.pmu_id, p.id_name
+  FROM elems e
+  JOIN LATERAL (SELECT NULLIF(e.elem->>'pdc_pmu_id','')::int AS key_pdc_pmu_id) k ON TRUE
+  JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = k.key_pdc_pmu_id
+  JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
+  WHERE jsonb_typeof(e.elem) = 'object'
+  UNION ALL
+  SELECT e.pdc_name, e.from_ts, e.to_ts, p.pmu_id, p.id_name
+  FROM elems e
+  JOIN LATERAL (SELECT NULLIF(e.elem->>'signal_id','')::int AS key_signal_id) k ON TRUE
+  JOIN openplot.signal s ON s.signal_id = k.key_signal_id
+  JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = s.pdc_pmu_id
+  JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
+  WHERE jsonb_typeof(e.elem) = 'object'
+),
+pdc_ctx AS (
+  SELECT w.pdc_name, w.from_ts, w.to_ts, pdc.pdc_id
+  FROM src w
+  JOIN openplot.pdc pdc ON LOWER(pdc.name) = LOWER(w.pdc_name)
+),
+ctx AS (
+  SELECT pc.pdc_name, pc.from_ts, pc.to_ts, pid.id_name, pid.pmu_id, pc.pdc_id
+  FROM pdc_ctx pc
+  JOIN pmu_ids pid ON pid.pdc_name = pc.pdc_name
+),
+sig AS (
+  SELECT s.signal_id, s.pdc_pmu_id, s.phase, s.component,
+         c.id_name, c.pdc_name
+  FROM ctx c
+  JOIN openplot.pdc_pmu pp ON pp.pdc_id = c.pdc_id AND pp.pmu_id = c.pmu_id
+  JOIN openplot.signal  s  ON s.pdc_pmu_id = pp.pdc_pmu_id
+  WHERE UPPER(s.phase::text) = UPPER(@phase)
+    AND LOWER(s.quantity::text) IN ('current','i')
+    AND LOWER(s.component::text) IN ('mag','magnitude','mod')
+),
+raw AS (
+  SELECT m.signal_id, m.ts, m.value
+  FROM openplot.measurements m
+  WHERE m.ts >= ((SELECT from_utc FROM win) + '3 hours'::interval)
+    AND m.ts <= ((SELECT to_utc FROM win) + '3 hours'::interval)
+)
+SELECT
+  s.signal_id, s.pdc_pmu_id, s.phase, s.component,
+  s.id_name, s.pdc_name,
+  r.ts, r.value
+FROM sig s
+JOIN raw r USING (signal_id)
+ORDER BY s.signal_id, r.ts;";
+
+            var rows = (await db.QueryAsync<(
+                int Signal_Id, int Pdc_Pmu_Id, string Phase, string Component,
+                string Id_Name, string Pdc_Name, DateTime Ts, double Value
+            )>(sql, new
+            {
+                run_id = q.RunId,
+                phase = uphase,
+                from_utc = fromUtc,
+                to_utc = toUtc
+            })).ToList();
+
+            if (rows.Count == 0)
+                return Results.NotFound("Nada encontrado para esse run_id/phase no intervalo solicitado.");
+
+            var series = rows
+                .GroupBy(r => r.Signal_Id)
+                .Select(g =>
+                {
+                    var any = g.First();
+                    var downs = TimeBucketDownsampleMinMax(
+                        g.Select(r => (r.Ts, r.Value)), maxPts);
+
+                    return new
+                    {
+                        pmu = any.Id_Name,
+                        pdc = any.Pdc_Name,
+                        signal_id = any.Signal_Id,
+                        pdc_pmu_id = any.Pdc_Pmu_Id,
+                        meta = new { phase = any.Phase, component = any.Component },
+                        unit = "A",
+                        points = downs.Select(p => new object[] { p.ts, p.val })
+                    };
+                })
+                .ToList();
+
+            var window = new { from = fromUtc ?? rows.Min(r => r.Ts), to = toUtc ?? rows.Max(r => r.Ts) };
+
+            return Results.Ok(new
+            {
+                run_id = q.RunId,
+                phase = uphase,
+                unit = "raw",
+                window,
+                series
+            });
+        });
+
         return app;
+    }
+
+    // --------- helpers ---------
+
+    // Renomeado + sem MinBy/MaxBy (compatível com versões antigas)
+    private static IEnumerable<(DateTime ts, double val)>
+    TimeBucketDownsampleMinMax(IEnumerable<(DateTime ts, double val)> pts, int maxPoints)
+    {
+        var list = pts.OrderBy(p => p.ts).ToList();
+        if (list.Count <= maxPoints) return list;
+
+        int buckets = Math.Max(1, maxPoints / 2);
+        var start = list.First().ts;
+        var end = list.Last().ts;
+        var span = (end - start).Ticks;
+        if (span <= 0) return list.Take(maxPoints);
+
+        long bucket = span / buckets;
+        var result = new List<(DateTime, double)>(buckets * 2 + 2) { list.First() };
+
+        for (int i = 0; i < buckets; i++)
+        {
+            var bStart = start.AddTicks(bucket * i);
+            var bEnd = (i == buckets - 1) ? end : start.AddTicks(bucket * (i + 1));
+            double? minVal = null, maxVal = null;
+            DateTime minTs = default, maxTs = default;
+
+            foreach (var p in list)
+            {
+                if (p.ts < bStart || p.ts >= bEnd) continue;
+                if (minVal is null || p.val < minVal)
+                {
+                    minVal = p.val; minTs = p.ts;
+                }
+                if (maxVal is null || p.val > maxVal)
+                {
+                    maxVal = p.val; maxTs = p.ts;
+                }
+            }
+            if (minVal is null) continue;
+
+            if (minTs <= maxTs) { result.Add((minTs, minVal!.Value)); result.Add((maxTs, maxVal!.Value)); }
+            else { result.Add((maxTs, maxVal!.Value)); result.Add((minTs, minVal!.Value)); }
+        }
+
+        result.Add(list.Last());
+        return result;
     }
 }

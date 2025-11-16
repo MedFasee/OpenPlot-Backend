@@ -12,8 +12,8 @@ public sealed class LabelService : ILabelService
 
     public string BuildLabel(DateTime fromUtc, DateTime toUtc, int selectRate, string source, string? terminalId)
     {
-        var (fromLocal, toLocal) = _time.ToBrazil(fromUtc, toUtc);
-        var label = $"{fromLocal:yyyyMMdd}_{fromLocal:HHmmss}_{toLocal:HHmmss}_{selectRate}_{source}";
+ 
+        var label = $"{fromUtc:yyyyMMdd}_{fromUtc:HHmmss}_{toUtc:HHmmss}_{selectRate}_{source}";
         if (!string.IsNullOrWhiteSpace(terminalId)) label += $"_{terminalId}";
         return label;
     }

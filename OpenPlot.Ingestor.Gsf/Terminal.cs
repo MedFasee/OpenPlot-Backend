@@ -3,6 +3,7 @@ using System.Collections.Generic;
 
 namespace OpenPlot.Ingestor.Gsf
 {
+    /*
     public class Terminal
     {
         public string Id { get; private set; }
@@ -18,12 +19,9 @@ namespace OpenPlot.Ingestor.Gsf
 
         public List<Channel> Channels { get; private set; }
 
-        public Terminal(string id, int idNumber, string displayName, int equipmentRate, double voltageLevel, string area, string state, string station) :
-            this(id, idNumber, displayName, equipmentRate, voltageLevel, area, state, station, new List<Channel>())
-        {
-        }
 
-        public Terminal(string id, int idNumber, string displayName, int equipmentRate, double voltageLevel, string area, string state, string station, List<Channel> channels)
+
+        public Terminal(string id, int idNumber, string displayName, int equipmentRate, double voltageLevel, string area, string state, string station)
         {
             Id = id;
             IdNumber = idNumber;
@@ -33,9 +31,10 @@ namespace OpenPlot.Ingestor.Gsf
             Area = area;
             State = state;
             Station = station;
-            Channels = channels;
+            //Channels = channels;
         }
 
 
     }
+    */
 }

@@ -87,25 +87,6 @@
     ]
   },
   {
-    "ContainingType": "OpenPlot.Features.Auth.AuthEndpoints\u002B\u003C\u003Ec",
-    "Method": "\u003CMapAuth\u003Eb__1_2",
-    "RelativePath": "auth/me",
-    "HttpMethod": "GET",
-    "IsController": false,
-    "Order": 0,
-    "Parameters": [],
-    "ReturnTypes": [
-      {
-        "Type": "System.Void",
-        "MediaTypes": [],
-        "StatusCode": 200
-      }
-    ],
-    "Tags": [
-      "Auth"
-    ]
-  },
-  {
     "ContainingType": "SearchEndpoints\u002B\u003C\u003Ec",
     "Method": "\u003CMapSearch\u003Eb__0_3",
     "RelativePath": "buscas-realizadas",
@@ -150,6 +131,100 @@
     ],
     "Tags": [
       "Import"
+    ]
+  },
+  {
+    "ContainingType": "RunsEndpoints\u002B\u003C\u003Ec",
+    "Method": "\u003CMapRuns\u003Eb__0_2",
+    "RelativePath": "plots/current-phase/by-run",
+    "HttpMethod": "GET",
+    "IsController": false,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "run_id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "phase",
+        "Type": "System.String",
+        "IsRequired": true
+      },
+      {
+        "Name": "unit",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "max_points",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "from",
+        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "to",
+        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Void",
+        "MediaTypes": [],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "RunsEndpoints\u002B\u003C\u003Ec",
+    "Method": "\u003CMapRuns\u003Eb__0_1",
+    "RelativePath": "plots/voltage-phase/by-run",
+    "HttpMethod": "GET",
+    "IsController": false,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "run_id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "phase",
+        "Type": "System.String",
+        "IsRequired": true
+      },
+      {
+        "Name": "unit",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "max_points",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "from",
+        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "to",
+        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Void",
+        "MediaTypes": [],
+        "StatusCode": 200
+      }
     ]
   },
   {

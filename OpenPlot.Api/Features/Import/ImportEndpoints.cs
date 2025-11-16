@@ -10,7 +10,7 @@ public static class ImportEndpoints
     public static IEndpointRouteBuilder MapImport(this IEndpointRouteBuilder app)
     {
         // mesmo padrão do Catalog: grupo + RequireAuthorization()
-        var group = app.MapGroup("/import").RequireAuthorization();
+        var group = app.MapGroup("/import");
 
         // POST /import/xml  → body: { "path": "C:\\pasta\\com\\xmls" }
         group.MapPost("/xml", async (

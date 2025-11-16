@@ -1,4 +1,6 @@
-﻿namespace OpenPlot.Data.Dtos
+﻿using Microsoft.AspNetCore.Mvc;
+
+namespace OpenPlot.Data.Dtos
 {
     public sealed class SearchRunRow
     {
@@ -51,5 +53,18 @@
     DateTime From,
     DateTime To,
     string Resolution
+);
+
+    public record ByRunQuery(
+        [FromQuery(Name = "run_id")] Guid RunId,
+        [FromQuery(Name = "phase")] string Phase,
+        [FromQuery(Name = "unit")] string Unit = "raw",
+        [FromQuery(Name = "max_points")] int MaxPoints = 5000
+    );
+
+    public record VoltRow(
+    int Signal_Id, int Pdc_Pmu_Id, string Phase, string Component,
+    string Id_Name, string Pdc_Name, int? Volt_Level,
+    DateTime Ts, double Value
 );
 }

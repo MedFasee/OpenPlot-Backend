@@ -52,6 +52,7 @@ namespace OpenPlot.XmlImporter
                     var pdcElem = doc.Descendants(ns + "pdc").FirstOrDefault();
                     string pdcName, pdcKind, pdcAddr;
                     int pdcFps;
+                    string dbName = "";
 
                     string user = "", pswd = "";
                     if (pdcElem is not null)
@@ -65,7 +66,13 @@ namespace OpenPlot.XmlImporter
                         user = Value(sec?.Element(ns + "user")) ?? "";
                         pswd = Value(sec?.Element(ns + "pswd")) ?? "";
 
-                        sum.PdcId = await UpsertPdc(conn, pdcName, pdcKind, pdcFps, pdcAddr, user, pswd, ct);
+                        // 👇 NOVO: só MedFasee tem <dataBank>
+                        if (string.Equals(pdcKind, "medfasee", StringComparison.OrdinalIgnoreCase))
+                        {
+                            dbName = Value(pdcElem.Element(ns + "dataBank")) ?? "";
+                        }
+
+                        sum.PdcId = await UpsertPdc(conn, pdcName, pdcKind, pdcFps, pdcAddr, user, pswd, dbName, ct);
                     }
                     else
                     {
@@ -73,9 +80,12 @@ namespace OpenPlot.XmlImporter
                         pdcKind = "unknown";
                         pdcAddr = "";
                         pdcFps = 60;
+                        dbName = "";
+
                         sum.Notes.Add("Arquivo sem <pdc>: criado PDC sintético a partir do nome do arquivo.");
-                        sum.PdcId = await UpsertPdc(conn, pdcName, pdcKind, pdcFps, pdcAddr, "", "", ct);
+                        sum.PdcId = await UpsertPdc(conn, pdcName, pdcKind, pdcFps, pdcAddr, "", "", dbName, ct);
                     }
+
 
 
                     // ---------- PMUs ----------
@@ -93,6 +103,11 @@ namespace OpenPlot.XmlImporter
                         var fullName = Value(pmu.Element(ns + "fullName")) ?? idName;
                         var voltLvl = ParseInt(Value(pmu.Element(ns + "voltLevel")), 0);
 
+                        var idNumberRaw = Value(pmu.Element(ns + "idNumber"));
+                        int? idNumber = null;
+                        if (int.TryParse(idNumberRaw, out var n) && n > 0)
+                            idNumber = n;
+
                         var local = pmu.Element(ns + "local");
                         var area = Value(local?.Element(ns + "area")) ?? "";
                         var state = Value(local?.Element(ns + "state")) ?? "";
@@ -105,7 +120,7 @@ namespace OpenPlot.XmlImporter
                         sum.Pmus++;
 
                         // Associação PDC × PMU (e salvamos o idName observado no PDC como pdc_local_id)
-                        var pdcPmuId = await UpsertPdcPmu(conn, sum.PdcId, pmuId, idName, ct);
+                        var pdcPmuId = await UpsertPdcPmu(conn, sum.PdcId, pmuId, idName, idNumber, ct);
 
                         // ---- sinais ----
                         var meas = pmu.Element(ns + "measurements");
@@ -115,32 +130,78 @@ namespace OpenPlot.XmlImporter
                         foreach (var ph in meas.Elements(ns + "phasor"))
                         {
                             var pName = Value(ph.Element(ns + "pName")) ?? "";
-                            var pType = Value(ph.Element(ns + "pType")) ?? ""; // Voltage|Current
-                            var pPhase = Value(ph.Element(ns + "pPhase")) ?? ""; // A|B|C
-                            var modId = ParseInt(Value(ph.Element(ns + "modId")), 0);
-                            var angId = ParseInt(Value(ph.Element(ns + "angId")), 0);
+                            var pType = Value(ph.Element(ns + "pType")) ?? "";   // Voltage | Current
+                            var pPhase = Value(ph.Element(ns + "pPhase")) ?? "";   // A | B | C
 
-                            // MAG
-                            var ins1 = await UpsertSignal(conn, pdcPmuId,
-                                name: pName,
-                                quantity: pType,                // enum qty_kind
-                                phase: pPhase,                  // enum phase_kind
-                                component: "MAG",               // enum comp_kind
-                                historianPoint: modId,
-                                ct: ct);
-                            sum.Signals += ins1;
-                            if (modId <= 0 && ins1 == 0) sum.Notes.Add($"Sinal ignorado (MAG) sem historian_point (>0): {idName}:{pName}");
+                            // Tenta detectar o formato Medfasee (chId)
+                            var chIdElem = ph.Element(ns + "chId");
+                            if (chIdElem != null)
+                            {
+                                // ----- CASO MEDFASEE (um único chId) -----
+                                var chId = ParseInt(Value(chIdElem), 0);
 
-                            // ANG
-                            var ins2 = await UpsertSignal(conn, pdcPmuId,
-                                name: pName,
-                                quantity: pType,
-                                phase: pPhase,
-                                component: "ANG",
-                                historianPoint: angId,
-                                ct: ct);
-                            sum.Signals += ins2;
-                            if (angId <= 0 && ins2 == 0) sum.Notes.Add($"Sinal ignorado (ANG) sem historian_point (>0): {idName}:{pName}");
+                                // MAG
+                                var insMag = await UpsertSignal(
+                                    conn,
+                                    pdcPmuId,
+                                    name: pName,
+                                    quantity: pType,
+                                    phase: pPhase,
+                                    component: "MAG",
+                                    historianPoint: chId,
+                                    ct: ct);
+                                sum.Signals += insMag;
+                                if (chId <= 0 && insMag == 0)
+                                    sum.Notes.Add($"Sinal ignorado (MAG/chId) sem historian_point (>0): {idName}:{pName}");
+
+                                // ANG
+                                var insAng = await UpsertSignal(
+                                    conn,
+                                    pdcPmuId,
+                                    name: pName,
+                                    quantity: pType,
+                                    phase: pPhase,
+                                    component: "ANG",
+                                    historianPoint: chId,
+                                    ct: ct);
+                                sum.Signals += insAng;
+                                if (chId <= 0 && insAng == 0)
+                                    sum.Notes.Add($"Sinal ignorado (ANG/chId) sem historian_point (>0): {idName}:{pName}");
+                            }
+                            else
+                            {
+                                // ----- CASO "HISTORIAN" (modId + angId separados) -----
+                                var modId = ParseInt(Value(ph.Element(ns + "modId")), 0);
+                                var angId = ParseInt(Value(ph.Element(ns + "angId")), 0);
+
+                                // MAG
+                                var ins1 = await UpsertSignal(
+                                    conn,
+                                    pdcPmuId,
+                                    name: pName,
+                                    quantity: pType,
+                                    phase: pPhase,
+                                    component: "MAG",
+                                    historianPoint: modId,
+                                    ct: ct);
+                                sum.Signals += ins1;
+                                if (modId <= 0 && ins1 == 0)
+                                    sum.Notes.Add($"Sinal ignorado (MAG) sem historian_point (>0): {idName}:{pName}");
+
+                                // ANG
+                                var ins2 = await UpsertSignal(
+                                    conn,
+                                    pdcPmuId,
+                                    name: pName,
+                                    quantity: pType,
+                                    phase: pPhase,
+                                    component: "ANG",
+                                    historianPoint: angId,
+                                    ct: ct);
+                                sum.Signals += ins2;
+                                if (angId <= 0 && ins2 == 0)
+                                    sum.Notes.Add($"Sinal ignorado (ANG) sem historian_point (>0): {idName}:{pName}");
+                            }
                         }
 
                         // frequência -> quantity=Frequency, phase=None, component=FREQ
@@ -226,20 +287,24 @@ namespace OpenPlot.XmlImporter
 
         // =============== UPSERTS (ajuste nomes se necessário) ===============
         private static async Task<int> UpsertPdc(
-    NpgsqlConnection conn,
-    string name, string kind, int fps, string addr, string userName, string password,
-    CancellationToken ct)
+            NpgsqlConnection conn,
+            string name, string kind, int fps, string addr,
+            string userName, string password, string dbName,
+            CancellationToken ct)
+
         {
             const string sql = @"
-INSERT INTO openplot.pdc (name, kind, fps, address, user_name, password)
-VALUES (@name, @kind, @fps, @addr, @user_name, @password)
+INSERT INTO openplot.pdc (name, kind, fps, address, user_name, password, db_name)
+VALUES (@name, @kind, @fps, @addr, @user_name, @password, @db_name)
 ON CONFLICT (name) DO UPDATE
-SET kind = EXCLUDED.kind,
-    fps = EXCLUDED.fps,
-    address = EXCLUDED.address,
+SET kind     = EXCLUDED.kind,
+    fps      = EXCLUDED.fps,
+    address  = EXCLUDED.address,
     user_name = EXCLUDED.user_name,
-    password = EXCLUDED.password
+    password  = EXCLUDED.password,
+    db_name   = EXCLUDED.db_name
 RETURNING pdc_id;";
+
 
             await using var cmd = new NpgsqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("name", name);
@@ -248,6 +313,7 @@ RETURNING pdc_id;";
             cmd.Parameters.AddWithValue("addr", addr ?? "");
             cmd.Parameters.AddWithValue("user_name", (object?)userName ?? DBNull.Value);
             cmd.Parameters.AddWithValue("password", (object?)password ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("db_name", (object?)dbName ?? DBNull.Value);
 
             var id = await cmd.ExecuteScalarAsync(ct);
             return Convert.ToInt32(id, CultureInfo.InvariantCulture);
@@ -290,23 +356,27 @@ RETURNING pmu_id;";
         private static async Task<int> UpsertPdcPmu(
     NpgsqlConnection conn,
     int pdcId, int pmuId, string pdcLocalId,
+    int? localNumericId,                 // 👈 novo
     CancellationToken ct)
         {
             const string sql = @"
-INSERT INTO openplot.pdc_pmu (pdc_id, pmu_id, pdc_local_id)
-VALUES (@pdc_id, @pmu_id, @pdc_local_id)
+INSERT INTO openplot.pdc_pmu (pdc_id, pmu_id, pdc_local_id, local_numeric_id)
+VALUES (@pdc_id, @pmu_id, @pdc_local_id, @local_numeric_id)
 ON CONFLICT (pdc_id, pmu_id) DO UPDATE
-SET pdc_local_id = EXCLUDED.pdc_local_id
+SET pdc_local_id     = EXCLUDED.pdc_local_id,
+    local_numeric_id = EXCLUDED.local_numeric_id
 RETURNING pdc_pmu_id;";
 
             await using var cmd = new NpgsqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("pdc_id", pdcId);
             cmd.Parameters.AddWithValue("pmu_id", pmuId);
             cmd.Parameters.AddWithValue("pdc_local_id", (object?)pdcLocalId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("local_numeric_id", (object?)localNumericId ?? DBNull.Value);
 
             var id = await cmd.ExecuteScalarAsync(ct);
             return Convert.ToInt32(id, CultureInfo.InvariantCulture);
         }
+
 
 
         /// <summary>
@@ -330,7 +400,7 @@ RETURNING pdc_pmu_id;";
             int historianPoint,
             CancellationToken ct)
         {
-            if (historianPoint <= 0) return 0; // schema exige NOT NULL
+            if (historianPoint < 0) return 0; // schema exige NOT NULL
 
             // normaliza para casar com enums
             var qty = NormalizeQty(quantity);

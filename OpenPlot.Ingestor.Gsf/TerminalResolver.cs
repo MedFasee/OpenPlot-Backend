@@ -26,6 +26,8 @@ namespace OpenPlot.Ingestor.Gsf
         /// É case-insensitive e aceita Name ou Id (string).
         /// Se 'signals' vier vazio/nulo, retorna todos os canais.
         /// </summary>
+        /// 
+        /*
         public static List<Channel> MapChannels(Terminal term, List<string> signals)
         {
             if (term == null) throw new ArgumentNullException(nameof(term));
@@ -40,5 +42,6 @@ namespace OpenPlot.Ingestor.Gsf
                 .Where(c => set.Contains(c.Name ?? c.Id.ToString()))
                 .ToList();
         }
+        */
     }
 }
