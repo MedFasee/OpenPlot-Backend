@@ -322,8 +322,8 @@ sig AS (
 raw AS (
   SELECT m.signal_id, m.ts, m.value
   FROM openplot.measurements m
-  WHERE m.ts >= ((SELECT from_utc FROM win) + '3 hours'::interval)
-    AND m.ts <= ((SELECT to_utc FROM win) + '3 hours'::interval)
+  WHERE m.ts >= (SELECT from_utc FROM win)
+    AND m.ts <= (SELECT to_utc FROM win)
 )
 SELECT
   s.signal_id, s.pdc_pmu_id, s.phase, s.component,
@@ -494,8 +494,8 @@ sig AS (
 raw AS (
   SELECT m.signal_id, m.ts, m.value
   FROM openplot.measurements m
-  WHERE m.ts >= ((SELECT from_utc FROM win) + '3 hours'::interval)
-    AND m.ts <= ((SELECT to_utc FROM win) + '3 hours'::interval)
+  WHERE m.ts >= (SELECT from_utc FROM win)
+    AND m.ts <= (SELECT to_utc FROM win)
 )
 SELECT
   s.signal_id, s.pdc_pmu_id, s.phase, s.component,

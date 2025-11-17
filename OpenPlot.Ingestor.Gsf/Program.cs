@@ -593,10 +593,13 @@ namespace OpenPlot.Ingestor.Gsf
             }
         }
 
-        private static DateTime FromOADateUtc(double oa)
+        static readonly TimeZoneInfo TzBr = TimeZoneInfo.FindSystemTimeZoneById("E. South America Standard Time");
+
+        static DateTime FromOADateUtc(double oa)
         {
-            var dtLocal = DateTime.FromOADate(oa);
-            return DateTime.SpecifyKind(dtLocal, DateTimeKind.Local).ToUniversalTime();
+            // O valor de OADate já representa UTC.
+            var dt = DateTime.FromOADate(oa);          // Kind = Unspecified
+            return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
         }
 
         private static void LoadConfig()

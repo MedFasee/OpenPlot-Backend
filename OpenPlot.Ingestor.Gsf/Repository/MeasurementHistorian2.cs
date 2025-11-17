@@ -21,7 +21,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
 
         public Dictionary<Channel, ITimeSeries> QueryTerminalSeries(string Id, DateTime start, DateTime finish, List<Channel> measurements, int dataRate, int equipmentRate, bool downloadStat = false)
         {
-            Console.WriteLine("QueryTarminal");
+            Console.WriteLine("QueryTerminal");
             Console.Out.Flush();
             Dictionary<Channel, ITimeSeries> result;
             Dictionary<string, Channel> builtMeasurements = new Dictionary<string, Channel>();

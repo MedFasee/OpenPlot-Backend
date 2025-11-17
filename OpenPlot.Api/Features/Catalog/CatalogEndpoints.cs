@@ -120,7 +120,7 @@ ORDER BY m.area, m.state, m.volt_level, m.station, m.id_name;";
                                 .GroupBy(p => p.volt_level ?? 0)
                                 .Select(gTensao => new
                                 {
-                                    valor = gTensao.Key,
+                                    valor = (gTensao.Key / 1000),
                                     estacoes = gTensao
                                         .GroupBy(p => p.station)
                                         .Select(gEst => new
@@ -129,8 +129,7 @@ ORDER BY m.area, m.state, m.volt_level, m.station, m.id_name;";
                                             nome = gEst.First().id_name,
                                             terminais = gEst.Select(t =>
                                             {
-                                                var id = $"{t.id_name}"
-                                                    .Replace(' ', '_');
+                                                var id = $"{t.id_name}";
                                                 return new
                                                 {
                                                     id,
