@@ -177,7 +177,7 @@
         ],
         "parameters": [
           {
-            "name": "run_id",
+            "name": "run_Id",
             "in": "query",
             "required": true,
             "schema": {
@@ -186,28 +186,41 @@
             }
           },
           {
-            "name": "phase",
+            "name": "Phase",
             "in": "query",
-            "required": true,
             "schema": {
               "type": "string"
             }
           },
           {
-            "name": "unit",
+            "name": "max_points",
             "in": "query",
+            "required": true,
             "schema": {
-              "type": "string",
-              "default": "raw"
+              "type": "integer",
+              "format": "int32"
             }
           },
           {
-            "name": "max_points",
+            "name": "Unit",
             "in": "query",
             "schema": {
-              "type": "integer",
-              "format": "int32",
-              "default": 5000
+              "type": "string"
+            }
+          },
+          {
+            "name": "Tri",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "id_name",
+            "in": "query",
+            "schema": {
+              "type": "string"
             }
           },
           {
@@ -241,7 +254,7 @@
         ],
         "parameters": [
           {
-            "name": "run_id",
+            "name": "run_Id",
             "in": "query",
             "required": true,
             "schema": {
@@ -250,7 +263,130 @@
             }
           },
           {
-            "name": "phase",
+            "name": "Phase",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "max_points",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "Unit",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Tri",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "id_name",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/plots/seqpos/by-run": {
+      "get": {
+        "tags": [
+          "OpenPlot"
+        ],
+        "parameters": [
+          {
+            "name": "run_Id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Phase",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "max_points",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "Unit",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Tri",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "id_name",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pmu",
             "in": "query",
             "required": true,
             "schema": {
@@ -261,17 +397,7 @@
             "name": "unit",
             "in": "query",
             "schema": {
-              "type": "string",
-              "default": "raw"
-            }
-          },
-          {
-            "name": "max_points",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "default": 5000
+              "type": "string"
             }
           },
           {

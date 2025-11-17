@@ -54,17 +54,56 @@ namespace OpenPlot.Data.Dtos
     DateTime To,
     string Resolution
 );
-
+    /*
     public record ByRunQuery(
         [FromQuery(Name = "run_id")] Guid RunId,
         [FromQuery(Name = "phase")] string Phase,
         [FromQuery(Name = "unit")] string Unit = "raw",
         [FromQuery(Name = "max_points")] int MaxPoints = 5000
     );
+    */
 
     public record VoltRow(
     int Signal_Id, int Pdc_Pmu_Id, string Phase, string Component,
     string Id_Name, string Pdc_Name, int? Volt_Level,
     DateTime Ts, double Value
 );
+
+    public class SeqPosRow
+    {
+        public int Signal_Id { get; init; }
+        public int Pdc_Pmu_Id { get; init; }
+        public string Phase { get; init; } = "";
+        public string Component { get; init; } = "";
+        public string Id_Name { get; init; } = "";
+        public string Pdc_Name { get; init; } = "";
+        public double? Volt_Level { get; init; }
+        public DateTime Ts { get; init; }
+        public double Value { get; init; }
+    }
+
+
+    public sealed class ByRunQuery
+    {
+        [FromQuery(Name = "run_Id")]
+        public Guid RunId { get; set; }
+
+        // Fase A/B/C – obrigatória quando tri = false
+        public string? Phase { get; init; }
+
+        [FromQuery(Name = "max_points")]
+        public int MaxPoints { get; init; } = 2000;
+
+        // "raw" ou "pu"
+        public string? Unit { get; init; }
+
+        // Se true → plota trifásico (A,B,C) da PMU indicada em Pmu
+        public bool Tri { get; init; } = false;
+
+        // id_name da PMU (ex.: "N_PA_Belem_UFPA").
+        // Obrigatório quando Tri = true.
+        [FromQuery(Name = "id_name")]
+        public string? Pmu { get; init; }
+    }
+
 }
