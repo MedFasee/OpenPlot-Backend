@@ -25,7 +25,7 @@
   },
   {
     "sub": "e6f7e6c1-0e3c-4e5e-9b30-a2e2f0d91f11",
-    "username": "renan",
+    "username": "renan.dev",
     "password": "Renan@1234",
     "preferred_username": "renan.dev",
     "email": "renan@openplot.dev",
@@ -47,16 +47,40 @@
       "tenant": "UFSC_dev"
     }
   },
-  {
-    "sub": "e6fe56c1-0e3c-4e5e-9b30-a2e2f0d91d12",
-    "username": "Ildemar_Decker",
-    "password": "Medfaseefasor25!",
-    "preferred_username": "Ildemar C. Decker",
-    "email": "no_email@gmail.com",
-    "roles": ["reader"],
-    "claims": {
-      "organization": "UFSC",
-      "tenant": "UFSC_dev"
+    {
+        "sub": "e6fe56c1-0e3c-4e5e-9b30-a2e2f0d91d12",
+        "username": "I.C.Decker",
+        "password": "Medfasee25!",
+        "preferred_username": "Ildemar C. Decker",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "UFSC",
+            "tenant": "UFSC_dev"
+        }
+    },
+    {
+        "sub": "e6fe56c1-0e3c-4e5e-9b30-a2e2f0d9fd12",
+        "username": "G.R.Moraes",
+        "password": "Medfasee25!",
+        "preferred_username": "Guido R. Moraes",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "UFSC",
+            "tenant": "UFSC_dev"
+        }
+    },
+    {
+        "sub": "e6fe56c1-0e3c-4e5e-9b50-a2e2f0d9fd12",
+        "username": "G.Effting",
+        "password": "Medfasee25!",
+        "preferred_username": "Gabriel Effting",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "UFSC",
+            "tenant": "UFSC_dev"
+        }
     }
-  }
 ]

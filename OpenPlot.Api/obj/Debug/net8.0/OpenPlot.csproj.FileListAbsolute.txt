@@ -148,7 +148,6 @@ C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\staticwebassets\msbuild.buildMultiTargeting.OpenPlot.props
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\staticwebassets\msbuild.buildTransitive.OpenPlot.props
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\staticwebassets.pack.json
-C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\OpenPlot.csproj.Up2Date
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\OpenPlot.dll
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\refint\OpenPlot.dll
@@ -207,3 +206,4 @@ C:\Users\tatia\openPlot_V0-feature-backend_medplot\OpenPlot.Api\obj\Debug\net8.0
 C:\Users\tatia\openPlot_V0-feature-backend_medplot\OpenPlot.Api\obj\Debug\net8.0\OpenPlot.pdb
 C:\Users\tatia\openPlot_V0-feature-backend_medplot\OpenPlot.Api\obj\Debug\net8.0\OpenPlot.genruntimeconfig.cache
 C:\Users\tatia\openPlot_V0-feature-backend_medplot\OpenPlot.Api\obj\Debug\net8.0\ref\OpenPlot.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt

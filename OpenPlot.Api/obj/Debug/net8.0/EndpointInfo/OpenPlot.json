@@ -653,9 +653,7 @@
     "securitySchemes": {
       "Bearer": {
         "type": "http",
-        "description": "Informe: Bearer {token}",
-        "scheme": "bearer",
-        "bearerFormat": "JWT"
+        "scheme": "bearer"
       }
     }
   },
