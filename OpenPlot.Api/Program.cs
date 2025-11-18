@@ -179,12 +179,13 @@ app.UseSession();
 // ======================================================================
 // ENDPOINTS
 // ======================================================================
-app.MapGet("/", () => Results.Ok(new { ok = true, now = DateTime.UtcNow }));
+var apiV1 = app.MapGroup("/api/v1");
+//app.MapGet("/api/v1/", () => Results.Ok(new { ok = true, now = DateTime.UtcNow }));
 
-app.MapAuth();
-app.MapConfig();
-app.MapSearch();
-app.MapRuns();
-app.MapImport();
+apiV1.MapAuth();
+apiV1.MapConfig();
+apiV1.MapSearch();
+apiV1.MapRuns();
+apiV1.MapImport();
 
 app.Run();

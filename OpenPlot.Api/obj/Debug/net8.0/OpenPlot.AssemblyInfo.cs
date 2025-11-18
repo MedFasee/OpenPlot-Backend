@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("OpenPlot")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+dc7659f6c845777cddad0a8bd2c87b13d4ff6a8a")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+866d0ca8803381fe24b6ed7c36fa01ea880c7870")]
 [assembly: System.Reflection.AssemblyProductAttribute("OpenPlot")]
 [assembly: System.Reflection.AssemblyTitleAttribute("OpenPlot")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

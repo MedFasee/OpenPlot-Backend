@@ -5,7 +5,7 @@
     "version": "v1"
   },
   "paths": {
-    "/auth/login": {
+    "/api/v1/auth/login": {
       "post": {
         "tags": [
           "Auth"
@@ -37,7 +37,7 @@
         }
       }
     },
-    "/auth/logout": {
+    "/api/v1/auth/logout": {
       "post": {
         "tags": [
           "Auth"
@@ -49,12 +49,11 @@
         }
       }
     },
-    "/arquivos": {
+    "/api/v1/arquivos": {
       "get": {
         "tags": [
           "Config"
         ],
-        "operationId": "GetArquivos",
         "responses": {
           "200": {
             "description": "OK"
@@ -62,12 +61,11 @@
         }
       }
     },
-    "/xml/{pdcName}/terminais": {
+    "/api/v1/xml/{pdcName}/terminais": {
       "get": {
         "tags": [
           "Config"
         ],
-        "operationId": "GetPdcTerminais",
         "parameters": [
           {
             "name": "pdcName",
@@ -85,7 +83,28 @@
         }
       }
     },
-    "/import/xml": {
+    "/api/v1/buscas-realizadas": {
+      "get": {
+        "tags": [
+          "Config"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/xml": {
       "post": {
         "tags": [
           "Import"
@@ -107,43 +126,10 @@
         }
       }
     },
-    "/": {
+    "/api/v1/terminais/{nomeBusca}": {
       "get": {
         "tags": [
-          "OpenPlot"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/buscas-realizadas": {
-      "get": {
-        "tags": [
-          "OpenPlot"
-        ],
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/terminais/{nomeBusca}": {
-      "get": {
-        "tags": [
-          "OpenPlot"
+          "Runs"
         ],
         "parameters": [
           {
@@ -170,10 +156,10 @@
         }
       }
     },
-    "/plots/voltage-phase/by-run": {
+    "/api/v1/plots/voltage-phase/by-run": {
       "get": {
         "tags": [
-          "OpenPlot"
+          "Runs"
         ],
         "parameters": [
           {
@@ -247,10 +233,10 @@
         }
       }
     },
-    "/plots/current-phase/by-run": {
+    "/api/v1/plots/current-phase/by-run": {
       "get": {
         "tags": [
-          "OpenPlot"
+          "Runs"
         ],
         "parameters": [
           {
@@ -324,10 +310,10 @@
         }
       }
     },
-    "/plots/seqpos/by-run": {
+    "/api/v1/plots/seqpos/by-run": {
       "get": {
         "tags": [
-          "OpenPlot"
+          "Runs"
         ],
         "parameters": [
           {
@@ -424,10 +410,10 @@
         }
       }
     },
-    "/search": {
+    "/api/v1/search": {
       "post": {
         "tags": [
-          "OpenPlot"
+          "Search"
         ],
         "requestBody": {
           "content": {
@@ -446,10 +432,10 @@
         }
       }
     },
-    "/search/all": {
+    "/api/v1/search/all": {
       "post": {
         "tags": [
-          "OpenPlot"
+          "Search"
         ],
         "requestBody": {
           "content": {
@@ -468,10 +454,10 @@
         }
       }
     },
-    "/search/{id}": {
+    "/api/v1/search/{id}": {
       "get": {
         "tags": [
-          "OpenPlot"
+          "Search"
         ],
         "parameters": [
           {

@@ -82,5 +82,17 @@
             "organization": "UFSC",
             "tenant": "UFSC_dev"
         }
+    },
+    {
+        "sub": "e6fe56c1-0e6c-4e5e-9b50-a2e2f0d9fd12",
+        "username": "VIEWER",
+        "password": "VIEWER1",
+        "preferred_username": "Usuário Teste",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "UFSC",
+            "tenant": "UFSC_dev"
+        }
     }
 ]

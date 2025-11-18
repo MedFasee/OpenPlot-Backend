@@ -9,7 +9,10 @@ public static class RunsEndpoints
 {
     public static IEndpointRouteBuilder MapRuns(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/terminais/{nomeBusca}", async (
+        var grp = app.MapGroup("")
+                     .WithTags("Runs");
+
+        grp.MapGet("/terminais/{nomeBusca}", async (
             string nomeBusca,                                 // rota
             [FromQuery] Guid? id,                             // query ?id=...
             [FromServices] IDbConnectionFactory dbf,          // serviços
@@ -206,7 +209,7 @@ ORDER BY pu.area       NULLS LAST,
         // -------------------------------
         // 2) /plots/voltage-phase/by-run
         // -------------------------------
-        app.MapGet("/plots/voltage-phase/by-run",
+        grp.MapGet("/plots/voltage-phase/by-run",
         async Task<IResult> (
             [AsParameters] ByRunQuery q,
             [FromServices] IDbConnectionFactory dbf,
@@ -432,7 +435,7 @@ ORDER BY s.signal_id, r.ts;";
         // -------------------------------
         // 3) /plots/current-phase/by-run (RAW em A)
         // -------------------------------
-        app.MapGet("/plots/current-phase/by-run",
+        grp.MapGet("/plots/current-phase/by-run",
         async Task<IResult> (
             [AsParameters] ByRunQuery q,
             [FromServices] IDbConnectionFactory dbf,
@@ -660,7 +663,7 @@ ORDER BY s.signal_id, r.ts;";
         // ---------------------------------------------
         // 4) /plots/seqpos/by-run  (tensão ou corrente)
         // ---------------------------------------------
-        app.MapGet("/plots/seqpos/by-run",
+        grp.MapGet("/plots/seqpos/by-run",
         async Task<IResult> (
             [AsParameters] ByRunQuery q,
             [FromServices] IDbConnectionFactory dbf,

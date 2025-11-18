@@ -11,10 +11,11 @@ public static class SearchEndpoints
 {
     public static IEndpointRouteBuilder MapSearch(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/search");
+        var group = app.MapGroup("/search")
+                     .WithTags("Search");
 
         // POST /search (legado)
-        group.MapPost("/", async (
+        group.MapPost("", async (
             SearchRequest req,                                    // body
             [FromServices] IDbConnectionFactory dbf               // serviço
         ) =>
@@ -115,45 +116,7 @@ FROM openplot.search_runs WHERE id = @id";
             return row is null ? Results.NotFound() : Results.Ok(row);
         });
 
-        // GET /buscas-realizadas
-        app.MapGet("/buscas-realizadas", async (
-            [FromServices] IDbConnectionFactory dbf,
-            [FromQuery] string? status,
-            [FromServices] ITimeService time,
-            [FromServices] ILabelService labels
-        ) =>
-        {
-            using var db = dbf.Create();
-            var rows = await db.QueryAsync<SearchRunRow>(SearchSql.ListRuns, new { status });
-
-            var calendar = new Dictionary<string, Dictionary<string, Dictionary<string, List<string>>>>();
-            var lookup = new Dictionary<string, string>();
-
-            foreach (var r in rows)
-            {
-                var label = labels.BuildLabel(r.from_ts, r.to_ts, r.select_rate, r.source, r.terminal_id);
-                var createdLocal = TimeZoneInfo.ConvertTimeFromUtc(
-                    DateTime.SpecifyKind(r.created_at, DateTimeKind.Utc), time.BrazilTz);
-
-                var y = createdLocal.Year.ToString("0000");
-                var m = createdLocal.Month.ToString("00");
-                var d = createdLocal.Day.ToString("00");
-
-                if (!calendar.TryGetValue(y, out var months)) calendar[y] = months = new();
-                if (!months.TryGetValue(m, out var days)) months[m] = days = new();
-                if (!days.TryGetValue(d, out var labelsList)) days[d] = labelsList = new();
-
-                labelsList.Add(label);
-                if (!lookup.ContainsKey(label)) lookup[label] = r.id.ToString();
-            }
-
-            var data = new Dictionary<string, object>(calendar.ToDictionary(k => k.Key, v => (object)v.Value))
-            {
-                ["lookup"] = lookup
-            };
-
-            return Results.Json(new { status = 200, data });
-        });
+        
 
         return app;
     }

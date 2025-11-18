@@ -33,8 +33,12 @@ public static class ConfigEndpoints
 {
     public static void MapConfig(this IEndpointRouteBuilder app)
     {
+        var group = app.MapGroup("")
+                     .WithTags("Config");
+
         // GET /api/v1/arquivos
-        app.MapGet("arquivos", async (
+
+        group.MapGet("arquivos", async (
             [FromServices] IDbConnectionFactory dbf   // usa o serviço de DB já existente
         ) =>
         {
@@ -58,14 +62,12 @@ public static class ConfigEndpoints
                 status = 200,
                 data = new { arquivos }
             });
-        })
-        .WithName("GetArquivos")
-        .WithTags("Config");
+        });
 
         // ============================================================
         // GET /xml/{pdcName}/terminais
         // ============================================================
-        app.MapGet("xml/{pdcName}/terminais", async (
+        group.MapGet("xml/{pdcName}/terminais", async (
             [FromRoute] string pdcName,
             [FromServices] IDbConnectionFactory dbf
         ) =>
@@ -160,8 +162,46 @@ ORDER BY m.area, m.state, m.volt_level, m.station, m.id_name;";
             };
 
             return Results.Json(response);
-        })
-        .WithName("GetPdcTerminais")
-        .WithTags("Config");
+        });
+
+        // GET /buscas-realizadas
+        group.MapGet("/buscas-realizadas", async (
+            [FromServices] IDbConnectionFactory dbf,
+            [FromQuery] string? status,
+            [FromServices] ITimeService time,
+            [FromServices] ILabelService labels
+        ) =>
+        {
+            using var db = dbf.Create();
+            var rows = await db.QueryAsync<SearchRunRow>(SearchSql.ListRuns, new { status });
+
+            var calendar = new Dictionary<string, Dictionary<string, Dictionary<string, List<string>>>>();
+            var lookup = new Dictionary<string, string>();
+
+            foreach (var r in rows)
+            {
+                var label = labels.BuildLabel(r.from_ts, r.to_ts, r.select_rate, r.source, r.terminal_id);
+                var createdLocal = TimeZoneInfo.ConvertTimeFromUtc(
+                    DateTime.SpecifyKind(r.created_at, DateTimeKind.Utc), time.BrazilTz);
+
+                var y = createdLocal.Year.ToString("0000");
+                var m = createdLocal.Month.ToString("00");
+                var d = createdLocal.Day.ToString("00");
+
+                if (!calendar.TryGetValue(y, out var months)) calendar[y] = months = new();
+                if (!months.TryGetValue(m, out var days)) months[m] = days = new();
+                if (!days.TryGetValue(d, out var labelsList)) days[d] = labelsList = new();
+
+                labelsList.Add(label);
+                if (!lookup.ContainsKey(label)) lookup[label] = r.id.ToString();
+            }
+
+            var data = new Dictionary<string, object>(calendar.ToDictionary(k => k.Key, v => (object)v.Value))
+            {
+                ["lookup"] = lookup
+            };
+
+            return Results.Json(new { status = 200, data });
+        });
     }
 }
