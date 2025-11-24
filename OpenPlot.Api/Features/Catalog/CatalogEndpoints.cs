@@ -122,7 +122,7 @@ ORDER BY m.area, m.state, m.volt_level, m.station, m.id_name;";
                                 .GroupBy(p => p.volt_level ?? 0)
                                 .Select(gTensao => new
                                 {
-                                    valor = (gTensao.Key / 1000),
+                                    valor = Math.Round(gTensao.Key / 1000.0, 2),
                                     estacoes = gTensao
                                         .GroupBy(p => p.station)
                                         .Select(gEst => new
@@ -166,33 +166,36 @@ ORDER BY m.area, m.state, m.volt_level, m.station, m.id_name;";
 
         // GET /buscas-realizadas
         group.MapGet("/buscas-realizadas", async (
-            [FromServices] IDbConnectionFactory dbf,
-            [FromQuery] string? status,
-            [FromServices] ITimeService time,
-            [FromServices] ILabelService labels
-        ) =>
+    [FromServices] IDbConnectionFactory dbf,
+    [FromQuery] string? status,
+    [FromServices] ITimeService time,
+    [FromServices] ILabelService labels
+) =>
         {
             using var db = dbf.Create();
             var rows = await db.QueryAsync<SearchRunRow>(SearchSql.ListRuns, new { status });
 
-            var calendar = new Dictionary<string, Dictionary<string, Dictionary<string, List<string>>>>();
+            // 👇 só mudou aqui: List<SearchRunItem>
+            var calendar = new Dictionary<string, Dictionary<string, Dictionary<string, List<SearchRunItem>>>>();
             var lookup = new Dictionary<string, string>();
 
             foreach (var r in rows)
             {
                 var label = labels.BuildLabel(r.from_ts, r.to_ts, r.select_rate, r.source, r.terminal_id);
-                var createdLocal = TimeZoneInfo.ConvertTimeFromUtc(
-                    DateTime.SpecifyKind(r.created_at, DateTimeKind.Utc), time.BrazilTz);
+                var timeFilter = TimeZoneInfo.ConvertTimeFromUtc(
+                    DateTime.SpecifyKind(r.from_ts, DateTimeKind.Utc), time.BrazilTz);
 
-                var y = createdLocal.Year.ToString("0000");
-                var m = createdLocal.Month.ToString("00");
-                var d = createdLocal.Day.ToString("00");
+                var y = timeFilter.Year.ToString("0000");
+                var m = timeFilter.Month.ToString("00");
+                var d = timeFilter.Day.ToString("00");
 
                 if (!calendar.TryGetValue(y, out var months)) calendar[y] = months = new();
                 if (!months.TryGetValue(m, out var days)) months[m] = days = new();
                 if (!days.TryGetValue(d, out var labelsList)) days[d] = labelsList = new();
 
-                labelsList.Add(label);
+                // 👇 só mudou aqui: objeto com 2 campos
+                labelsList.Add(new SearchRunItem { label = label, status = r.status });
+
                 if (!lookup.ContainsKey(label)) lookup[label] = r.id.ToString();
             }
 
@@ -204,4 +207,11 @@ ORDER BY m.area, m.state, m.volt_level, m.station, m.id_name;";
             return Results.Json(new { status = 200, data });
         });
     }
+
+public sealed class SearchRunItem
+    {
+        public string label { get; set; } = "";
+        public string status { get; set; } = "";
+    }
+
 }

@@ -70,7 +70,7 @@ namespace OpenPlot.Ingestor.Gsf
                                     from = rdr.GetDateTime(4);
                                     to = rdr.GetDateTime(5);
                                     selectRate = rdr.IsDBNull(6) ? 0 : rdr.GetInt32(6);
-                                    pmusJson = rdr.IsDBNull(7) ? null : rdr.GetString(7); // 👈 NOVO
+                                    pmusJson = rdr.IsDBNull(7) ? null : rdr.GetString(7); // NOVO
                                 }
                             }
 

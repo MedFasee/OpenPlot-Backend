@@ -160,7 +160,7 @@ signals_final AS (
       WHEN CARDINALITY(phases_raw) = 1 AND phases_raw[1] = 'A'
         THEN ARRAY['A']::text[]
       WHEN ARRAY['A','B','C']::text[] <@ phases_raw
-        THEN ARRAY['A','B','C','Trifásico']::text[]
+        THEN ARRAY['A','B','C','Trifásico','Sequência Positiva']::text[]
       ELSE (
         SELECT ARRAY(
           SELECT UNNEST(phases_raw) p
@@ -800,8 +800,8 @@ sig AS (
 raw AS (
   SELECT m.signal_id, m.ts, m.value
   FROM openplot.measurements m
-  WHERE m.ts >= ((SELECT from_utc FROM win) + INTERVAL '3 hours')
-    AND m.ts <= ((SELECT to_utc   FROM win) + INTERVAL '3 hours')
+  WHERE m.ts >= (SELECT from_utc FROM win)
+    AND m.ts <= (SELECT to_utc   FROM win)
 )
 
 SELECT
@@ -875,7 +875,7 @@ ORDER BY s.signal_id, r.ts;";
             if (u == "pu" && k == "voltage")
             {
                 if (firstRow.Volt_Level.HasValue && firstRow.Volt_Level.Value > 0)
-                    baseValue = (firstRow.Volt_Level.Value / Math.Sqrt(3.0)) * 1000.0;
+                    baseValue = (firstRow.Volt_Level.Value / Math.Sqrt(3.0));
             }
             else if (u == "pu" && k == "current")
             {
@@ -970,25 +970,22 @@ ORDER BY s.signal_id, r.ts;";
     /// As listas devem estar ORDENADAS por ts.
     /// </summary>
     private static List<(DateTime ts, double mag)> ComputePositiveSequenceMagnitudeMedPlot(
-        List<(DateTime ts, double mag)> vaMod,
-        List<(DateTime ts, double mag)> vbMod,
-        List<(DateTime ts, double mag)> vcMod,
-        List<(DateTime ts, double angDeg)> vaAng,
-        List<(DateTime ts, double angDeg)> vbAng,
-        List<(DateTime ts, double angDeg)> vcAng)
+    List<(DateTime ts, double mag)> vaMod,
+    List<(DateTime ts, double mag)> vbMod,
+    List<(DateTime ts, double mag)> vcMod,
+    List<(DateTime ts, double angDeg)> vaAng,
+    List<(DateTime ts, double angDeg)> vbAng,
+    List<(DateTime ts, double angDeg)> vcAng)
     {
         var result = new List<(DateTime ts, double mag)>();
 
         if (vaMod.Count == 0 || vbMod.Count == 0 || vcMod.Count == 0 ||
             vaAng.Count == 0 || vbAng.Count == 0 || vcAng.Count == 0)
-        {
             return result;
-        }
 
-        // Tolerância de 3 ms para alinhamento (equivalente ao 3 * TimeUtils.OA_MILLISECOND do MedPlot).
         var tolerance = TimeSpan.FromMilliseconds(3);
 
-        int ia = 0, ib = 0, ic = 0; // índices de A/B/C (módulo/ângulo assumem o mesmo índice para cada fase)
+        int ia = 0, ib = 0, ic = 0;
 
         const double Deg2Rad = Math.PI / 180.0;
         Complex a = Complex.FromPolarCoordinates(1.0, 120.0 * Deg2Rad);
@@ -1000,47 +997,36 @@ ORDER BY s.signal_id, r.ts;";
             var tB = vbMod[ib].ts;
             var tC = vcMod[ic].ts;
 
-            // tempo de referência (maxTime) como no MedPlot
             var maxTime = tA;
             if (tB > maxTime) maxTime = tB;
             if (tC > maxTime) maxTime = tC;
 
-            // Alinhamento com tolerância: enquanto estiver muito "atrás" e distante mais que 3 ms, avança o índice
             while (ia < vaMod.Count &&
                    vaMod[ia].ts < maxTime &&
                    (maxTime - vaMod[ia].ts) > tolerance)
-            {
                 ia++;
-            }
 
             while (ib < vbMod.Count &&
                    vbMod[ib].ts < maxTime &&
                    (maxTime - vbMod[ib].ts) > tolerance)
-            {
                 ib++;
-            }
 
             while (ic < vcMod.Count &&
                    vcMod[ic].ts < maxTime &&
                    (maxTime - vcMod[ic].ts) > tolerance)
-            {
                 ic++;
-            }
 
             if (ia >= vaMod.Count || ib >= vbMod.Count || ic >= vcMod.Count)
                 break;
 
-            // Agora os três índices devem estar "perto" de maxTime (dentro da tolerância)
             tA = vaMod[ia].ts;
             tB = vbMod[ib].ts;
             tC = vcMod[ic].ts;
 
-            // Se alguma fase ficou muito fora ainda, avança de novo
-            if (Math.Abs((tA - maxTime).TotalMilliseconds) > tolerance.TotalMilliseconds ||
-                Math.Abs((tB - maxTime).TotalMilliseconds) > tolerance.TotalMilliseconds ||
-                Math.Abs((tC - maxTime).TotalMilliseconds) > tolerance.TotalMilliseconds)
+            if (Math.Abs((tA - maxTime).TotalMilliseconds) > 3 ||
+                Math.Abs((tB - maxTime).TotalMilliseconds) > 3 ||
+                Math.Abs((tC - maxTime).TotalMilliseconds) > 3)
             {
-                // tenta avançar índice da menor data para se re-alinhar
                 var minTime = tA;
                 if (tB < minTime) minTime = tB;
                 if (tC < minTime) minTime = tC;
@@ -1052,34 +1038,26 @@ ORDER BY s.signal_id, r.ts;";
                 continue;
             }
 
-            // Angulos: assumimos que mag/ang por fase têm o mesmo índice temporal.
-            // Em bancos bem alinhados isso é verdade (V_MAG_A[i] e V_ANG_A[i]).
-            if (ia >= vaAng.Count || ib >= vbAng.Count || ic >= vcAng.Count)
-                break;
-
+            // Aqui é onde o erro ocorria:
             double vaM = vaMod[ia].mag;
             double vbM = vbMod[ib].mag;
             double vcM = vcMod[ic].mag;
 
-            double vaAngDeg = vaAng[ia].angDeg;
-            double vbAngDeg = vbAng[ib].angDeg;
-            double vcAngDeg = vcAng[ic].angDeg;
+            double vaDeg = vaAng[ia].angDeg;
+            double vbDeg = vbAng[ib].angDeg;
+            double vcDeg = vcAng[ic].angDeg;
 
-            double thA = vaAngDeg * Deg2Rad;
-            double thB = (vbAngDeg + 120.0) * Deg2Rad; // +120° como no MedPlot
-            double thC = (vcAngDeg + 240.0) * Deg2Rad; // +240° como no MedPlot
+            double thA = vaDeg * Deg2Rad;
+            double thB = vbDeg * Deg2Rad;
+            double thC = vcDeg * Deg2Rad;
 
             Complex Va = Complex.FromPolarCoordinates(vaM, thA);
             Complex Vb = Complex.FromPolarCoordinates(vbM, thB);
             Complex Vc = Complex.FromPolarCoordinates(vcM, thC);
 
-            // V1 = (Va + a·Vb + a²·Vc) / 3
             Complex V1 = (Va + a * Vb + a2 * Vc) / 3.0;
 
-            double mag1 = V1.Magnitude;
-            var ts = maxTime; // igual ao MedPlot: usa o maxTime como referência temporal
-
-            result.Add((ts, mag1));
+            result.Add((maxTime, V1.Magnitude));
 
             ia++;
             ib++;
@@ -1088,5 +1066,6 @@ ORDER BY s.signal_id, r.ts;";
 
         return result;
     }
+
 
 }
