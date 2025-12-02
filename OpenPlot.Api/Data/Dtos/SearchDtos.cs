@@ -68,6 +68,15 @@ namespace OpenPlot.Data.Dtos
     string Id_Name, string Pdc_Name, int? Volt_Level,
     DateTime Ts, double Value
 );
+    public record FreqRow(
+    int Signal_Id,
+    int Pdc_Pmu_Id,
+    string Id_Name,
+    string Pdc_Name,
+    DateTime Ts,
+    double Value
+);
+
 
     public class SeqPosRow
     {
@@ -92,7 +101,7 @@ namespace OpenPlot.Data.Dtos
         public string? Phase { get; init; }
 
         [FromQuery(Name = "max_points")]
-        public int MaxPoints { get; init; } = 2000;
+        public int MaxPoints { get; init; } = 5000;
 
         // "raw" ou "pu"
         public string? Unit { get; init; }
@@ -105,5 +114,11 @@ namespace OpenPlot.Data.Dtos
         [FromQuery(Name = "id_name")]
         public string? Pmu { get; init; }
     }
+    public record FreqRunQuery(
+    [property: FromQuery(Name = "run_id")] Guid RunId,
+    [property: FromQuery(Name = "pmu")] string? Pmu,
+    [property: FromQuery(Name = "maxPoints")] int MaxPoints = 5000
+);
+
 
 }

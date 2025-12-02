@@ -909,6 +909,369 @@ ORDER BY s.signal_id, r.ts;";
                 points = downs.Select(p => new object[] { p.ts, p.val })
             });
         });
+        // -----------------------------------------
+        // 5) /plots/frequency/by-run  (Frequência)
+        // -----------------------------------------
+        grp.MapGet("/plots/frequency/by-run",
+        async Task<IResult> (
+            [AsParameters] FreqRunQuery q,
+            [FromServices] IDbConnectionFactory dbf,
+            [FromQuery] DateTime? from,
+            [FromQuery] DateTime? to
+        ) =>
+        {
+            var pmuName = q.Pmu?.Trim();
+            var maxPts = Math.Max(q.MaxPoints, 100);
+
+            DateTime? fromUtc = from?.ToUniversalTime();
+            DateTime? toUtc = to?.ToUniversalTime();
+            if (fromUtc.HasValue && toUtc.HasValue && fromUtc >= toUtc)
+                return Results.BadRequest("from < to");
+
+            using var db = dbf.Create();
+
+            var pmuFilter = !string.IsNullOrWhiteSpace(pmuName)
+                ? "LOWER(pmu.id_name) = LOWER(@pmu)"
+                : "TRUE";
+
+            const string sqlTemplate = @"
+WITH run AS (
+  SELECT id, source AS pdc_name, from_ts, to_ts, pmus, signals
+  FROM openplot.search_runs
+  WHERE id = @run_id::uuid
+),
+run_window AS (
+  SELECT
+    CASE WHEN pg_typeof(r.from_ts)::text = 'timestamp without time zone'
+         THEN r.from_ts::timestamptz ELSE r.from_ts END AS from_utc,
+    CASE WHEN pg_typeof(r.to_ts)::text = 'timestamp without time zone'
+         THEN r.to_ts::timestamptz ELSE r.to_ts   END AS to_utc,
+    r.pdc_name, r.signals, r.pmus
+  FROM run r
+),
+win AS (
+  SELECT
+    COALESCE(@from_utc, rw.from_utc) AS from_utc,
+    COALESCE(@to_utc,   rw.to_utc)   AS to_utc,
+    rw.pdc_name, rw.signals, rw.pmus
+  FROM run_window rw
+),
+src AS (
+  SELECT w.pdc_name,
+         w.from_utc AS from_ts,
+         w.to_utc   AS to_ts,
+         CASE
+           WHEN jsonb_typeof(w.signals) = 'array' AND jsonb_array_length(w.signals) > 0 THEN w.signals
+           WHEN jsonb_typeof(w.pmus)    = 'array' AND jsonb_array_length(w.pmus)    > 0 THEN w.pmus
+           ELSE '[]'::jsonb
+         END AS arr
+  FROM win w
+),
+elems AS (
+  SELECT pdc_name, from_ts, to_ts, jsonb_array_elements(arr) AS elem
+  FROM src
+),
+pmu_ids AS (
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN openplot.pmu p ON p.id_name = btrim(r.elem::text, '""')
+  WHERE jsonb_typeof(r.elem) = 'string'
+  UNION ALL
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN LATERAL (
+    SELECT NULLIF(TRIM(r.elem->>'pmu'), '')     AS key_pmu,
+           NULLIF(TRIM(r.elem->>'id_name'), '') AS key_idname
+  ) k ON TRUE
+  JOIN openplot.pmu p ON p.id_name = COALESCE(k.key_pmu, k.key_idname)
+  WHERE jsonb_typeof(r.elem) = 'object'
+    AND COALESCE(k.key_pmu, k.key_idname) IS NOT NULL
+  UNION ALL
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN LATERAL (SELECT NULLIF(r.elem->>'pdc_pmu_id','')::int AS key_pdc_pmu_id) k ON TRUE
+  JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = k.key_pdc_pmu_id
+  JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
+  WHERE jsonb_typeof(r.elem) = 'object'
+  UNION ALL
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN LATERAL (SELECT NULLIF(r.elem->>'signal_id','')::int AS key_signal_id) k ON TRUE
+  JOIN openplot.signal s ON s.signal_id = k.key_signal_id
+  JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = s.pdc_pmu_id
+  JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
+  WHERE jsonb_typeof(r.elem) = 'object'
+),
+pdc_ctx AS (
+  SELECT w.pdc_name, w.from_ts, w.to_ts, pdc.pdc_id
+  FROM src w
+  JOIN openplot.pdc pdc ON LOWER(pdc.name) = LOWER(w.pdc_name)
+),
+ctx AS (
+  SELECT pc.pdc_name, pc.from_ts, pc.to_ts, pid.id_name, pid.pmu_id, pc.pdc_id
+  FROM pdc_ctx pc
+  JOIN pmu_ids pid ON pid.pdc_name = pc.pdc_name
+),
+sig AS (
+  SELECT s.signal_id, s.pdc_pmu_id,
+         c.id_name, c.pdc_name
+  FROM ctx c
+  JOIN openplot.pdc_pmu pp ON pp.pdc_id = c.pdc_id AND pp.pmu_id = c.pmu_id
+  JOIN openplot.signal s   ON s.pdc_pmu_id = pp.pdc_pmu_id
+  WHERE LOWER(s.quantity::text) = 'frequency'
+    AND LOWER(s.component::text) = 'freq'
+    AND {PMU_FILTER}
+),
+raw AS (
+  SELECT m.signal_id, m.ts, m.value
+  FROM openplot.measurements m
+  WHERE m.ts >= (SELECT from_utc FROM win)
+    AND m.ts <= (SELECT to_utc FROM win)
+)
+SELECT
+  s.signal_id, s.pdc_pmu_id,
+  s.id_name, s.pdc_name,
+  r.ts, r.value
+FROM sig s
+JOIN raw r USING (signal_id)
+ORDER BY s.signal_id, r.ts;
+";
+
+            var sql = sqlTemplate.Replace("{PMU_FILTER}", pmuFilter);
+
+            var rows = (await db.QueryAsync<FreqRow>(sql, new
+            {
+                run_id = q.RunId,
+                from_utc = fromUtc,
+                to_utc = toUtc,
+                pmu = pmuName
+            })).ToList();
+
+            if (rows.Count == 0)
+                return Results.NotFound("Nenhuma frequência encontrada para esse run_id.");
+
+            var series = rows
+                .GroupBy(r => r.Signal_Id)
+                .Select(g =>
+                {
+                    var any = g.First();
+
+                    var downs = TimeBucketDownsampleMinMax(
+                        g.Select(r => (r.Ts, r.Value)), maxPts);
+
+                    return new
+                    {
+                        pmu = any.Id_Name,
+                        pdc = any.Pdc_Name,
+                        signal_id = any.Signal_Id,
+                        pdc_pmu_id = any.Pdc_Pmu_Id,
+                        unit = "Hz",
+                        points = downs.Select(p => new object[] { p.ts, p.val })
+                    };
+                })
+                .ToList();
+
+            var first = rows.First();
+
+            return Results.Ok(new
+            {
+                run_id = q.RunId,
+                unit = "Hz",
+                resolved = new
+                {
+                    pdc = first.Pdc_Name,
+                    pmu_count = series.Select(s => s.pmu).Distinct().Count()
+                },
+                window = new
+                {
+                    from = fromUtc ?? rows.Min(r => r.Ts),
+                    to = toUtc ?? rows.Max(r => r.Ts)
+                },
+                series
+            });
+        });
+        // -----------------------------------------
+        // 6) /plots/dfreq/by-run  (Derivada da frequência)
+        // -----------------------------------------
+        grp.MapGet("/plots/dfreq/by-run",
+        async Task<IResult> (
+            [AsParameters] FreqRunQuery q,
+            [FromServices] IDbConnectionFactory dbf,
+            [FromQuery] DateTime? from,
+            [FromQuery] DateTime? to
+        ) =>
+        {
+            var pmuName = q.Pmu?.Trim();
+            var maxPts = Math.Max(q.MaxPoints, 100);
+
+            DateTime? fromUtc = from?.ToUniversalTime();
+            DateTime? toUtc = to?.ToUniversalTime();
+            if (fromUtc.HasValue && toUtc.HasValue && fromUtc >= toUtc)
+                return Results.BadRequest("from < to");
+
+            using var db = dbf.Create();
+
+            var pmuFilter = !string.IsNullOrWhiteSpace(pmuName)
+                ? "LOWER(pmu.id_name) = LOWER(@pmu)"
+                : "TRUE";
+
+            // SQL para dfreq
+            const string sqlTemplate = @"
+WITH run AS (
+  SELECT id, source AS pdc_name, from_ts, to_ts, pmus, signals
+  FROM openplot.search_runs
+  WHERE id = @run_id::uuid
+),
+run_window AS (
+  SELECT
+    CASE WHEN pg_typeof(r.from_ts)::text = 'timestamp without time zone'
+         THEN r.from_ts::timestamptz ELSE r.from_ts END AS from_utc,
+    CASE WHEN pg_typeof(r.to_ts)::text = 'timestamp without time zone'
+         THEN r.to_ts::timestamptz ELSE r.to_ts END AS to_utc,
+    r.pdc_name, r.signals, r.pmus
+  FROM run r
+),
+win AS (
+  SELECT
+    COALESCE(@from_utc, rw.from_utc) AS from_utc,
+    COALESCE(@to_utc,   rw.to_utc)   AS to_utc,
+    rw.pdc_name, rw.signals, rw.pmus
+  FROM run_window rw
+),
+src AS (
+  SELECT w.pdc_name,
+         w.from_utc AS from_ts,
+         w.to_utc   AS to_ts,
+         CASE
+           WHEN jsonb_typeof(w.signals) = 'array' AND jsonb_array_length(w.signals) > 0 THEN w.signals
+           WHEN jsonb_typeof(w.pmus)    = 'array' AND jsonb_array_length(w.pmus)    > 0 THEN w.pmus
+           ELSE '[]'::jsonb
+         END AS arr
+  FROM win w
+),
+elems AS (
+  SELECT pdc_name, from_ts, to_ts, jsonb_array_elements(arr) AS elem
+  FROM src
+),
+pmu_ids AS (
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN openplot.pmu p ON p.id_name = btrim(r.elem::text, '""')
+  WHERE jsonb_typeof(r.elem) = 'string'
+  UNION ALL
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN LATERAL (
+    SELECT NULLIF(TRIM(r.elem->>'pmu'), '')     AS key_pmu,
+           NULLIF(TRIM(r.elem->>'id_name'), '') AS key_idname
+  ) k ON TRUE
+  JOIN openplot.pmu p ON p.id_name = COALESCE(k.key_pmu, k.key_idname)
+  WHERE jsonb_typeof(r.elem) = 'object'
+    AND COALESCE(k.key_pmu, k.key_idname) IS NOT NULL
+  UNION ALL
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN LATERAL (SELECT NULLIF(r.elem->>'pdc_pmu_id','')::int AS key_pdc_pmu_id) k ON TRUE
+  JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = k.key_pdc_pmu_id
+  JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
+  WHERE jsonb_typeof(r.elem) = 'object'
+  UNION ALL
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN LATERAL (SELECT NULLIF(r.elem->>'signal_id','')::int AS key_signal_id) k ON TRUE
+  JOIN openplot.signal s ON s.signal_id = k.key_signal_id
+  JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = s.pdc_pmu_id
+  JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
+  WHERE jsonb_typeof(r.elem) = 'object'
+),
+pdc_ctx AS (
+  SELECT w.pdc_name, w.from_ts, w.to_ts, pdc.pdc_id
+  FROM src w
+  JOIN openplot.pdc pdc ON LOWER(pdc.name) = LOWER(w.pdc_name)
+),
+ctx AS (
+  SELECT pc.pdc_name, pc.from_ts, pc.to_ts, pid.id_name, pid.pmu_id, pc.pdc_id
+  FROM pdc_ctx pc
+  JOIN pmu_ids pid ON pid.pdc_name = pc.pdc_name
+),
+sig AS (
+  SELECT s.signal_id, s.pdc_pmu_id,
+         c.id_name, c.pdc_name
+  FROM ctx c
+  JOIN openplot.pdc_pmu pp ON pp.pdc_id = c.pdc_id AND pp.pmu_id = c.pmu_id
+  JOIN openplot.signal s   ON s.pdc_pmu_id = pp.pdc_pmu_id
+  WHERE LOWER(s.quantity::text) = 'frequency'
+    AND LOWER(s.component::text) = 'dfreq'
+    AND {PMU_FILTER}
+),
+raw AS (
+  SELECT m.signal_id, m.ts, m.value
+  FROM openplot.measurements m
+  WHERE m.ts >= (SELECT from_utc FROM win)
+    AND m.ts <= (SELECT to_utc FROM win)
+)
+SELECT
+  s.signal_id, s.pdc_pmu_id,
+  s.id_name, s.pdc_name,
+  r.ts, r.value
+FROM sig s
+JOIN raw r USING (signal_id)
+ORDER BY s.signal_id, r.ts;
+";
+
+            var sql = sqlTemplate.Replace("{PMU_FILTER}", pmuFilter);
+
+            var rows = (await db.QueryAsync<FreqRow>(sql, new
+            {
+                run_id = q.RunId,
+                from_utc = fromUtc,
+                to_utc = toUtc,
+                pmu = pmuName
+            })).ToList();
+
+            if (rows.Count == 0)
+                return Results.NotFound("Nenhuma dfreq encontrada para esse run_id.");
+
+            var series = rows
+                .GroupBy(r => r.Signal_Id)
+                .Select(g =>
+                {
+                    var any = g.First();
+
+                    var downs = TimeBucketDownsampleMinMax(
+                        g.Select(r => (r.Ts, r.Value)), maxPts);
+
+                    return new
+                    {
+                        pmu = any.Id_Name,
+                        pdc = any.Pdc_Name,
+                        signal_id = any.Signal_Id,
+                        pdc_pmu_id = any.Pdc_Pmu_Id,
+                        unit = "Hz/s",
+                        points = downs.Select(p => new object[] { p.ts, p.val })
+                    };
+                })
+                .ToList();
+
+            var first = rows.First();
+
+            return Results.Ok(new
+            {
+                run_id = q.RunId,
+                unit = "Hz/s",
+                resolved = new
+                {
+                    pdc = first.Pdc_Name,
+                    pmu_count = series.Select(s => s.pmu).Distinct().Count()
+                },
+                window = new
+                {
+                    from = fromUtc ?? rows.Min(r => r.Ts),
+                    to = toUtc ?? rows.Max(r => r.Ts)
+                },
+                series
+            });
+        });
 
 
         return app;

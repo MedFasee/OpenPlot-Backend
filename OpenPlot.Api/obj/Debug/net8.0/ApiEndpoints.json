@@ -156,6 +156,96 @@
   },
   {
     "ContainingType": "RunsEndpoints\u002B\u003C\u003Ec",
+    "Method": "\u003CMapRuns\u003Eb__0_5",
+    "RelativePath": "api/v1/plots/dfreq/by-run",
+    "HttpMethod": "GET",
+    "IsController": false,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "run_id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "pmu",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "maxPoints",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "from",
+        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "to",
+        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Void",
+        "MediaTypes": [],
+        "StatusCode": 200
+      }
+    ],
+    "Tags": [
+      "Runs"
+    ]
+  },
+  {
+    "ContainingType": "RunsEndpoints\u002B\u003C\u003Ec",
+    "Method": "\u003CMapRuns\u003Eb__0_4",
+    "RelativePath": "api/v1/plots/frequency/by-run",
+    "HttpMethod": "GET",
+    "IsController": false,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "run_id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "pmu",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "maxPoints",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "from",
+        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "to",
+        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Void",
+        "MediaTypes": [],
+        "StatusCode": 200
+      }
+    ],
+    "Tags": [
+      "Runs"
+    ]
+  },
+  {
+    "ContainingType": "RunsEndpoints\u002B\u003C\u003Ec",
     "Method": "\u003CMapRuns\u003Eb__0_3",
     "RelativePath": "api/v1/plots/seqpos/by-run",
     "HttpMethod": "GET",
