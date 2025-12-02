@@ -175,15 +175,15 @@ ORDER BY m.area, m.state, m.volt_level, m.station, m.id_name;";
             using var db = dbf.Create();
             var rows = await db.QueryAsync<SearchRunRow>(SearchSql.ListRuns, new { status });
 
-            // 👇 só mudou aqui: List<SearchRunItem>
+            // mudou aqui: List<SearchRunItem>
             var calendar = new Dictionary<string, Dictionary<string, Dictionary<string, List<SearchRunItem>>>>();
             var lookup = new Dictionary<string, string>();
 
             foreach (var r in rows)
             {
                 var label = labels.BuildLabel(r.from_ts, r.to_ts, r.select_rate, r.source, r.terminal_id);
-                var timeFilter = TimeZoneInfo.ConvertTimeFromUtc(
-                    DateTime.SpecifyKind(r.from_ts, DateTimeKind.Utc), time.BrazilTz);
+                var timeFilter = DateTime.SpecifyKind(r.from_ts, DateTimeKind.Utc).ToUniversalTime();
+
 
                 var y = timeFilter.Year.ToString("0000");
                 var m = timeFilter.Month.ToString("00");
@@ -193,7 +193,7 @@ ORDER BY m.area, m.state, m.volt_level, m.station, m.id_name;";
                 if (!months.TryGetValue(m, out var days)) months[m] = days = new();
                 if (!days.TryGetValue(d, out var labelsList)) days[d] = labelsList = new();
 
-                // 👇 só mudou aqui: objeto com 2 campos
+                // só mudou aqui: objeto com 2 campos
                 labelsList.Add(new SearchRunItem { label = label, status = r.status });
 
                 if (!lookup.ContainsKey(label)) lookup[label] = r.id.ToString();
