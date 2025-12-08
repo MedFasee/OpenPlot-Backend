@@ -166,52 +166,63 @@ ORDER BY m.area, m.state, m.volt_level, m.station, m.id_name;";
 
         // GET /buscas-realizadas
         group.MapGet("/buscas-realizadas", async (
-    [FromServices] IDbConnectionFactory dbf,
-    [FromQuery] string? status,
-    [FromServices] ITimeService time,
-    [FromServices] ILabelService labels
-) =>
+            [FromServices] IDbConnectionFactory dbf,
+            [FromQuery] string? status,
+            [FromServices] ITimeService time,
+            [FromServices] ILabelService labels
+        ) =>
         {
             using var db = dbf.Create();
             var rows = await db.QueryAsync<SearchRunRow>(SearchSql.ListRuns, new { status });
 
-            // mudou aqui: List<SearchRunItem>
+            // ano -> mês -> dia -> itens
             var calendar = new Dictionary<string, Dictionary<string, Dictionary<string, List<SearchRunItem>>>>();
-            var lookup = new Dictionary<string, string>();
 
             foreach (var r in rows)
             {
                 var label = labels.BuildLabel(r.from_ts, r.to_ts, r.select_rate, r.source, r.terminal_id);
-                var timeFilter = DateTime.SpecifyKind(r.from_ts, DateTimeKind.Utc).ToUniversalTime();
 
+                // agrupa pela data no fuso do Brasil
+                var fromUtc = DateTime.SpecifyKind(r.from_ts, DateTimeKind.Utc);
+                var timeFilter = TimeZoneInfo.ConvertTimeFromUtc(fromUtc, time.BrazilTz);
 
                 var y = timeFilter.Year.ToString("0000");
                 var m = timeFilter.Month.ToString("00");
                 var d = timeFilter.Day.ToString("00");
 
-                if (!calendar.TryGetValue(y, out var months)) calendar[y] = months = new();
-                if (!months.TryGetValue(m, out var days)) months[m] = days = new();
-                if (!days.TryGetValue(d, out var labelsList)) days[d] = labelsList = new();
+                if (!calendar.TryGetValue(y, out var months))
+                    calendar[y] = months = new();
 
-                // só mudou aqui: objeto com 2 campos
-                labelsList.Add(new SearchRunItem { label = label, status = r.status });
+                if (!months.TryGetValue(m, out var days))
+                    months[m] = days = new();
 
-                if (!lookup.ContainsKey(label)) lookup[label] = r.id.ToString();
+                if (!days.TryGetValue(d, out var items))
+                    days[d] = items = new();
+
+                items.Add(new SearchRunItem
+                {
+                    label = label,
+                    status = r.status,
+                    id = r.id.ToString()
+                });
             }
 
-            var data = new Dictionary<string, object>(calendar.ToDictionary(k => k.Key, v => (object)v.Value))
-            {
-                ["lookup"] = lookup
-            };
+            // agora data é só o calendário (sem lookup)
+            var data = calendar;
 
             return Results.Json(new { status = 200, data });
         });
+
+
     }
 
-public sealed class SearchRunItem
+    public class SearchRunItem
     {
-        public string label { get; set; } = "";
-        public string status { get; set; } = "";
+        public string label { get; set; } = default!;
+        public string status { get; set; } = default!;
+        public string id { get; set; } = default!;
     }
+
+
 
 }
