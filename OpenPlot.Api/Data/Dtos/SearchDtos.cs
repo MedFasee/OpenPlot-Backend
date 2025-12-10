@@ -119,6 +119,19 @@ namespace OpenPlot.Data.Dtos
     [property: FromQuery(Name = "pmu")] string? Pmu,
     [property: FromQuery(Name = "maxPoints")] int MaxPoints = 5000
 );
+    public record SeqPosRunQuery(
+    [property: FromQuery(Name = "run_id")] Guid RunId,
+    [property: FromQuery(Name = "pmu")] string? Pmu,          // ⬅️ uma PMU opcional
+    [property: FromQuery(Name = "unit")] string? Unit = "raw",
+    [property: FromQuery(Name = "volt_level")] double? VoltLevel = null,
+    [property: FromQuery(Name = "maxPoints")] int MaxPoints = 5000
+);
+
+
+
+
+
+
 
 
 }

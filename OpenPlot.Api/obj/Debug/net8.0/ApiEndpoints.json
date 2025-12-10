@@ -253,49 +253,39 @@
     "Order": 0,
     "Parameters": [
       {
-        "Name": "run_Id",
+        "Name": "run_id",
         "Type": "System.Guid",
         "IsRequired": true
       },
       {
-        "Name": "Phase",
+        "Name": "pmu",
         "Type": "System.String",
         "IsRequired": false
       },
       {
-        "Name": "max_points",
+        "Name": "unit",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "volt_level",
+        "Type": "System.Nullable\u00601[[System.Double, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "maxPoints",
         "Type": "System.Int32",
-        "IsRequired": true
-      },
-      {
-        "Name": "Unit",
-        "Type": "System.String",
         "IsRequired": false
       },
       {
-        "Name": "Tri",
-        "Type": "System.Boolean",
-        "IsRequired": true
-      },
-      {
-        "Name": "id_name",
-        "Type": "System.String",
+        "Name": "pmu",
+        "Type": "System.String[]",
         "IsRequired": false
       },
       {
         "Name": "kind",
         "Type": "System.String",
         "IsRequired": true
-      },
-      {
-        "Name": "pmu",
-        "Type": "System.String",
-        "IsRequired": true
-      },
-      {
-        "Name": "unit",
-        "Type": "System.String",
-        "IsRequired": false
       },
       {
         "Name": "from",

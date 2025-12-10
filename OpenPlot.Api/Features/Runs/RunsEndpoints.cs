@@ -665,15 +665,17 @@ ORDER BY s.signal_id, r.ts;";
         // ---------------------------------------------
         grp.MapGet("/plots/seqpos/by-run",
         async Task<IResult> (
-            [AsParameters] ByRunQuery q,
+            [AsParameters] SeqPosRunQuery q,
+            [FromQuery] string[]? pmu,          // <--- múltiplas PMUs via ?pmu=...&pmu=...
+            [FromQuery] string kind,            // "voltage" | "current"
             [FromServices] IDbConnectionFactory dbf,
-            [FromQuery] string kind,          // "voltage" | "current"
-            [FromQuery] string pmu,           // id_name da PMU (uma por vez)
-            [FromQuery] string? unit,         // "raw" (default) | "pu"
             [FromQuery] DateTime? from,
             [FromQuery] DateTime? to
         ) =>
         {
+            // =============================
+            // kind obrigatório
+            // =============================
             if (string.IsNullOrWhiteSpace(kind))
                 return Results.BadRequest("kind é obrigatório (voltage|current).");
 
@@ -681,25 +683,40 @@ ORDER BY s.signal_id, r.ts;";
             if (k is not ("voltage" or "current"))
                 return Results.BadRequest("kind deve ser 'voltage' ou 'current'.");
 
-            if (string.IsNullOrWhiteSpace(pmu))
-                return Results.BadRequest("pmu é obrigatório (id_name da PMU).");
+            // =============================
+            // lista de PMUs (opcional)
+            // =============================
+            var pmuList = pmu?
+                .Select(p => p.Trim())
+                .Where(p => p.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList()
+                ?? new List<string>();
 
-            var upmu = pmu.Trim();
-
-            var u = (unit ?? "raw").Trim().ToLowerInvariant();
+            // =============================
+            // unit
+            // =============================
+            var u = (q.Unit ?? "raw").Trim().ToLowerInvariant();
             if (u is not ("raw" or "pu"))
                 return Results.BadRequest("unit deve ser 'raw' ou 'pu'.");
 
             var maxPts = Math.Max(q.MaxPoints, 100);
 
+            // =============================
+            // janela temporal
+            // =============================
             DateTime? fromUtc = from?.ToUniversalTime();
             DateTime? toUtc = to?.ToUniversalTime();
+
             if (fromUtc.HasValue && toUtc.HasValue && fromUtc >= toUtc)
                 return Results.BadRequest("from < to");
 
             using var db = dbf.Create();
 
-            const string sql = @"
+            // =======================================
+            // SQL BASE – com placeholder de PMU_LIST
+            // =======================================
+            const string sqlTemplate = @"
 WITH run AS (
   SELECT id, source AS pdc_name, from_ts, to_ts, pmus, signals
   FROM openplot.search_runs
@@ -747,8 +764,8 @@ pmu_ids AS (
   SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
   FROM elems r
   JOIN LATERAL (
-    SELECT NULLIF(TRIM(r.elem->>'pmu'), '')      AS key_pmu,
-           NULLIF(TRIM(r.elem->>'id_name'), '')  AS key_idname
+    SELECT NULLIF(TRIM(r.elem->>'pmu'), '')     AS key_pmu,
+           NULLIF(TRIM(r.elem->>'id_name'), '') AS key_idname
   ) k ON TRUE
   JOIN openplot.pmu p ON p.id_name = COALESCE(k.key_pmu, k.key_idname)
   WHERE jsonb_typeof(r.elem) = 'object'
@@ -788,7 +805,8 @@ sig AS (
   JOIN openplot.pdc_pmu pp ON pp.pdc_id = c.pdc_id AND pp.pmu_id = c.pmu_id
   JOIN openplot.signal s   ON s.pdc_pmu_id = pp.pdc_pmu_id
   JOIN openplot.pmu pmu    ON pmu.pmu_id   = c.pmu_id
-  WHERE LOWER(c.id_name) = LOWER(@pmu)
+  WHERE
+      ({PMU_FILTER})
     AND (
       (@kind = 'voltage' AND LOWER(s.quantity::text) IN ('voltage','v'))
       OR
@@ -803,112 +821,147 @@ raw AS (
   WHERE m.ts >= (SELECT from_utc FROM win)
     AND m.ts <= (SELECT to_utc   FROM win)
 )
-
 SELECT
   s.signal_id, s.pdc_pmu_id, s.phase, s.component,
   s.id_name, s.pdc_name, s.volt_level,
   r.ts, r.value
 FROM sig s
 JOIN raw r USING (signal_id)
-ORDER BY s.signal_id, r.ts;";
+ORDER BY s.id_name, s.signal_id, r.ts;
+";
 
-            var rows = (await db.QueryAsync<SeqPosRow>(sql, new
-            {
-                run_id = q.RunId,
-                pmu = upmu,
-                kind = k,
-                from_utc = fromUtc,
-                to_utc = toUtc
-            })).AsList();
+            // ======================================================
+            // Constrói PMU_FILTER dinamicamente
+            // ======================================================
+            string pmuFilter =
+                pmuList.Count == 0
+                ? "TRUE"
+                : string.Join(" OR ", pmuList.Select((_, i) => $"LOWER(c.id_name) = LOWER(@pmu{i})"));
+
+            var sql = sqlTemplate.Replace("{PMU_FILTER}", pmuFilter);
+
+            // parâmetros dinâmicos
+            var dyn = new DynamicParameters();
+            dyn.Add("run_id", q.RunId);
+            dyn.Add("kind", k);
+            dyn.Add("from_utc", fromUtc);
+            dyn.Add("to_utc", toUtc);
+
+            for (int i = 0; i < pmuList.Count; i++)
+                dyn.Add($"pmu{i}", pmuList[i]);
+
+            // Executa consulta
+            var rows = (await db.QueryAsync<SeqPosRow>(sql, dyn)).ToList();
 
             if (rows.Count == 0)
-                return Results.NotFound("Nada encontrado para esse run_id/pmu/kind no intervalo solicitado.");
+                return Results.NotFound("Nenhuma PMU encontrada para este run/kind.");
 
-            // Agrupa em séries por fase/componente
-            var vaMod = new List<(DateTime ts, double mag)>();
-            var vbMod = new List<(DateTime ts, double mag)>();
-            var vcMod = new List<(DateTime ts, double mag)>();
-            var vaAng = new List<(DateTime ts, double angDeg)>();
-            var vbAng = new List<(DateTime ts, double angDeg)>();
-            var vcAng = new List<(DateTime ts, double angDeg)>();
+            // ======================================================
+            // Processa PMU por PMU
+            // ======================================================
+            var series = new List<object>();
 
-            foreach (var r in rows)
+            foreach (var g in rows.GroupBy(r => r.Id_Name))
             {
-                var phase = (r.Phase ?? "").Trim().ToUpperInvariant();
-                var comp = (r.Component ?? "").Trim().ToUpperInvariant();
-                var ts = r.Ts;
-                var v = r.Value;
+                var sigRows = g.ToList();
 
-                if (phase == "A" && comp == "MAG") vaMod.Add((ts, v));
-                else if (phase == "A" && comp == "ANG") vaAng.Add((ts, v));
-                else if (phase == "B" && comp == "MAG") vbMod.Add((ts, v));
-                else if (phase == "B" && comp == "ANG") vbAng.Add((ts, v));
-                else if (phase == "C" && comp == "MAG") vcMod.Add((ts, v));
-                else if (phase == "C" && comp == "ANG") vcAng.Add((ts, v));
-            }
+                var vaMod = new List<(DateTime ts, double val)>();
+                var vbMod = new List<(DateTime ts, double val)>();
+                var vcMod = new List<(DateTime ts, double val)>();
+                var vaAng = new List<(DateTime ts, double val)>();
+                var vbAng = new List<(DateTime ts, double val)>();
+                var vcAng = new List<(DateTime ts, double val)>();
 
-            if (vaMod.Count == 0 || vbMod.Count == 0 || vcMod.Count == 0 ||
-                vaAng.Count == 0 || vbAng.Count == 0 || vcAng.Count == 0)
-            {
-                return Results.BadRequest("Não foi possível obter MAG/ANG das três fases A/B/C para essa PMU.");
-            }
-
-            // (só por segurança, garantimos ordenação por ts)
-            vaMod.Sort((a, b) => a.ts.CompareTo(b.ts));
-            vbMod.Sort((a, b) => a.ts.CompareTo(b.ts));
-            vcMod.Sort((a, b) => a.ts.CompareTo(b.ts));
-            vaAng.Sort((a, b) => a.ts.CompareTo(b.ts));
-            vbAng.Sort((a, b) => a.ts.CompareTo(b.ts));
-            vcAng.Sort((a, b) => a.ts.CompareTo(b.ts));
-
-            // Calcula sequência positiva (módulo) no estilo MedPlot (alinhamento + simétricas)
-            var posSeq = ComputePositiveSequenceMagnitudeMedPlot(
-                vaMod, vbMod, vcMod, vaAng, vbAng, vcAng);
-
-            if (posSeq.Count == 0)
-                return Results.BadRequest("Não foi possível montar amostras alinhadas para sequência positiva.");
-
-            var firstRow = rows[0];
-
-            // Base para pu
-            double baseValue = 1.0;
-            if (u == "pu" && k == "voltage")
-            {
-                if (firstRow.Volt_Level.HasValue && firstRow.Volt_Level.Value > 0)
-                    baseValue = (firstRow.Volt_Level.Value / Math.Sqrt(3.0));
-            }
-            else if (u == "pu" && k == "current")
-            {
-                // MedPlot usa ib=1A como base → pu == Ampère
-                baseValue = 1.0;
-            }
-
-            // Downsample
-            var downs = TimeBucketDownsampleMinMax(
-                posSeq.Select(p =>
+                foreach (var r in sigRows)
                 {
-                    double val = p.mag;
-                    if (u == "pu" && baseValue > 0.0)
-                        val = val / baseValue;
-                    return (p.ts, val);
-                }),
-                maxPts);
+                    string ph = (r.Phase ?? "").ToUpperInvariant();
+                    string cp = (r.Component ?? "").ToUpperInvariant();
 
-            var fromWin = fromUtc ?? posSeq.First().ts;
-            var toWin = toUtc ?? posSeq.Last().ts;
+                    if (ph == "A" && cp == "MAG") vaMod.Add((r.Ts, r.Value));
+                    else if (ph == "A" && cp == "ANG") vaAng.Add((r.Ts, r.Value));
+                    else if (ph == "B" && cp == "MAG") vbMod.Add((r.Ts, r.Value));
+                    else if (ph == "B" && cp == "ANG") vbAng.Add((r.Ts, r.Value));
+                    else if (ph == "C" && cp == "MAG") vcMod.Add((r.Ts, r.Value));
+                    else if (ph == "C" && cp == "ANG") vcAng.Add((r.Ts, r.Value));
+                }
+
+                if (vaMod.Count == 0 || vbMod.Count == 0 || vcMod.Count == 0 ||
+                    vaAng.Count == 0 || vbAng.Count == 0 || vcAng.Count == 0)
+                    continue;
+
+                // Ordena
+                vaMod.Sort((a, b) => a.ts.CompareTo(b.ts));
+                vbMod.Sort((a, b) => a.ts.CompareTo(b.ts));
+                vcMod.Sort((a, b) => a.ts.CompareTo(b.ts));
+                vaAng.Sort((a, b) => a.ts.CompareTo(b.ts));
+                vbAng.Sort((a, b) => a.ts.CompareTo(b.ts));
+                vcAng.Sort((a, b) => a.ts.CompareTo(b.ts));
+
+                // Monta seq+
+                var seq = ComputePositiveSequenceMagnitudeMedPlot(
+                    vaMod, vbMod, vcMod,
+                    vaAng, vbAng, vcAng);
+
+                if (seq.Count == 0)
+                    continue;
+
+                var first = sigRows.First();
+
+                // base pu
+                double baseValue = 1.0;
+                if (u == "pu" && k == "voltage")
+                {
+                    double lvl = q.VoltLevel ?? first.Volt_Level ?? 0;
+                    if (lvl > 0)
+                        baseValue = lvl / Math.Sqrt(3.0);
+                }
+                else if (u == "pu" && k == "current")
+                {
+                    // MedPlot usa ib=1A como base → pu == Ampère
+                    baseValue = 1.0;
+                }
+
+                // downsample
+                var downs = TimeBucketDownsampleMinMax(
+                    seq.Select(p => (
+                        p.ts,
+                        u == "pu" ? p.mag / baseValue : p.mag
+                    )),
+                    maxPts);
+
+                series.Add(new
+                {
+                    pmu = first.Id_Name,
+                    pdc = first.Pdc_Name,
+                    volt_level = q.VoltLevel ?? first.Volt_Level,
+                    unit = u,
+                    points = downs.Select(d => new object[] { d.ts, d.val })
+                });
+            }
+
+            if (series.Count == 0)
+                return Results.BadRequest("Nenhuma PMU pôde ser processada.");
 
             return Results.Ok(new
             {
                 run_id = q.RunId,
-                kind = k,             // voltage/current
-                unit = u,             // raw/pu
-                pmu = upmu,
-                pdc = firstRow.Pdc_Name,
-                window = new { from = fromWin, to = toWin },
-                // points: [ts, valor]
-                points = downs.Select(p => new object[] { p.ts, p.val })
+                kind = k,
+                unit = u,
+                pmu_count = series.Count,
+                window = new
+                {
+                    from = fromUtc ?? rows.Min(r => r.Ts),
+                    to = toUtc ?? rows.Max(r => r.Ts)
+                },
+                series
             });
         });
+
+
+
+
+
+
         // -----------------------------------------
         // 5) /plots/frequency/by-run  (Frequência)
         // -----------------------------------------
