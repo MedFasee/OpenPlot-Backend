@@ -23,7 +23,8 @@ public static class ImportEndpoints
                 return Results.BadRequest(new { error = "Path obrigatório." });
 
             var cs = cfg.GetConnectionString("Db")
-                   ?? "Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=postgres";
+                   // ?? "Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=postgres";
+                   ?? "Host=localhost;Port=5432;Database=openplot;Username=postgres;Password=postgres";
 
             var importer = new OpenPlot.XmlImporter.XmlImporter(cs);
             var summaries = await importer.RunAsync(req.Path, ct);

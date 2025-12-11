@@ -39,7 +39,7 @@ namespace OpenPlot.Ingestor.Gsf
 
                         using (var tx = conn.BeginTransaction())
                         {
-                            // 👉 Acrescenta pmus::text no SELECT (fica a última coluna)
+                            // Acrescenta pmus::text no SELECT (fica a última coluna)
                             const string pickSql = @"
                         SELECT id, source, terminal_id, signals::text, from_ts, to_ts, select_rate, pmus::text
                           FROM openplot.search_runs
@@ -86,14 +86,9 @@ namespace OpenPlot.Ingestor.Gsf
 
                                 try
                                 {
-                                    // usa UTC no pipeline
                                     var fromUtc = from.Kind == DateTimeKind.Utc ? from : from.ToUniversalTime();
                                     var toUtc = to.Kind == DateTimeKind.Utc ? to : to.ToUniversalTime();
 
-                                    // ================================
-                                    // 1) Monta SystemData a partir do BD
-                                    //    (usa cache interno por pdc_id)
-                                    // ================================
                                     // 1) Monta SystemData a partir do BD (usa cache interno por pdc_id)
                                     var sysCfg = DbSystemDataFactory.BuildByPdcName(
                                         PgConnString,
@@ -101,22 +96,29 @@ namespace OpenPlot.Ingestor.Gsf
                                         TimeSpan.FromMinutes(10)
                                     );
 
-
-
-                                    // ========= NOVO CAMINHO: pmus em search_runs =========
+                                    // Lista de PMUs pedidas nesse job
                                     var pmuList = TryParsePmus(pmusJson);
+
+                                    // Vamos acumular só as PMUs que efetivamente tiveram dados
+                                    List<string> pmusComDados = null;
+
                                     if (pmuList != null && pmuList.Count > 0)
                                     {
+                                        pmusComDados = new List<string>();
+
                                         foreach (var pmuIdName in pmuList)
                                         {
                                             // Terminal vem do SystemData montado pelo DB
                                             var term = TerminalResolver.Resolve(sysCfg, pmuIdName);
-                                            var channels = LoadChannelsFromDb(conn, source, pmuIdName); // canais vindos do DB (Id = historian_point)
+
+                                            // Canais vindos do DB (Id = historian_point)
+                                            var channels = LoadChannelsFromDb(conn, source, pmuIdName);
 
                                             if (channels == null || channels.Count == 0)
                                                 throw new Exception("Nenhum canal encontrado no DB para a PMU '" + pmuIdName + "'.");
 
-                                            FetchAndInsert(
+                                            // FetchAndInsert agora devolve se houve dado (novo ou já existente)
+                                            var teveDados = FetchAndInsert(
                                                 conn,
                                                 id,
                                                 source ?? sysCfg.Name,
@@ -127,19 +129,22 @@ namespace OpenPlot.Ingestor.Gsf
                                                 toUtc,
                                                 selectRate
                                             );
+
+                                            if (teveDados)
+                                                pmusComDados.Add(pmuIdName);
                                         }
                                     }
                                     else
                                     {
+                                        // Caminho legado (sem pmus em search_runs) – se quiser, pode reativar aqui
                                         /*
-                                        // ========= MODO LEGADO (inalterado) =========
                                         var term = TerminalResolver.Resolve(sysCfg, terminalId);
                                         var signals = ParseSignals(signalsJson);
                                         var channels = TerminalResolver.MapChannels(term, signals);
                                         if (channels == null || channels.Count == 0)
                                             throw new Exception("Nenhum canal mapeado para os sinais requisitados.");
 
-                                        FetchAndInsert(
+                                        var teveDados = FetchAndInsert(
                                             conn,
                                             id,
                                             source ?? sysCfg.Name,
@@ -150,11 +155,29 @@ namespace OpenPlot.Ingestor.Gsf
                                             toUtc,
                                             selectRate
                                         );
+
+                                        if (teveDados)
+                                            pmusComDados = new List<string> { term.Id }; // ou outra identificação
                                         */
                                     }
 
+                                    // Ao final do job, marcamos DONE e, se for o caso, salvamos pmus_ok
                                     using (var tx2 = conn.BeginTransaction())
                                     {
+                                        if (pmusComDados != null)
+                                        {
+                                            var json = JsonSerializer.Serialize(pmusComDados);
+                                            using (var cmd = new NpgsqlCommand(@"
+                                                UPDATE openplot.search_runs
+                                                   SET pmus_ok = @ok::jsonb
+                                                 WHERE id = @id;", conn, tx2))
+                                            {
+                                                cmd.Parameters.AddWithValue("id", id);
+                                                cmd.Parameters.AddWithValue("ok", json);
+                                                cmd.ExecuteNonQuery();
+                                            }
+                                        }
+
                                         DbOps.UpdateStatus(conn, tx2, id, "done", 100, "Concluído");
                                         tx2.Commit();
                                     }
@@ -166,19 +189,13 @@ namespace OpenPlot.Ingestor.Gsf
                                     {
                                         using (var tx2 = conn.BeginTransaction())
                                         {
-                                            DbOps.UpdateStatus(conn, tx2, id, "done", 100, "Concluído");
+                                            DbOps.UpdateStatus(conn, tx2, id, "failed", 0, ex.Message);
                                             tx2.Commit();
                                         }
                                     }
                                     catch
                                     {
                                         // noop
-                                    }
-
-                                    using (var tx2 = conn.BeginTransaction())
-                                    {
-                                        DbOps.UpdateStatus(conn, tx2, id, "failed", 0, ex.Message);
-                                        tx2.Commit();
                                     }
                                 }
                             }
@@ -196,10 +213,10 @@ namespace OpenPlot.Ingestor.Gsf
         }
 
         // ----------------- PIPELINE -----------------
-        private static void FetchAndInsert(
+        private static bool FetchAndInsert(
             NpgsqlConnection conn,
             Guid jobId,
-            string jobSource,            // *** nome do PDC vindo do job (preferível)
+            string jobSource,            // nome do PDC vindo do job
             SystemData systemCfg,
             Terminal term,
             List<Channel> channels,
@@ -207,6 +224,9 @@ namespace OpenPlot.Ingestor.Gsf
             DateTime toUtc,
             int selectRate)
         {
+            // Flag: 0 = não teve dado, 1 = teve dado (novo ou já existente)
+            int hasData = 0;
+
             // 1) contexto no catálogo (pdc / pmu / pdc_pmu)
             var ctx = GetPdcContext(conn, jobSource, term.Id);  // term.Id == pmu.id_name
             int pdcPmuId = ctx.pdcPmuId;
@@ -244,6 +264,7 @@ namespace OpenPlot.Ingestor.Gsf
                     if (ChunkAlreadyPresentDb(PgConnString, pdcPmuId, allSignalIds, cs, ce))
                     {
                         Console.WriteLine("[skip] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " (já existente)");
+                        Interlocked.Exchange(ref hasData, 1); // já existe dado pra essa PMU nesse intervalo
                         return;
                     }
 
@@ -251,18 +272,11 @@ namespace OpenPlot.Ingestor.Gsf
                     var repo = RepositoryFactory.Create(systemCfg);
 
                     // Escolhe o “código da PMU” conforme o tipo de banco
-                    // - MedFasee  -> usa idNumber (o <idNumber> do XML)
-                    // - Historian -> usa id_name (term.Id)
                     string terminalCode;
-
                     if (systemCfg.Type == DatabaseType.Medfasee)
-                    {
                         terminalCode = term.IdNumber.ToString();
-                    }
                     else
-                    {
                         terminalCode = term.Id; // openpdc / openhistorian2 usam id_name
-                    }
 
                     var dict = repo.QueryTerminalSeries(
                         terminalCode,
@@ -343,6 +357,7 @@ namespace OpenPlot.Ingestor.Gsf
                             }
 
                             txCopy.Commit();
+                            Interlocked.Exchange(ref hasData, 1); // houve dados inseridos
                             Console.WriteLine("[ok] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " inserido");
                         }
                     }
@@ -352,6 +367,8 @@ namespace OpenPlot.Ingestor.Gsf
                     Console.WriteLine("[erro-chunk] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + ": " + ex.Message);
                 }
             });
+
+            return hasData != 0;
         }
 
         // ----------------- HELPERS (BD / MAPAS) -----------------
@@ -530,9 +547,9 @@ namespace OpenPlot.Ingestor.Gsf
                     while (r.Read())
                     {
                         var hist = r.GetInt32(0);
-                        var qtyStr = r.IsDBNull(1) ? "" : r.GetString(1);  // "Voltage", "Frequency"
-                        var phaseStr = r.IsDBNull(2) ? "" : r.GetString(2);  // "A","B","C","None"
-                        var compStr = r.IsDBNull(3) ? "" : r.GetString(3);  // "MAG","ANG","FREQ","DFREQ"
+                        var qtyStr = r.IsDBNull(1) ? "" : r.GetString(1);
+                        var phaseStr = r.IsDBNull(2) ? "" : r.GetString(2);
+                        var compStr = r.IsDBNull(3) ? "" : r.GetString(3);
                         var sigId = r.GetInt32(4);
 
                         var qty = GetQuantityFromDb(qtyStr, compStr);
@@ -549,8 +566,6 @@ namespace OpenPlot.Ingestor.Gsf
                 }
             }
         }
-
-
 
         private static bool ChunkAlreadyPresentDb(string connString, int pdcPmuId, int[] signalIds, DateTime from, DateTime to)
         {

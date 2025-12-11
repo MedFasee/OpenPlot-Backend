@@ -36,7 +36,7 @@ public static class RunsEndpoints
             }
 
             const string pmusSql = @"
-WITH run AS (SELECT id, signals, pmus FROM openplot.search_runs WHERE id = @id),
+WITH run AS (SELECT id, signals, COALESCE(pmus_ok, pmus) AS pmus FROM openplot.search_runs WHERE id = @id),
 src AS (
   SELECT CASE
            WHEN jsonb_typeof(signals) = 'array' AND jsonb_array_length(signals) > 0 THEN signals
@@ -262,7 +262,7 @@ ORDER BY pu.area       NULLS LAST,
 
             const string sqlTemplate = @"
 WITH run AS (
-  SELECT id, source AS pdc_name, from_ts, to_ts, pmus, signals
+  SELECT id, source AS pdc_name, from_ts, to_ts, COALESCE(pmus_ok, pmus) AS pmus, signals
   FROM openplot.search_runs
   WHERE id = @run_id::uuid
 ),
@@ -489,7 +489,7 @@ ORDER BY s.signal_id, r.ts;";
 
             const string sqlTemplate = @"
 WITH run AS (
-  SELECT id, source AS pdc_name, from_ts, to_ts, pmus, signals
+  SELECT id, source AS pdc_name, from_ts, to_ts, COALESCE(pmus_ok, pmus) AS pmus, signals
   FROM openplot.search_runs
   WHERE id = @run_id::uuid
 ),
@@ -718,7 +718,7 @@ ORDER BY s.signal_id, r.ts;";
             // =======================================
             const string sqlTemplate = @"
 WITH run AS (
-  SELECT id, source AS pdc_name, from_ts, to_ts, pmus, signals
+  SELECT id, source AS pdc_name, from_ts, to_ts, COALESCE(pmus_ok, pmus) AS pmus, signals
   FROM openplot.search_runs
   WHERE id = @run_id::uuid
 ),

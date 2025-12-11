@@ -40,8 +40,8 @@ builder.Services.AddCors(options =>
 // Conexão com banco
 // ======================================================================
 var cs = builder.Configuration.GetConnectionString("Db")
-         ?? "Host=localhost;Database=postgres;Username=postgres;Password=postgres";
-
+         // ?? "Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=postgres";
+         ?? "Host=localhost;Port=5432;Database=openplot;Username=postgres;Password=postgres";
 builder.Services.AddScoped<IDbConnectionFactory>(_ => new NpgsqlConnectionFactory(cs));
 
 // ======================================================================

@@ -66,7 +66,7 @@ namespace OpenPlot.XmlImporter
                         user = Value(sec?.Element(ns + "user")) ?? "";
                         pswd = Value(sec?.Element(ns + "pswd")) ?? "";
 
-                        // 👇 NOVO: só MedFasee tem <dataBank>
+                        // MedFasee tem <dataBank>
                         if (string.Equals(pdcKind, "medfasee", StringComparison.OrdinalIgnoreCase))
                         {
                             dbName = Value(pdcElem.Element(ns + "dataBank")) ?? "";
@@ -85,8 +85,6 @@ namespace OpenPlot.XmlImporter
                         sum.Notes.Add("Arquivo sem <pdc>: criado PDC sintético a partir do nome do arquivo.");
                         sum.PdcId = await UpsertPdc(conn, pdcName, pdcKind, pdcFps, pdcAddr, "", "", dbName, ct);
                     }
-
-
 
                     // ---------- PMUs ----------
                     var pmuNodes = doc.Descendants(ns + "pmu").ToList();
@@ -115,29 +113,28 @@ namespace OpenPlot.XmlImporter
                         var lat = ParseDouble(Value(local?.Element(ns + "lat")));
                         var lon = ParseDouble(Value(local?.Element(ns + "lon")));
 
-                        // PMU canônica (única por id_name)
+                        // PMU canônica (id_name único)
                         var pmuId = await UpsertPmu(conn, idName, fullName, voltLvl, area, state, station, lat, lon, ct);
                         sum.Pmus++;
 
-                        // Associação PDC × PMU (e salvamos o idName observado no PDC como pdc_local_id)
+                        // Associação PDC×PMU (pdc_local_id = idName no PDC)
                         var pdcPmuId = await UpsertPdcPmu(conn, sum.PdcId, pmuId, idName, idNumber, ct);
 
                         // ---- sinais ----
                         var meas = pmu.Element(ns + "measurements");
                         if (meas is null) continue;
 
-                        // phasor -> 2 sinais (MAG/ANG) com quantity=Voltage|Current e phase=A|B|C
+                        // --------- PHASORS (MAG/ANG) ----------
                         foreach (var ph in meas.Elements(ns + "phasor"))
                         {
                             var pName = Value(ph.Element(ns + "pName")) ?? "";
                             var pType = Value(ph.Element(ns + "pType")) ?? "";   // Voltage | Current
                             var pPhase = Value(ph.Element(ns + "pPhase")) ?? "";   // A | B | C
 
-                            // Tenta detectar o formato Medfasee (chId)
                             var chIdElem = ph.Element(ns + "chId");
                             if (chIdElem != null)
                             {
-                                // ----- CASO MEDFASEE (um único chId) -----
+                                // MedFasee: um único chId
                                 var chId = ParseInt(Value(chIdElem), 0);
 
                                 // MAG
@@ -170,7 +167,7 @@ namespace OpenPlot.XmlImporter
                             }
                             else
                             {
-                                // ----- CASO "HISTORIAN" (modId + angId separados) -----
+                                // Historian: modId + angId separados
                                 var modId = ParseInt(Value(ph.Element(ns + "modId")), 0);
                                 var angId = ParseInt(Value(ph.Element(ns + "angId")), 0);
 
@@ -204,26 +201,76 @@ namespace OpenPlot.XmlImporter
                             }
                         }
 
-                        // frequência -> quantity=Frequency, phase=None, component=FREQ
+                        // --------- FREQUENCY ----------
                         var f = meas.Element(ns + "freq");
                         if (f is not null)
                         {
                             var fName = Value(f.Element(ns + "fName")) ?? "FREQUENCIA";
                             var fId = ParseInt(Value(f.Element(ns + "fId")), 0);
-                            var ins = await UpsertSignal(conn, pdcPmuId, fName, "Frequency", "None", "FREQ", fId, ct);
+
+                            var ins = await UpsertSignal(
+                                conn, pdcPmuId,
+                                fName, "Frequency", "None", "FREQ", fId, ct);
                             sum.Signals += ins;
-                            if (fId <= 0 && ins == 0) sum.Notes.Add($"Sinal ignorado (FREQ) sem historian_point (>0): {idName}:{fName}");
+                            if (fId <= 0 && ins == 0)
+                                sum.Notes.Add($"Sinal ignorado (FREQ) sem historian_point (>0): {idName}:{fName}");
                         }
 
-                        // dfreq -> quantity=Frequency, phase=None, component=DFREQ
+                        // --------- DFREQ ----------
                         var df = meas.Element(ns + "dFreq");
                         if (df is not null)
                         {
                             var dName = Value(df.Element(ns + "dfName")) ?? "DFREQ";
                             var dId = ParseInt(Value(df.Element(ns + "dfId")), 0);
-                            var ins = await UpsertSignal(conn, pdcPmuId, dName, "Frequency", "None", "DFREQ", dId, ct);
+
+                            var ins = await UpsertSignal(
+                                conn, pdcPmuId,
+                                dName, "Frequency", "None", "DFREQ", dId, ct);
                             sum.Signals += ins;
-                            if (dId <= 0 && ins == 0) sum.Notes.Add($"Sinal ignorado (DFREQ) sem historian_point (>0): {idName}:{dName}");
+                            if (dId <= 0 && ins == 0)
+                                sum.Notes.Add($"Sinal ignorado (DFREQ) sem historian_point (>0): {idName}:{dName}");
+                        }
+
+                        // --------- ANALOG (THD: VTHD / CTHD) ----------
+                        foreach (var an in meas.Elements(ns + "analog"))
+                        {
+                            var aTypeRaw = Value(an.Element(ns + "aType")) ?? "";
+                            var aType = aTypeRaw.Trim().ToUpperInvariant();
+
+                            // Só nos interessam VTHD / CTHD / THD
+                            if (aType is not ("VTHD" or "CTHD" or "THD"))
+                                continue;
+
+                            var aName = Value(an.Element(ns + "aName")) ?? aTypeRaw;
+                            var aPhase = Value(an.Element(ns + "aPhase")) ?? "";
+
+                            // Historian point: aId (no XML da foto)
+                            var aId = ParseInt(Value(an.Element(ns + "aId")), 0);
+                            if (aId <= 0)
+                            {
+                                sum.Notes.Add($"Sinal THD ignorado sem historian_point (>0): {idName}:{aName}");
+                                continue;
+                            }
+
+                            // quantity: tensão ou corrente de acordo com o tipo
+                            string qty =
+                                aType.StartsWith("V") ? "Voltage" :
+                                aType.StartsWith("C") ? "Current" :
+                                "Analog";
+
+                            var insThd = await UpsertSignal(
+                                conn,
+                                pdcPmuId,
+                                name: aName,
+                                quantity: qty,
+                                phase: aPhase,
+                                component: "THD",   // componente único na enum
+                                historianPoint: aId,
+                                ct: ct);
+
+                            sum.Signals += insThd;
+                            if (insThd == 0)
+                                sum.Notes.Add($"Falha ao inserir THD: {idName}:{aName} (aId={aId})");
                         }
                     }
                 }
@@ -257,13 +304,13 @@ namespace OpenPlot.XmlImporter
         }
 
         private static string NormalizeQty(string? s) =>
-    s?.Trim() switch
-    {
-        "Voltage" or "voltage" or "VOLTAGE" or "V" or "Volt" => "Voltage",
-        "Current" or "current" or "CURRENT" or "I" => "Current",
-        "Frequency" or "frequency" or "FREQUENCY" => "Frequency",
-        _ => "Voltage"
-    };
+            s?.Trim() switch
+            {
+                "Voltage" or "voltage" or "VOLTAGE" or "V" or "Volt" => "Voltage",
+                "Current" or "current" or "CURRENT" or "I" => "Current",
+                "Frequency" or "frequency" or "FREQUENCY" => "Frequency",
+                _ => "Voltage"
+            };
 
         private static string NormalizePhase(string? s)
         {
@@ -271,6 +318,7 @@ namespace OpenPlot.XmlImporter
             return (t is "A" or "B" or "C") ? t! : "None";
         }
 
+        // MAG / ANG / FREQ / DFREQ / THD (VTHD / CTHD mapeiam para THD)
         private static string NormalizeComp(string? s)
         {
             var t = s?.Trim().ToUpperInvariant();
@@ -280,31 +328,31 @@ namespace OpenPlot.XmlImporter
                 "ANG" => "ANG",
                 "FREQ" => "FREQ",
                 "DFREQ" => "DFREQ",
+                "THD" => "THD",
+                "VTHD" => "THD",
+                "CTHD" => "THD",
                 _ => "MAG"
             };
         }
 
-
-        // =============== UPSERTS (ajuste nomes se necessário) ===============
+        // =============== UPSERTS ===============
         private static async Task<int> UpsertPdc(
             NpgsqlConnection conn,
             string name, string kind, int fps, string addr,
             string userName, string password, string dbName,
             CancellationToken ct)
-
         {
             const string sql = @"
 INSERT INTO openplot.pdc (name, kind, fps, address, user_name, password, db_name)
 VALUES (@name, @kind, @fps, @addr, @user_name, @password, @db_name)
 ON CONFLICT (name) DO UPDATE
-SET kind     = EXCLUDED.kind,
-    fps      = EXCLUDED.fps,
-    address  = EXCLUDED.address,
+SET kind      = EXCLUDED.kind,
+    fps       = EXCLUDED.fps,
+    address   = EXCLUDED.address,
     user_name = EXCLUDED.user_name,
     password  = EXCLUDED.password,
     db_name   = EXCLUDED.db_name
 RETURNING pdc_id;";
-
 
             await using var cmd = new NpgsqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("name", name);
@@ -319,12 +367,11 @@ RETURNING pdc_id;";
             return Convert.ToInt32(id, CultureInfo.InvariantCulture);
         }
 
-
         private static async Task<int> UpsertPmu(
-    NpgsqlConnection conn,
-    string idName, string fullName, int voltLevel,
-    string area, string state, string station, double? lat, double? lon,
-    CancellationToken ct)
+            NpgsqlConnection conn,
+            string idName, string fullName, int voltLevel,
+            string area, string state, string station, double? lat, double? lon,
+            CancellationToken ct)
         {
             const string sql = @"
 INSERT INTO openplot.pmu (id_name, full_name, volt_level, area, state, station, lat, lon)
@@ -354,10 +401,10 @@ RETURNING pmu_id;";
         }
 
         private static async Task<int> UpsertPdcPmu(
-    NpgsqlConnection conn,
-    int pdcId, int pmuId, string pdcLocalId,
-    int? localNumericId,                 // 👈 novo
-    CancellationToken ct)
+            NpgsqlConnection conn,
+            int pdcId, int pmuId, string pdcLocalId,
+            int? localNumericId,
+            CancellationToken ct)
         {
             const string sql = @"
 INSERT INTO openplot.pdc_pmu (pdc_id, pmu_id, pdc_local_id, local_numeric_id)
@@ -377,19 +424,6 @@ RETURNING pdc_pmu_id;";
             return Convert.ToInt32(id, CultureInfo.InvariantCulture);
         }
 
-
-
-        /// <summary>
-        /// kind: "MOD" | "ANG" | "FREQ" | "DFREQ"
-        /// quantity: ex. "Voltage", "Current", "Frequency", "dFrequency"
-        /// phase: "A"|"B"|"C" ou vazio p/ freq/dfreq
-        /// </summary>
-        /// component: "MAG"|"ANG"|"FREQ"|"DFREQ"
-        /// quantity: "Voltage"|"Current"|"Frequency" (para FREQ/DFREQ use "Frequency")
-        /// phase: "A"|"B"|"C"|"None" (freq/dfreq => "None")
-        /// component: "MAG"|"ANG"|"FREQ"|"DFREQ"
-        /// quantity: "Voltage"|"Current"|"Frequency"
-        /// phase: "A"|"B"|"C"|"None"
         private static async Task<int> UpsertSignal(
             NpgsqlConnection conn,
             int pdcPmuId,
@@ -400,9 +434,8 @@ RETURNING pdc_pmu_id;";
             int historianPoint,
             CancellationToken ct)
         {
-            if (historianPoint < 0) return 0; // schema exige NOT NULL
+            if (historianPoint < 0) return 0;
 
-            // normaliza para casar com enums
             var qty = NormalizeQty(quantity);
             var ph = NormalizePhase(phase);
             var comp = NormalizeComp(component);
@@ -418,7 +451,7 @@ RETURNING signal_id;";
             await using var cmd = new NpgsqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("pdc_pmu_id", pdcPmuId);
             cmd.Parameters.AddWithValue("name", name);
-            cmd.Parameters.AddWithValue("quantity", qty);   // texto, o CAST acontece no SQL
+            cmd.Parameters.AddWithValue("quantity", qty);
             cmd.Parameters.AddWithValue("phase", ph);
             cmd.Parameters.AddWithValue("component", comp);
             cmd.Parameters.AddWithValue("historian_point", historianPoint);
@@ -426,7 +459,5 @@ RETURNING signal_id;";
             var idObj = await cmd.ExecuteScalarAsync(ct);
             return idObj != null ? 1 : 0;
         }
-
-
     }
 }
