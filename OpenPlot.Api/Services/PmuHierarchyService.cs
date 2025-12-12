@@ -28,24 +28,20 @@ public sealed class PmuHierarchyService : IPmuHierarchyService
                             .OrderBy(gVolt => gVolt.Key)
                             .Select(gVolt => new
                             {
-                                // valor em kV
                                 valor = Math.Round(gVolt.Key / 1000.0, 2),
-
-                                // aqui ainda vem uma lista “flat” de PMUs/terminais,
-                                // o front vai agrupar em terminais/estações
                                 estacoes = gVolt
                                     .OrderBy(p => p.station ?? p.full_name ?? p.id_name)
                                     .Select(p => new
                                     {
                                         id = p.id_name,
                                         nome = p.full_name ?? p.id_name,
-                                        tensao = Math.Round(gVolt.Key / 1000.0, 2),  // kV
+                                        tensao = Math.Round(gVolt.Key / 1000.0, 2),
                                         area = gArea.Key,
                                         estado = gState.Key,
                                         estacao = p.station,
-                                        Grandezas = p.Grandezas ?? Array.Empty<string>(),
-                                        Fases = p.Fases ?? Array.Empty<string>(),
-                                        adicionais = p.Adicionais ?? Array.Empty<string>(),
+                                        grandezas = p.Grandezas ?? Array.Empty<string>(),
+                                        fases = p.Fases ?? Array.Empty<string>(),
+                                        adicionais = p.Adicionais ?? Array.Empty<PmuAdicional>(),
                                     })
                                     .ToList()
                             })
@@ -55,7 +51,6 @@ public sealed class PmuHierarchyService : IPmuHierarchyService
             })
             .ToList();
     }
-
 }
 
 public sealed class PmuMeta
@@ -63,13 +58,40 @@ public sealed class PmuMeta
     public int pmu_id { get; set; }
     public string id_name { get; set; } = "";
     public string? full_name { get; set; }
-    public int? volt_level { get; set; }  // volts
+    public int? volt_level { get; set; }
     public string? area { get; set; }
     public string? state { get; set; }
     public string? station { get; set; }
 
-    // Novas propriedades (para habilitação de possibilidades no front)
     public IReadOnlyList<string>? Grandezas { get; set; }
     public IReadOnlyList<string>? Fases { get; set; }
-    public IReadOnlyList<string>? Adicionais { get; set; }
+
+    public IReadOnlyList<PmuAdicional>? Adicionais { get; set; }
+}
+
+
+public sealed class PmuAdicional
+{
+    public string TipoMedida { get; set; } = "";          // "Medidas Analógicas" | "Medidas Digitais"
+    public string Grandeza { get; set; } = "";            // "THD de Tensão" | "THD de Corrente" | "Digital"
+    public IReadOnlyList<string> Fase { get; set; } = Array.Empty<string>(); // ["A","B","C","Trifásico"] ou [] p/ digital
+}
+
+public sealed class PmuMetaRow
+{
+    public int pmu_id { get; set; }
+    public string id_name { get; set; } = "";
+    public string? full_name { get; set; }
+    public int? volt_level { get; set; }
+    public string? area { get; set; }
+    public string? state { get; set; }
+    public string? station { get; set; }
+
+    public IReadOnlyList<string>? grandezas { get; set; }
+    public IReadOnlyList<string>? fases { get; set; }
+
+    public IReadOnlyList<string>? thd_fases { get; set; }
+    public bool has_thd_v { get; set; }
+    public bool has_thd_i { get; set; }
+    public bool has_digital { get; set; }
 }

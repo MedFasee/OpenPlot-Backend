@@ -37,7 +37,11 @@ public static class RunsEndpoints
             }
 
             const string pmusSql = @"
-WITH run AS (SELECT id, signals, COALESCE(pmus_ok, pmus) AS pmus FROM openplot.search_runs WHERE id = @id),
+WITH run AS (
+  SELECT id, signals, COALESCE(pmus_ok, pmus) AS pmus
+  FROM openplot.search_runs
+  WHERE id = @id
+),
 src AS (
   SELECT CASE
            WHEN jsonb_typeof(signals) = 'array' AND jsonb_array_length(signals) > 0 THEN signals
@@ -54,7 +58,7 @@ elems AS (
 pmus_from_string AS (
   SELECT DISTINCT p.pmu_id, p.id_name, p.full_name, p.volt_level, p.area, p.state, p.station
   FROM elems e
-  JOIN openplot.pmu p ON p.id_name = btrim(e.elem::text, '""""')
+  JOIN openplot.pmu p ON p.id_name = btrim(e.elem::text, '""')
   WHERE jsonb_typeof(e.elem) = 'string'
 ),
 
@@ -73,9 +77,7 @@ pmus_direct AS (
 pmus_by_pdcpmu AS (
   SELECT DISTINCT p.pmu_id, p.id_name, p.full_name, p.volt_level, p.area, p.state, p.station
   FROM elems e
-  JOIN LATERAL (
-    SELECT NULLIF(e.elem->>'pdc_pmu_id','')::int AS key_pdc_pmu_id
-  ) k ON TRUE
+  JOIN LATERAL (SELECT NULLIF(e.elem->>'pdc_pmu_id','')::int AS key_pdc_pmu_id) k ON TRUE
   JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = k.key_pdc_pmu_id
   JOIN openplot.pmu p       ON p.pmu_id       = ppm.pmu_id
   WHERE jsonb_typeof(e.elem) = 'object'
@@ -84,9 +86,7 @@ pmus_by_pdcpmu AS (
 pmus_by_signal AS (
   SELECT DISTINCT p.pmu_id, p.id_name, p.full_name, p.volt_level, p.area, p.state, p.station
   FROM elems e
-  JOIN LATERAL (
-    SELECT NULLIF(e.elem->>'signal_id','')::int AS key_signal_id
-  ) k ON TRUE
+  JOIN LATERAL (SELECT NULLIF(e.elem->>'signal_id','')::int AS key_signal_id) k ON TRUE
   JOIN openplot.signal  s   ON s.signal_id    = k.key_signal_id
   JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = s.pdc_pmu_id
   JOIN openplot.pmu     p   ON p.pmu_id       = ppm.pmu_id
@@ -96,16 +96,13 @@ pmus_by_signal AS (
 pmus_by_point AS (
   SELECT DISTINCT p.pmu_id, p.id_name, p.full_name, p.volt_level, p.area, p.state, p.station
   FROM elems e
-  JOIN LATERAL (
-    SELECT NULLIF(e.elem->>'historian_point','')::int AS key_point
-  ) k ON TRUE
+  JOIN LATERAL (SELECT NULLIF(e.elem->>'historian_point','')::int AS key_point) k ON TRUE
   JOIN openplot.signal  s   ON s.historian_point = k.key_point
   JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id    = s.pdc_pmu_id
   JOIN openplot.pmu     p   ON p.pmu_id          = ppm.pmu_id
   WHERE jsonb_typeof(e.elem) = 'object'
 ),
 
--- 🔹 Consolidamos todas as PMUs envolvidas
 pmus_union AS (
   SELECT DISTINCT pmu_id, id_name, full_name, volt_level, area, state, station
   FROM (
@@ -117,23 +114,36 @@ pmus_union AS (
   ) u
 ),
 
--- 🔹 Agregamos sinais por PMU
 signals_agg AS (
   SELECT
     pu.pmu_id,
 
-    -- Flags por tipo, olhando para ""name""
-    (MAX(CASE WHEN s.name ILIKE 'TENSAO%'   THEN 1 ELSE 0 END) > 0) AS has_tensao,
-    (MAX(CASE WHEN s.name ILIKE 'CORRENTE%' THEN 1 ELSE 0 END) > 0) AS has_corrente,
-    (MAX(CASE WHEN s.name ILIKE 'FREQUENCIA%' THEN 1 ELSE 0 END) > 0) AS has_freq,
-    (MAX(CASE WHEN s.name ILIKE 'DFREQ%'    THEN 1 ELSE 0 END) > 0) AS has_dfreq,
+    (MAX(CASE WHEN LOWER(s.quantity::text) = 'voltage' THEN 1 ELSE 0 END) > 0) AS has_tensao,
+    (MAX(CASE WHEN LOWER(s.quantity::text) = 'current' THEN 1 ELSE 0 END) > 0) AS has_corrente,
 
-    -- fases distintas, ignorando 'None' (phase é enum/phase_kind → convertemos pra text)
+    (MAX(CASE WHEN LOWER(s.quantity::text) = 'frequency'
+               AND LOWER(s.component::text) = 'freq' THEN 1 ELSE 0 END) > 0) AS has_freq,
+
+    (MAX(CASE WHEN LOWER(s.quantity::text) = 'frequency'
+               AND LOWER(s.component::text) = 'dfreq' THEN 1 ELSE 0 END) > 0) AS has_dfreq,
+
     ARRAY_REMOVE(ARRAY_AGG(DISTINCT s.phase::text), 'None') AS phases_raw,
 
-    -- nomes crus como adicionais
-    ARRAY[]::text[] AS adicionais_raw
+    (MAX(CASE WHEN LOWER(s.component::text) = 'thd'
+               AND LOWER(s.quantity::text) = 'voltage' THEN 1 ELSE 0 END) > 0) AS has_thd_v,
 
+    (MAX(CASE WHEN LOWER(s.component::text) = 'thd'
+               AND LOWER(s.quantity::text) = 'current' THEN 1 ELSE 0 END) > 0) AS has_thd_i,
+
+    (MAX(CASE WHEN LOWER(s.quantity::text) = 'digital' THEN 1 ELSE 0 END) > 0) AS has_digital,
+
+    ARRAY_REMOVE(
+      ARRAY_AGG(DISTINCT CASE
+        WHEN LOWER(s.component::text) = 'thd' THEN NULLIF(s.phase::text, 'None')
+        ELSE NULL
+      END),
+      NULL
+    ) AS thd_phases_raw
 
   FROM pmus_union pu
   LEFT JOIN openplot.pdc_pmu ppm ON ppm.pmu_id = pu.pmu_id
@@ -141,7 +151,6 @@ signals_agg AS (
   GROUP BY pu.pmu_id
 ),
 
--- 🔹 Construímos listas finais de grandezas, fases e adicionais
 signals_final AS (
   SELECT
     pmu_id,
@@ -164,18 +173,42 @@ signals_final AS (
         THEN ARRAY['A','B','C','Trifásico','Sequência Positiva']::text[]
       ELSE (
         SELECT ARRAY(
-          SELECT UNNEST(phases_raw) p
+          SELECT p
+          FROM UNNEST(phases_raw) p
           ORDER BY p
         )
       )
     END AS fases,
 
-    COALESCE(adicionais_raw, ARRAY[]::text[]) AS adicionais
+    CASE
+      WHEN (has_thd_v OR has_thd_i) AND (thd_phases_raw IS NULL OR CARDINALITY(thd_phases_raw) = 0)
+        THEN ARRAY['Trifásico']::text[]
+      WHEN thd_phases_raw IS NULL OR CARDINALITY(thd_phases_raw) = 0
+        THEN ARRAY[]::text[]
+      WHEN ARRAY['A','B','C']::text[] <@ thd_phases_raw
+        THEN ARRAY['Trifásico','A','B','C']::text[]
+      ELSE (
+        SELECT ARRAY(
+          SELECT p
+          FROM UNNEST(thd_phases_raw) p
+          ORDER BY CASE p
+            WHEN 'Trifásico' THEN 0
+            WHEN 'A' THEN 1
+            WHEN 'B' THEN 2
+            WHEN 'C' THEN 3
+            ELSE 99
+          END
+        )
+      )
+    END AS thd_fases,
+
+    has_thd_v,
+    has_thd_i,
+    has_digital
 
   FROM signals_agg
 )
 
--- 🔹 SELECT final que o Dapper consome
 SELECT
   pu.pmu_id,
   pu.id_name,
@@ -184,17 +217,69 @@ SELECT
   pu.area,
   pu.state,
   pu.station,
-  COALESCE(sf.grandezas,  ARRAY[]::text[]) AS grandezas,
-  COALESCE(sf.fases,      ARRAY[]::text[]) AS fases,
-  COALESCE(sf.adicionais, ARRAY[]::text[]) AS adicionais
+  COALESCE(sf.grandezas, ARRAY[]::text[]) AS grandezas,
+  COALESCE(sf.fases,     ARRAY[]::text[]) AS fases,
+  COALESCE(sf.thd_fases, ARRAY[]::text[]) AS thd_fases,
+  COALESCE(sf.has_thd_v, false)           AS has_thd_v,
+  COALESCE(sf.has_thd_i, false)           AS has_thd_i,
+  COALESCE(sf.has_digital, false)         AS has_digital
 FROM pmus_union pu
 LEFT JOIN signals_final sf ON sf.pmu_id = pu.pmu_id
 ORDER BY pu.area       NULLS LAST,
          pu.state      NULLS LAST,
          pu.volt_level NULLS LAST,
-         pu.station    NULLS LAST;;";
+         pu.station    NULLS LAST;
 
-            var pmus = (await db.QueryAsync<PmuMeta>(pmusSql, new { id = run.id })).ToList();
+";
+            var pmuRows = (await db.QueryAsync<PmuMetaRow>(pmusSql, new { id = run.id })).ToList();
+
+            var pmus = pmuRows.Select(r =>
+            {
+                var adicionais = new List<PmuAdicional>();
+
+                var thdFases = (r.thd_fases != null && r.thd_fases.Count > 0)
+                    ? r.thd_fases
+                    : Array.Empty<string>();
+
+                if (r.has_thd_v)
+                    adicionais.Add(new PmuAdicional
+                    {
+                        TipoMedida = "Medidas Analógicas",
+                        Grandeza = "THD de Tensão",
+                        Fase = thdFases
+                    });
+
+                if (r.has_thd_i)
+                    adicionais.Add(new PmuAdicional
+                    {
+                        TipoMedida = "Medidas Analógicas",
+                        Grandeza = "THD de Corrente",
+                        Fase = thdFases
+                    });
+
+                if (r.has_digital)
+                    adicionais.Add(new PmuAdicional
+                    {
+                        TipoMedida = "Medidas Digitais",
+                        Grandeza = "Digital",
+                        Fase = Array.Empty<string>() // digital não tem fase
+                    });
+
+                return new PmuMeta
+                {
+                    pmu_id = r.pmu_id,
+                    id_name = r.id_name,
+                    full_name = r.full_name,
+                    volt_level = r.volt_level,
+                    area = r.area,
+                    state = r.state,
+                    station = r.station,
+                    Grandezas = r.grandezas ?? Array.Empty<string>(),
+                    Fases = r.fases ?? Array.Empty<string>(),
+                    Adicionais = adicionais
+                };
+            }).ToList();
+
             var hierarchy = pmuHierarchy.BuildHierarchy(pmus);
 
             var data = new
@@ -204,7 +289,9 @@ ORDER BY pu.area       NULLS LAST,
                 nome_busca = labels.BuildLabel(run.from_ts, run.to_ts, run.select_rate, run.source, run.terminal_id),
                 terminais = hierarchy
             };
+
             return Results.Json(new { status = 200, data });
+
         });
 
         // -------------------------------
@@ -1738,6 +1825,7 @@ ORDER BY s.signal_id, r.ts;
         return app;
     }
 
+
     // --------- helpers ---------
 
     // Renomeado + sem MinBy/MaxBy (compatível com versões antigas)
@@ -1898,20 +1986,6 @@ ORDER BY s.signal_id, r.ts;
         return result;
     }
 
-    static DateTime? ResolveDataLabel(
-    DateTime? fromQuery,
-    DateTime windowFromUtc)
-    {
-        // prioridade: from da query
-        var src = fromQuery ?? windowFromUtc;
-
-        // garantir UTC
-        var utc = src.Kind == DateTimeKind.Utc
-            ? src
-            : DateTime.SpecifyKind(src, DateTimeKind.Utc);
-
-        return utc.Date;
-    }
 
 
 
