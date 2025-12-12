@@ -5,6 +5,7 @@ using Dapper;
 using System.Data;
 using OpenPlot.Data.Dtos;
 using System.Numerics;
+using System.Globalization;
 public static class RunsEndpoints
 {
     public static IEndpointRouteBuilder MapRuns(this IEndpointRouteBuilder app)
@@ -36,7 +37,7 @@ public static class RunsEndpoints
             }
 
             const string pmusSql = @"
-WITH run AS (SELECT id, signals, pmus FROM openplot.search_runs WHERE id = @id),
+WITH run AS (SELECT id, signals, COALESCE(pmus_ok, pmus) AS pmus FROM openplot.search_runs WHERE id = @id),
 src AS (
   SELECT CASE
            WHEN jsonb_typeof(signals) = 'array' AND jsonb_array_length(signals) > 0 THEN signals
@@ -262,7 +263,7 @@ ORDER BY pu.area       NULLS LAST,
 
             const string sqlTemplate = @"
 WITH run AS (
-  SELECT id, source AS pdc_name, from_ts, to_ts, pmus, signals
+  SELECT id, source AS pdc_name, from_ts, to_ts, COALESCE(pmus_ok, pmus) AS pmus, signals
   FROM openplot.search_runs
   WHERE id = @run_id::uuid
 ),
@@ -410,10 +411,19 @@ ORDER BY s.signal_id, r.ts;";
                 })
                 .ToList();
 
+            var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
+            var windowTo = toUtc ?? rows.Max(r => r.Ts);
+
+            // DIA UTC DA CONSULTA
+            var data = windowFrom
+            .Date
+            .ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+
             var first = rows.First();
             return Results.Ok(new
             {
                 run_id = q.RunId,
+                data,
                 unit = unit,
                 tri = tri,
                 phase = tri ? "ABC" : uphase,
@@ -489,7 +499,7 @@ ORDER BY s.signal_id, r.ts;";
 
             const string sqlTemplate = @"
 WITH run AS (
-  SELECT id, source AS pdc_name, from_ts, to_ts, pmus, signals
+  SELECT id, source AS pdc_name, from_ts, to_ts, COALESCE(pmus_ok, pmus) AS pmus, signals
   FROM openplot.search_runs
   WHERE id = @run_id::uuid
 ),
@@ -642,10 +652,18 @@ ORDER BY s.signal_id, r.ts;";
                 from = fromUtc ?? rows.Min(r => r.Ts),
                 to = toUtc ?? rows.Max(r => r.Ts)
             };
+            var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
+            var windowTo = toUtc ?? rows.Max(r => r.Ts);
+
+            // DIA UTC DA CONSULTA
+            var data = windowFrom
+            .Date
+            .ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
             return Results.Ok(new
             {
                 run_id = q.RunId,
+                data,
                 tri = tri,
                 phase = tri ? "ABC" : uphase,
                 unit = "raw",
@@ -737,7 +755,7 @@ ORDER BY s.signal_id, r.ts;";
             // =======================================
             const string sqlTemplate = @"
 WITH run AS (
-  SELECT id, source AS pdc_name, from_ts, to_ts, pmus, signals
+  SELECT id, source AS pdc_name, from_ts, to_ts, COALESCE(pmus_ok, pmus) AS pmus, signals
   FROM openplot.search_runs
   WHERE id = @run_id::uuid
 ),
@@ -952,10 +970,18 @@ ORDER BY s.id_name, s.signal_id, r.ts;
 
             if (series.Count == 0)
                 return Results.BadRequest("Nenhuma PMU pôde ser processada.");
+            var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
+            var windowTo = toUtc ?? rows.Max(r => r.Ts);
+
+            // DIA UTC DA CONSULTA
+            var data = windowFrom
+            .Date
+            .ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
             return Results.Ok(new
             {
                 run_id = q.RunId,
+                data,
                 kind = k,
                 seq = seqNorm, // <-- opcional, mas útil
                 unit = u,
@@ -1029,7 +1055,7 @@ ORDER BY s.id_name, s.signal_id, r.ts;
             // =======================================
             const string sqlTemplate = @"
 WITH run AS (
-  SELECT id, source AS pdc_name, from_ts, to_ts, pmus, signals
+  SELECT id, source AS pdc_name, from_ts, to_ts, COALESCE(pmus_ok, pmus) AS pmus, signals
   FROM openplot.search_runs
   WHERE id = @run_id::uuid
 ),
@@ -1300,10 +1326,18 @@ ORDER BY s.id_name, s.signal_id, r.ts;
 
             if (series.Count == 0)
                 return Results.BadRequest("Nenhuma PMU pôde ser processada.");
+            var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
+            var windowTo = toUtc ?? rows.Max(r => r.Ts);
+
+            // DIA UTC DA CONSULTA
+            var data = windowFrom
+            .Date
+            .ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
             return Results.Ok(new
             {
                 run_id = q.RunId,
+                data,
                 kind = k,
                 metric = "unbalance", // |seq-| / |seq+| * 100
                 pmu_count = series.Count,
@@ -1346,7 +1380,7 @@ ORDER BY s.id_name, s.signal_id, r.ts;
 
             const string sqlTemplate = @"
 WITH run AS (
-  SELECT id, source AS pdc_name, from_ts, to_ts, pmus, signals
+  SELECT id, source AS pdc_name, from_ts, to_ts, COALESCE(pmus_ok, pmus) AS pmus, signals
   FROM openplot.search_runs
   WHERE id = @run_id::uuid
 ),
@@ -1483,9 +1517,18 @@ ORDER BY s.signal_id, r.ts;
 
             var first = rows.First();
 
+            var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
+            var windowTo = toUtc ?? rows.Max(r => r.Ts);
+
+            // DIA UTC DA CONSULTA
+            var data = windowFrom
+            .Date
+            .ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+
             return Results.Ok(new
             {
                 run_id = q.RunId,
+                data,
                 unit = "Hz",
                 resolved = new
                 {
@@ -1528,7 +1571,7 @@ ORDER BY s.signal_id, r.ts;
             // SQL para dfreq
             const string sqlTemplate = @"
 WITH run AS (
-  SELECT id, source AS pdc_name, from_ts, to_ts, pmus, signals
+  SELECT id, source AS pdc_name, from_ts, to_ts, COALESCE(pmus_ok, pmus) AS pmus, signals
   FROM openplot.search_runs
   WHERE id = @run_id::uuid
 ),
@@ -1664,10 +1707,18 @@ ORDER BY s.signal_id, r.ts;
                 .ToList();
 
             var first = rows.First();
+            var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
+            var windowTo = toUtc ?? rows.Max(r => r.Ts);
+
+            // DIA UTC DA CONSULTA
+            var data = windowFrom
+            .Date
+            .ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
             return Results.Ok(new
             {
                 run_id = q.RunId,
+                data,
                 unit = "Hz/s",
                 resolved = new
                 {
@@ -1846,6 +1897,22 @@ ORDER BY s.signal_id, r.ts;
 
         return result;
     }
+
+    static DateTime? ResolveDataLabel(
+    DateTime? fromQuery,
+    DateTime windowFromUtc)
+    {
+        // prioridade: from da query
+        var src = fromQuery ?? windowFromUtc;
+
+        // garantir UTC
+        var utc = src.Kind == DateTimeKind.Utc
+            ? src
+            : DateTime.SpecifyKind(src, DateTimeKind.Utc);
+
+        return utc.Date;
+    }
+
 
 
 }

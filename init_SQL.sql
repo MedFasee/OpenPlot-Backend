@@ -128,6 +128,12 @@ ALTER TABLE openplot.search_runs
 -- 11) Lógica THD
 ALTER TYPE comp_kind ADD VALUE IF NOT EXISTS 'THD';
 
+
 -- 12) PMUs que retornam dados
 ALTER TABLE openplot.search_runs
 ADD COLUMN pmus_ok jsonb;
+
+
+-- 13) Lógica Digitais
+ALTER TYPE qty_kind  ADD VALUE IF NOT EXISTS 'Digital';
+ALTER TYPE comp_kind ADD VALUE IF NOT EXISTS 'DIG';
