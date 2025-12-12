@@ -184,11 +184,11 @@ ORDER BY m.area, m.state, m.volt_level, m.station, m.id_name;";
 
                 // agrupa pela data no fuso do Brasil
                 var fromUtc = DateTime.SpecifyKind(r.from_ts, DateTimeKind.Utc);
-                var timeFilter = TimeZoneInfo.ConvertTimeFromUtc(fromUtc, time.BrazilTz);
+                //var timeFilter = TimeZoneInfo.ConvertTimeFromUtc(fromUtc, time.BrazilTz);
 
-                var y = timeFilter.Year.ToString("0000");
-                var m = timeFilter.Month.ToString("00");
-                var d = timeFilter.Day.ToString("00");
+                var y = fromUtc.Year.ToString("0000");
+                var m = fromUtc.Month.ToString("00");
+                var d = fromUtc.Day.ToString("00");
 
                 if (!calendar.TryGetValue(y, out var months))
                     calendar[y] = months = new();

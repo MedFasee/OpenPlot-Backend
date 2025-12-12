@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("OpenPlot.XmlImporter")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+72c60a4a1c6cb15b597a4df80ff05686b90a16ef")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+008b833c518454249f48dd4e8407f45b36c7d772")]
 [assembly: System.Reflection.AssemblyProductAttribute("OpenPlot.XmlImporter")]
 [assembly: System.Reflection.AssemblyTitleAttribute("OpenPlot.XmlImporter")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

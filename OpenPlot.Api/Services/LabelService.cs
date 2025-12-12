@@ -14,7 +14,6 @@ public sealed class LabelService : ILabelService
     {
  
         var label = $"{fromUtc:yyyyMMdd}_{fromUtc:HHmmss}_{toUtc:HHmmss}_{selectRate}_{source}";
-        if (!string.IsNullOrWhiteSpace(terminalId)) label += $"_{terminalId}";
         return label;
     }
 }
