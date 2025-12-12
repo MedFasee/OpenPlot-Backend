@@ -663,11 +663,12 @@ ORDER BY s.signal_id, r.ts;";
         // ---------------------------------------------
         // 4) /plots/seqpos/by-run  (tensão ou corrente)
         // ---------------------------------------------
-        grp.MapGet("/plots/seqpos/by-run",
+        grp.MapGet("/plots/seq/by-run",
         async Task<IResult> (
             [AsParameters] SeqPosRunQuery q,
-            [FromQuery] string[]? pmu,          // <--- múltiplas PMUs via ?pmu=...&pmu=...
+            [FromQuery] string[]? pmu,          // múltiplas PMUs via ?pmu=...&pmu=...
             [FromQuery] string kind,            // "voltage" | "current"
+            [FromQuery] string? seq,            // "pos" | "neg" | "zero"  (ou "seq+" | "seq-" | "seq0")
             [FromServices] IDbConnectionFactory dbf,
             [FromQuery] DateTime? from,
             [FromQuery] DateTime? to
@@ -682,6 +683,24 @@ ORDER BY s.signal_id, r.ts;";
             var k = kind.Trim().ToLowerInvariant();
             if (k is not ("voltage" or "current"))
                 return Results.BadRequest("kind deve ser 'voltage' ou 'current'.");
+
+            // =============================
+            // seq obrigatório (pos|neg|zero)
+            // =============================
+            if (string.IsNullOrWhiteSpace(seq))
+                return Results.BadRequest("seq é obrigatório (pos|neg|zero) ou (seq+|seq-|seq0).");
+
+            var seqNorm = seq.Trim().ToLowerInvariant();
+            seqNorm = seqNorm switch
+            {
+                "pos" or "seq+" or "1" => "pos",
+                "neg" or "seq-" or "2" => "neg",
+                "zero" or "seq0" or "0" => "zero",
+                _ => ""
+            };
+
+            if (seqNorm == "")
+                return Results.BadRequest("seq inválida. Use pos|neg|zero (ou seq+|seq-|seq0).");
 
             // =============================
             // lista de PMUs (opcional)
@@ -754,13 +773,11 @@ elems AS (
   FROM src
 ),
 pmu_ids AS (
-  -- strings simples: ""SE_MG_Itajuba_UNIFEI""
   SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
   FROM elems r
   JOIN openplot.pmu p ON p.id_name = btrim(r.elem::text, '""')
   WHERE jsonb_typeof(r.elem) = 'string'
   UNION ALL
-  -- objetos com { ""pmu"": ""..."", ... } ou { ""id_name"": ""..."" }
   SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
   FROM elems r
   JOIN LATERAL (
@@ -771,7 +788,6 @@ pmu_ids AS (
   WHERE jsonb_typeof(r.elem) = 'object'
     AND COALESCE(k.key_pmu, k.key_idname) IS NOT NULL
   UNION ALL
-  -- objetos com { ""pdc_pmu_id"": N }
   SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
   FROM elems r
   JOIN LATERAL (SELECT NULLIF(r.elem->>'pdc_pmu_id','')::int AS key_pdc_pmu_id) k ON TRUE
@@ -779,7 +795,6 @@ pmu_ids AS (
   JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
   WHERE jsonb_typeof(r.elem) = 'object'
   UNION ALL
-  -- objetos com { ""signal_id"": N }
   SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
   FROM elems r
   JOIN LATERAL (SELECT NULLIF(r.elem->>'signal_id','')::int AS key_signal_id) k ON TRUE
@@ -840,7 +855,6 @@ ORDER BY s.id_name, s.signal_id, r.ts;
 
             var sql = sqlTemplate.Replace("{PMU_FILTER}", pmuFilter);
 
-            // parâmetros dinâmicos
             var dyn = new DynamicParameters();
             dyn.Add("run_id", q.RunId);
             dyn.Add("kind", k);
@@ -850,7 +864,6 @@ ORDER BY s.id_name, s.signal_id, r.ts;
             for (int i = 0; i < pmuList.Count; i++)
                 dyn.Add($"pmu{i}", pmuList[i]);
 
-            // Executa consulta
             var rows = (await db.QueryAsync<SeqPosRow>(sql, dyn)).ToList();
 
             if (rows.Count == 0)
@@ -889,7 +902,6 @@ ORDER BY s.id_name, s.signal_id, r.ts;
                     vaAng.Count == 0 || vbAng.Count == 0 || vcAng.Count == 0)
                     continue;
 
-                // Ordena
                 vaMod.Sort((a, b) => a.ts.CompareTo(b.ts));
                 vbMod.Sort((a, b) => a.ts.CompareTo(b.ts));
                 vcMod.Sort((a, b) => a.ts.CompareTo(b.ts));
@@ -897,12 +909,13 @@ ORDER BY s.id_name, s.signal_id, r.ts;
                 vbAng.Sort((a, b) => a.ts.CompareTo(b.ts));
                 vcAng.Sort((a, b) => a.ts.CompareTo(b.ts));
 
-                // Monta seq+
-                var seq = ComputePositiveSequenceMagnitudeMedPlot(
+                // Monta sequência solicitada
+                var seqSeries = ComputeSequenceMagnitudeMedPlot(
                     vaMod, vbMod, vcMod,
-                    vaAng, vbAng, vcAng);
+                    vaAng, vbAng, vcAng,
+                    seqNorm);
 
-                if (seq.Count == 0)
+                if (seqSeries.Count == 0)
                     continue;
 
                 var first = sigRows.First();
@@ -917,13 +930,11 @@ ORDER BY s.id_name, s.signal_id, r.ts;
                 }
                 else if (u == "pu" && k == "current")
                 {
-                    // MedPlot usa ib=1A como base → pu == Ampère
-                    baseValue = 1.0;
+                    baseValue = 1.0; // MedPlot: ib=1A
                 }
 
-                // downsample
                 var downs = TimeBucketDownsampleMinMax(
-                    seq.Select(p => (
+                    seqSeries.Select(p => (
                         p.ts,
                         u == "pu" ? p.mag / baseValue : p.mag
                     )),
@@ -946,6 +957,7 @@ ORDER BY s.id_name, s.signal_id, r.ts;
             {
                 run_id = q.RunId,
                 kind = k,
+                seq = seqNorm, // <-- opcional, mas útil
                 unit = u,
                 pmu_count = series.Count,
                 window = new
@@ -959,11 +971,356 @@ ORDER BY s.id_name, s.signal_id, r.ts;
 
 
 
+        // ---------------------------------------------
+        // 5) /plots/unbalance/by-run  (|seq-| / |seq+|)
+        // ---------------------------------------------
+        grp.MapGet("/plots/unbalance/by-run",
+        async Task<IResult> (
+            [AsParameters] SeqPosRunQuery q,
+            [FromQuery] string[]? pmu,
+            [FromQuery] string kind,            // "voltage" | "current"
+            [FromServices] IDbConnectionFactory dbf,
+            [FromQuery] DateTime? from,
+            [FromQuery] DateTime? to
+        ) =>
+        {
+            // =============================
+            // kind obrigatório
+            // =============================
+            if (string.IsNullOrWhiteSpace(kind))
+                return Results.BadRequest("kind é obrigatório (voltage|current).");
+
+            var k = kind.Trim().ToLowerInvariant();
+            if (k is not ("voltage" or "current"))
+                return Results.BadRequest("kind deve ser 'voltage' ou 'current'.");
+
+            // =============================
+            // lista de PMUs (opcional)
+            // =============================
+            var pmuList = pmu?
+                .Select(p => p.Trim())
+                .Where(p => p.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList()
+                ?? new List<string>();
+
+            // =============================
+            // unit
+            // =============================
+            var u = (q.Unit ?? "raw").Trim().ToLowerInvariant();
+            if (u is not ("raw" or "pu"))
+                return Results.BadRequest("unit deve ser 'raw' ou 'pu'.");
+
+            var maxPts = Math.Max(q.MaxPoints, 100);
+
+            // =============================
+            // janela temporal
+            // =============================
+            DateTime? fromUtc = from?.ToUniversalTime();
+            DateTime? toUtc = to?.ToUniversalTime();
+
+            if (fromUtc.HasValue && toUtc.HasValue && fromUtc >= toUtc)
+                return Results.BadRequest("from < to");
+
+            using var db = dbf.Create();
+
+            // =======================================
+            // SQL (igual ao seu)
+            // =======================================
+            const string sqlTemplate = @"
+WITH run AS (
+  SELECT id, source AS pdc_name, from_ts, to_ts, pmus, signals
+  FROM openplot.search_runs
+  WHERE id = @run_id::uuid
+),
+run_window AS (
+  SELECT
+    CASE WHEN pg_typeof(r.from_ts)::text = 'timestamp without time zone'
+         THEN r.from_ts::timestamptz ELSE r.from_ts END AS from_utc,
+    CASE WHEN pg_typeof(r.to_ts)::text = 'timestamp without time zone'
+         THEN r.to_ts::timestamptz ELSE r.to_ts   END AS to_utc,
+    r.pdc_name, r.signals, r.pmus
+  FROM run r
+),
+win AS (
+  SELECT
+    COALESCE(@from_utc, rw.from_utc) AS from_utc,
+    COALESCE(@to_utc,   rw.to_utc)   AS to_utc,
+    rw.pdc_name, rw.signals, rw.pmus
+  FROM run_window rw
+),
+src AS (
+  SELECT w.pdc_name,
+         w.from_utc AS from_ts,
+         w.to_utc   AS to_ts,
+         CASE
+           WHEN jsonb_typeof(w.signals) = 'array' AND jsonb_array_length(w.signals) > 0 THEN w.signals
+           WHEN jsonb_typeof(w.pmus)    = 'array' AND jsonb_array_length(w.pmus)    > 0 THEN w.pmus
+           ELSE '[]'::jsonb
+         END AS arr
+  FROM win w
+),
+elems AS (
+  SELECT pdc_name, from_ts, to_ts, jsonb_array_elements(arr) AS elem
+  FROM src
+),
+pmu_ids AS (
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN openplot.pmu p ON p.id_name = btrim(r.elem::text, '""')
+  WHERE jsonb_typeof(r.elem) = 'string'
+  UNION ALL
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN LATERAL (
+    SELECT NULLIF(TRIM(r.elem->>'pmu'), '')     AS key_pmu,
+           NULLIF(TRIM(r.elem->>'id_name'), '') AS key_idname
+  ) k ON TRUE
+  JOIN openplot.pmu p ON p.id_name = COALESCE(k.key_pmu, k.key_idname)
+  WHERE jsonb_typeof(r.elem) = 'object'
+    AND COALESCE(k.key_pmu, k.key_idname) IS NOT NULL
+  UNION ALL
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN LATERAL (SELECT NULLIF(r.elem->>'pdc_pmu_id','')::int AS key_pdc_pmu_id) k ON TRUE
+  JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = k.key_pdc_pmu_id
+  JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
+  WHERE jsonb_typeof(r.elem) = 'object'
+  UNION ALL
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN LATERAL (SELECT NULLIF(r.elem->>'signal_id','')::int AS key_signal_id) k ON TRUE
+  JOIN openplot.signal s ON s.signal_id = k.key_signal_id
+  JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = s.pdc_pmu_id
+  JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
+  WHERE jsonb_typeof(r.elem) = 'object'
+),
+pdc_ctx AS (
+  SELECT w.pdc_name, w.from_ts, w.to_ts, pdc.pdc_id
+  FROM src w
+  JOIN openplot.pdc pdc ON LOWER(pdc.name) = LOWER(w.pdc_name)
+),
+ctx AS (
+  SELECT pc.pdc_name, pc.from_ts, pc.to_ts, pid.id_name, pid.pmu_id, pc.pdc_id
+  FROM pdc_ctx pc
+  JOIN pmu_ids pid ON pid.pdc_name = pc.pdc_name
+),
+sig AS (
+  SELECT s.signal_id, s.pdc_pmu_id, s.phase, s.component,
+         c.id_name, c.pdc_name, pmu.volt_level
+  FROM ctx c
+  JOIN openplot.pdc_pmu pp ON pp.pdc_id = c.pdc_id AND pp.pmu_id = c.pmu_id
+  JOIN openplot.signal s   ON s.pdc_pmu_id = pp.pdc_pmu_id
+  JOIN openplot.pmu pmu    ON pmu.pmu_id   = c.pmu_id
+  WHERE
+      ({PMU_FILTER})
+    AND (
+      (@kind = 'voltage' AND LOWER(s.quantity::text) IN ('voltage','v'))
+      OR
+      (@kind = 'current' AND LOWER(s.quantity::text) IN ('current','i'))
+    )
+    AND UPPER(s.phase::text) IN ('A','B','C')
+    AND UPPER(s.component::text) IN ('MAG','ANG')
+),
+raw AS (
+  SELECT m.signal_id, m.ts, m.value
+  FROM openplot.measurements m
+  WHERE m.ts >= (SELECT from_utc FROM win)
+    AND m.ts <= (SELECT to_utc   FROM win)
+)
+SELECT
+  s.signal_id, s.pdc_pmu_id, s.phase, s.component,
+  s.id_name, s.pdc_name, s.volt_level,
+  r.ts, r.value
+FROM sig s
+JOIN raw r USING (signal_id)
+ORDER BY s.id_name, s.signal_id, r.ts;
+";
+
+            string pmuFilter =
+                pmuList.Count == 0
+                ? "TRUE"
+                : string.Join(" OR ", pmuList.Select((_, i) => $"LOWER(c.id_name) = LOWER(@pmu{i})"));
+
+            var sql = sqlTemplate.Replace("{PMU_FILTER}", pmuFilter);
+
+            var dyn = new DynamicParameters();
+            dyn.Add("run_id", q.RunId);
+            dyn.Add("kind", k);
+            dyn.Add("from_utc", fromUtc);
+            dyn.Add("to_utc", toUtc);
+
+            for (int i = 0; i < pmuList.Count; i++)
+                dyn.Add($"pmu{i}", pmuList[i]);
+
+            var rows = (await db.QueryAsync<SeqPosRow>(sql, dyn)).ToList();
+
+            if (rows.Count == 0)
+                return Results.NotFound("Nenhuma PMU encontrada para este run/kind.");
+
+            // ======================================================
+            // Utilitário local: merge ponto a ponto com tolerância
+            // ======================================================
+            static List<(DateTime ts, double ratio)> RatioPointwise(
+                List<(DateTime ts, double mag)> neg,
+                List<(DateTime ts, double mag)> pos,
+                TimeSpan tolerance)
+            {
+                var outp = new List<(DateTime ts, double ratio)>();
+                int i = 0, j = 0;
+
+                while (i < neg.Count && j < pos.Count)
+                {
+                    var tn = neg[i].ts;
+                    var tp = pos[j].ts;
+
+                    // alinha pelo maior timestamp (mesma lógica do seu compute)
+                    var t = tn > tp ? tn : tp;
+
+                    while (i < neg.Count && neg[i].ts < t && (t - neg[i].ts) > tolerance) i++;
+                    while (j < pos.Count && pos[j].ts < t && (t - pos[j].ts) > tolerance) j++;
+
+                    if (i >= neg.Count || j >= pos.Count) break;
+
+                    tn = neg[i].ts;
+                    tp = pos[j].ts;
+
+                    if (Math.Abs((tn - t).TotalMilliseconds) > tolerance.TotalMilliseconds ||
+                        Math.Abs((tp - t).TotalMilliseconds) > tolerance.TotalMilliseconds)
+                    {
+                        var minT = tn < tp ? tn : tp;
+                        if (minT == tn) i++;
+                        else j++;
+                        continue;
+                    }
+
+                    var den = pos[j].mag;
+                    if (den > 0)
+                        outp.Add((t, neg[i].mag / den));
+
+                    i++; j++;
+                }
+
+                return outp;
+            }
+
+            // ======================================================
+            // Processa PMU por PMU
+            // ======================================================
+            var series = new List<object>();
+
+            foreach (var g in rows.GroupBy(r => r.Id_Name))
+            {
+                var sigRows = g.ToList();
+
+                var vaMod = new List<(DateTime ts, double val)>();
+                var vbMod = new List<(DateTime ts, double val)>();
+                var vcMod = new List<(DateTime ts, double val)>();
+                var vaAng = new List<(DateTime ts, double val)>();
+                var vbAng = new List<(DateTime ts, double val)>();
+                var vcAng = new List<(DateTime ts, double val)>();
+
+                foreach (var r in sigRows)
+                {
+                    string ph = (r.Phase ?? "").ToUpperInvariant();
+                    string cp = (r.Component ?? "").ToUpperInvariant();
+
+                    if (ph == "A" && cp == "MAG") vaMod.Add((r.Ts, r.Value));
+                    else if (ph == "A" && cp == "ANG") vaAng.Add((r.Ts, r.Value));
+                    else if (ph == "B" && cp == "MAG") vbMod.Add((r.Ts, r.Value));
+                    else if (ph == "B" && cp == "ANG") vbAng.Add((r.Ts, r.Value));
+                    else if (ph == "C" && cp == "MAG") vcMod.Add((r.Ts, r.Value));
+                    else if (ph == "C" && cp == "ANG") vcAng.Add((r.Ts, r.Value));
+                }
+
+                if (vaMod.Count == 0 || vbMod.Count == 0 || vcMod.Count == 0 ||
+                    vaAng.Count == 0 || vbAng.Count == 0 || vcAng.Count == 0)
+                    continue;
+
+                vaMod.Sort((a, b) => a.ts.CompareTo(b.ts));
+                vbMod.Sort((a, b) => a.ts.CompareTo(b.ts));
+                vcMod.Sort((a, b) => a.ts.CompareTo(b.ts));
+                vaAng.Sort((a, b) => a.ts.CompareTo(b.ts));
+                vbAng.Sort((a, b) => a.ts.CompareTo(b.ts));
+                vcAng.Sort((a, b) => a.ts.CompareTo(b.ts));
+
+                // calcula |seq+| e |seq-|
+                var seqPos = ComputeSequenceMagnitudeMedPlot(vaMod, vbMod, vcMod, vaAng, vbAng, vcAng, "pos");
+                var seqNeg = ComputeSequenceMagnitudeMedPlot(vaMod, vbMod, vcMod, vaAng, vbAng, vcAng, "neg");
+
+                if (seqPos.Count == 0 || seqNeg.Count == 0)
+                    continue;
+
+                // base pu (mesma regra que você já usa)
+                var first = sigRows.First();
+                double baseValue = 1.0;
+
+                if (u == "pu" && k == "voltage")
+                {
+                    double lvl = q.VoltLevel ?? first.Volt_Level ?? 0;
+                    if (lvl > 0)
+                        baseValue = lvl / Math.Sqrt(3.0);
+                }
+                else if (u == "pu" && k == "current")
+                {
+                    baseValue = 1.0;
+                }
+
+                // aplica unit (raw/pu) ANTES do ratio
+                var posU = seqPos.Select(p => (p.ts, mag: (u == "pu" ? p.mag / baseValue : p.mag))).ToList();
+                var negU = seqNeg.Select(p => (p.ts, mag: (u == "pu" ? p.mag / baseValue : p.mag))).ToList();
+
+                // ratio ponto a ponto: |seq-|/|seq+|
+                var ratio = RatioPointwise(
+                    negU.Select(x => (x.ts, x.mag)).ToList(),
+                    posU.Select(x => (x.ts, x.mag)).ToList(),
+                    TimeSpan.FromMilliseconds(3));
+
+                if (ratio.Count == 0)
+                    continue;
+
+                // downsample do ratio (mantém sua estratégia)
+                var downs = TimeBucketDownsampleMinMax(
+                    ratio.Select(p => (p.ts, p.ratio)),
+                    maxPts);
+
+                series.Add(new
+                {
+                    pmu = first.Id_Name,
+                    pdc = first.Pdc_Name,
+                    volt_level = q.VoltLevel ?? first.Volt_Level,
+                    unit = "percent", // ratio é adimensional; você pode manter "pu" se preferir
+                    points = downs.Select(d => new object[]
+                    {
+                d.ts,
+                d.val * 100.0 // percent (opcional mas útil no front)
+                    })
+                });
+            }
+
+            if (series.Count == 0)
+                return Results.BadRequest("Nenhuma PMU pôde ser processada.");
+
+            return Results.Ok(new
+            {
+                run_id = q.RunId,
+                kind = k,
+                metric = "unbalance", // |seq-| / |seq+| * 100
+                pmu_count = series.Count,
+                window = new
+                {
+                    from = fromUtc ?? rows.Min(r => r.Ts),
+                    to = toUtc ?? rows.Max(r => r.Ts)
+                },
+                series
+            });
+        });
+
 
 
 
         // -----------------------------------------
-        // 5) /plots/frequency/by-run  (Frequência)
+        // 6) /plots/frequency/by-run  (Frequência)
         // -----------------------------------------
         grp.MapGet("/plots/frequency/by-run",
         async Task<IResult> (
@@ -1144,7 +1501,7 @@ ORDER BY s.signal_id, r.ts;
             });
         });
         // -----------------------------------------
-        // 6) /plots/dfreq/by-run  (Derivada da frequência)
+        // 7) /plots/dfreq/by-run  (Derivada da frequência)
         // -----------------------------------------
         grp.MapGet("/plots/dfreq/by-run",
         async Task<IResult> (
@@ -1385,13 +1742,14 @@ ORDER BY s.signal_id, r.ts;
     /// 
     /// As listas devem estar ORDENADAS por ts.
     /// </summary>
-    private static List<(DateTime ts, double mag)> ComputePositiveSequenceMagnitudeMedPlot(
+    private static List<(DateTime ts, double mag)> ComputeSequenceMagnitudeMedPlot(
     List<(DateTime ts, double mag)> vaMod,
     List<(DateTime ts, double mag)> vbMod,
     List<(DateTime ts, double mag)> vcMod,
     List<(DateTime ts, double angDeg)> vaAng,
     List<(DateTime ts, double angDeg)> vbAng,
-    List<(DateTime ts, double angDeg)> vcAng)
+    List<(DateTime ts, double angDeg)> vcAng,
+    string seq) // 'pos', 'neg', 'zero'
     {
         var result = new List<(DateTime ts, double mag)>();
 
@@ -1454,7 +1812,7 @@ ORDER BY s.signal_id, r.ts;
                 continue;
             }
 
-            // Aqui é onde o erro ocorria:
+
             double vaM = vaMod[ia].mag;
             double vbM = vbMod[ib].mag;
             double vcM = vcMod[ic].mag;
@@ -1471,9 +1829,15 @@ ORDER BY s.signal_id, r.ts;
             Complex Vb = Complex.FromPolarCoordinates(vbM, thB);
             Complex Vc = Complex.FromPolarCoordinates(vcM, thC);
 
-            Complex V1 = (Va + a * Vb + a2 * Vc) / 3.0;
+            Complex Vseq = seq switch
+            {
+                "pos" => (Va + a * Vb + a2 * Vc) / 3.0, // sequência positiva
+                "neg" => (Va + a2 * Vb + a * Vc) / 3.0, // sequência negativa
+                "zero" => (Va + Vb + Vc) / 3.0, // sequência zero
+                _ => throw new ArgumentException("seq deve ser: pos | neg | zero")
+            };
 
-            result.Add((maxTime, V1.Magnitude));
+            result.Add((maxTime, Vseq.Magnitude));
 
             ia++;
             ib++;
