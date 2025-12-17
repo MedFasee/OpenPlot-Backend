@@ -100,7 +100,7 @@ namespace OpenPlot.Data.Dtos
         // Fase A/B/C – obrigatória quando tri = false
         public string? Phase { get; init; }
 
-        [FromQuery(Name = "max_points")]
+        [FromQuery(Name = "maxPoints")]
         public int MaxPoints { get; init; } = 5000;
 
         // "raw" ou "pu"
@@ -127,11 +127,47 @@ namespace OpenPlot.Data.Dtos
     [property: FromQuery(Name = "maxPoints")] int MaxPoints = 5000
 );
 
+    public sealed class PowerPlotQuery
+    {
+        [FromQuery(Name = "run_id")]
+        public Guid RunId { get; init; }
+
+        [FromQuery(Name = "pmu")]
+        public string[]? Pmu { get; init; }
+
+        [FromQuery(Name = "which")]
+        public string? Which { get; init; } // active|reactive
+
+        [FromQuery(Name = "unit")]
+        public string? Unit { get; init; }  // raw|mw
+
+        [FromQuery(Name = "maxPoints")]
+        public int MaxPoints { get; init; } = 5000;
+
+        [FromQuery(Name = "tri")]
+        public bool? Tri { get; init; }     // <- bool?
+
+        [FromQuery(Name = "total")]
+        public bool? Total { get; init; }   // <- bool?
+
+        [FromQuery(Name = "phase")]
+        public string? Phase { get; init; } // A|B|C
+    }
 
 
 
 
-
-
+    public sealed class PowerRow
+    {
+        public int Signal_Id { get; set; }
+        public int Pdc_Pmu_Id { get; set; }
+        public string? Phase { get; set; }        // A/B/C
+        public string? Component { get; set; }    // MAG/ANG
+        public string? Quantity { get; set; }     // voltage/current
+        public string Id_Name { get; set; } = "";
+        public string Pdc_Name { get; set; } = "";
+        public DateTime Ts { get; set; }
+        public double Value { get; set; }
+    }
 
 }

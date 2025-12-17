@@ -113,7 +113,7 @@
         "IsRequired": false
       },
       {
-        "Name": "max_points",
+        "Name": "maxPoints",
         "Type": "System.Int32",
         "IsRequired": true
       },
@@ -220,6 +220,76 @@
       {
         "Name": "maxPoints",
         "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "from",
+        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "to",
+        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Void",
+        "MediaTypes": [],
+        "StatusCode": 200
+      }
+    ],
+    "Tags": [
+      "Runs"
+    ]
+  },
+  {
+    "ContainingType": "RunsEndpoints\u002B\u003C\u003Ec",
+    "Method": "\u003CMapRuns\u003Eb__0_7",
+    "RelativePath": "api/v1/plots/power/by-run",
+    "HttpMethod": "GET",
+    "IsController": false,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "run_id",
+        "Type": "System.Guid",
+        "IsRequired": true
+      },
+      {
+        "Name": "pmu",
+        "Type": "System.String[]",
+        "IsRequired": false
+      },
+      {
+        "Name": "which",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "unit",
+        "Type": "System.String",
+        "IsRequired": false
+      },
+      {
+        "Name": "maxPoints",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "tri",
+        "Type": "System.Nullable\u00601[[System.Boolean, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "total",
+        "Type": "System.Nullable\u00601[[System.Boolean, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "phase",
+        "Type": "System.String",
         "IsRequired": false
       },
       {
@@ -398,7 +468,7 @@
         "IsRequired": false
       },
       {
-        "Name": "max_points",
+        "Name": "maxPoints",
         "Type": "System.Int32",
         "IsRequired": true
       },

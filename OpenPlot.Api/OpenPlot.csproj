@@ -7,6 +7,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Data\Dtos\Queries.cs" />
+    <Compile Remove="Features\Runs\PlotsQueryEndpoints.cs" />
     <Compile Remove="Features\Search\ConfigEndpoints.cs" />
   </ItemGroup>
 
