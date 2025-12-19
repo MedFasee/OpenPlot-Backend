@@ -13,8 +13,8 @@ public static class ImportEndpoints
                      .WithTags("Import_XML");
 
 
-        // POST /import/xml  → body: { "path": "C:\\pasta\\com\\xmls" }
-        group.MapPost("/xml", async (
+        // POST /import/xml/import  → body: { "path": "C:\\pasta\\com\\xmls" }
+        group.MapPost("/xml/import", async (
             ImportXmlRequest req,
             IConfiguration cfg,
             CancellationToken ct) =>

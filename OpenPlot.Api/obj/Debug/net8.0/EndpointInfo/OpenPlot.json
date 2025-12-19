@@ -49,7 +49,7 @@
         }
       }
     },
-    "/api/v1/arquivos": {
+    "/api/v1/configs": {
       "get": {
         "tags": [
           "Config"
@@ -61,7 +61,7 @@
         }
       }
     },
-    "/api/v1/xml/{pdcName}/terminais": {
+    "/api/v1/configs/{pdcName}/terminals": {
       "get": {
         "tags": [
           "Config"
@@ -83,28 +83,7 @@
         }
       }
     },
-    "/api/v1/buscas-realizadas": {
-      "get": {
-        "tags": [
-          "Config"
-        ],
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/v1/xml": {
+    "/api/v1/xml/import": {
       "post": {
         "tags": [
           "Import"
@@ -126,7 +105,28 @@
         }
       }
     },
-    "/api/v1/terminais/{nomeBusca}": {
+    "/api/v1/runs": {
+      "get": {
+        "tags": [
+          "Runs"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/terminals/{nomeBusca}": {
       "get": {
         "tags": [
           "Runs"
@@ -156,7 +156,7 @@
         }
       }
     },
-    "/api/v1/plots/voltage-phase/by-run": {
+    "/api/v1/series/voltage/by-run": {
       "get": {
         "tags": [
           "Runs"
@@ -233,7 +233,7 @@
         }
       }
     },
-    "/api/v1/plots/current-phase/by-run": {
+    "/api/v1/series/current/by-run": {
       "get": {
         "tags": [
           "Runs"
@@ -310,7 +310,7 @@
         }
       }
     },
-    "/api/v1/plots/seq/by-run": {
+    "/api/v1/series/seq/by-run": {
       "get": {
         "tags": [
           "Runs"
@@ -406,7 +406,7 @@
         }
       }
     },
-    "/api/v1/plots/unbalance/by-run": {
+    "/api/v1/series/unbalance/by-run": {
       "get": {
         "tags": [
           "Runs"
@@ -495,7 +495,7 @@
         }
       }
     },
-    "/api/v1/plots/frequency/by-run": {
+    "/api/v1/series/frequency/by-run": {
       "get": {
         "tags": [
           "Runs"
@@ -550,7 +550,7 @@
         }
       }
     },
-    "/api/v1/plots/dfreq/by-run": {
+    "/api/v1/series/dfreq/by-run": {
       "get": {
         "tags": [
           "Runs"
@@ -605,7 +605,7 @@
         }
       }
     },
-    "/api/v1/plots/power/by-run": {
+    "/api/v1/series/power/by-run": {
       "get": {
         "tags": [
           "Runs"

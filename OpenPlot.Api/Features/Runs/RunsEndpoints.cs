@@ -6,6 +6,8 @@ using System.Data;
 using OpenPlot.Data.Dtos;
 using System.Numerics;
 using System.Globalization;
+using Data.Sql;
+using static ConfigEndpoints;
 public static class RunsEndpoints
 {
     public static IEndpointRouteBuilder MapRuns(this IEndpointRouteBuilder app)
@@ -13,7 +15,57 @@ public static class RunsEndpoints
         var grp = app.MapGroup("")
                      .WithTags("Runs").RequireAuthorization();
 
-        grp.MapGet("/terminais/{nomeBusca}", async (
+        // GET /runs
+        grp.MapGet("/runs", async (
+            [FromServices] IDbConnectionFactory dbf,
+            [FromQuery] string? status,
+            [FromServices] ITimeService time,
+            [FromServices] ILabelService labels
+        ) =>
+        {
+            using var db = dbf.Create();
+            var rows = await db.QueryAsync<SearchRunRow>(SearchSql.ListRuns, new { status });
+
+            // ano -> mês -> dia -> itens
+            var calendar = new Dictionary<string, Dictionary<string, Dictionary<string, List<SearchRunItem>>>>();
+
+            foreach (var r in rows)
+            {
+                var label = labels.BuildLabel(r.from_ts, r.to_ts, r.select_rate, r.source, r.terminal_id);
+
+                // agrupa pela data no fuso do Brasil
+                var fromUtc = DateTime.SpecifyKind(r.from_ts, DateTimeKind.Utc);
+                //var timeFilter = TimeZoneInfo.ConvertTimeFromUtc(fromUtc, time.BrazilTz);
+
+                var y = fromUtc.Year.ToString("0000");
+                var m = fromUtc.Month.ToString("00");
+                var d = fromUtc.Day.ToString("00");
+
+                if (!calendar.TryGetValue(y, out var months))
+                    calendar[y] = months = new();
+
+                if (!months.TryGetValue(m, out var days))
+                    months[m] = days = new();
+
+                if (!days.TryGetValue(d, out var items))
+                    days[d] = items = new();
+
+                items.Add(new SearchRunItem
+                {
+                    label = label,
+                    status = r.status,
+                    id = r.id.ToString()
+                });
+            }
+
+            // agora data é só o calendário (sem lookup)
+            var data = calendar;
+
+            return Results.Json(new { status = 200, data });
+        });
+
+
+        grp.MapGet("/terminals/{nomeBusca}", async (
             string nomeBusca,                                 // rota
             [FromQuery] Guid? id,                             // query ?id=...
             [FromServices] IDbConnectionFactory dbf,          // serviços
@@ -295,9 +347,9 @@ ORDER BY pu.area       NULLS LAST,
         });
 
         // -------------------------------
-        // 2) /plots/voltage-phase/by-run
+        // 2) /series/voltage/by-run
         // -------------------------------
-        grp.MapGet("/plots/voltage-phase/by-run",
+        grp.MapGet("/series/voltage/by-run",
         async Task<IResult> (
             [AsParameters] ByRunQuery q,
             [FromServices] IDbConnectionFactory dbf,
@@ -530,9 +582,9 @@ ORDER BY s.signal_id, r.ts;";
 
 
         // -------------------------------
-        // 3) /plots/current-phase/by-run (RAW em A)
+        // 3) /series/current/by-run (RAW em A)
         // -------------------------------
-        grp.MapGet("/plots/current-phase/by-run",
+        grp.MapGet("/series/current/by-run",
         async Task<IResult> (
             [AsParameters] ByRunQuery q,
             [FromServices] IDbConnectionFactory dbf,
@@ -766,9 +818,9 @@ ORDER BY s.signal_id, r.ts;";
 
 
         // ---------------------------------------------
-        // 4) /plots/seqpos/by-run  (tensão ou corrente)
+        // 4) /series/seqpos/by-run  (tensão ou corrente)
         // ---------------------------------------------
-        grp.MapGet("/plots/seq/by-run",
+        grp.MapGet("/series/seq/by-run",
         async Task<IResult> (
             [AsParameters] SeqPosRunQuery q,
             [FromQuery] string[]? pmu,          // múltiplas PMUs via ?pmu=...&pmu=...
@@ -1085,9 +1137,9 @@ ORDER BY s.id_name, s.signal_id, r.ts;
 
 
         // ---------------------------------------------
-        // 5) /plots/unbalance/by-run  (|seq-| / |seq+|)
+        // 5) /series/unbalance/by-run  (|seq-| / |seq+|)
         // ---------------------------------------------
-        grp.MapGet("/plots/unbalance/by-run",
+        grp.MapGet("/series/unbalance/by-run",
         async Task<IResult> (
             [AsParameters] SeqPosRunQuery q,
             [FromQuery] string[]? pmu,
@@ -1441,9 +1493,9 @@ ORDER BY s.id_name, s.signal_id, r.ts;
 
 
         // -----------------------------------------
-        // 6) /plots/frequency/by-run  (Frequência)
+        // 6) /series/frequency/by-run  (Frequência)
         // -----------------------------------------
-        grp.MapGet("/plots/frequency/by-run",
+        grp.MapGet("/series/frequency/by-run",
         async Task<IResult> (
             [AsParameters] FreqRunQuery q,
             [FromServices] IDbConnectionFactory dbf,
@@ -1631,9 +1683,9 @@ ORDER BY s.signal_id, r.ts;
             });
         });
         // -----------------------------------------
-        // 7) /plots/dfreq/by-run  (Derivada da frequência)
+        // 7) /series/dfreq/by-run  (Derivada da frequência)
         // -----------------------------------------
-        grp.MapGet("/plots/dfreq/by-run",
+        grp.MapGet("/series/dfreq/by-run",
         async Task<IResult> (
             [AsParameters] FreqRunQuery q,
             [FromServices] IDbConnectionFactory dbf,
@@ -1821,9 +1873,9 @@ ORDER BY s.signal_id, r.ts;
             });
         });
         // -----------------------------------------
-        // 8) /plots/power/by-run  (P ou Q)
+        // 8) /series/power/by-run  (P ou Q)
         // -----------------------------------------
-        grp.MapGet("/plots/power/by-run",
+        grp.MapGet("/series/power/by-run",
         async Task<IResult> (
             [AsParameters] PowerPlotQuery q,
             [FromServices] IDbConnectionFactory dbf,

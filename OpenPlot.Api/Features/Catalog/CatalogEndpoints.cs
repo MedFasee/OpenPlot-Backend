@@ -36,9 +36,9 @@ public static class ConfigEndpoints
         var group = app.MapGroup("")
                      .WithTags("Config").RequireAuthorization();
 
-        // GET /api/v1/arquivos
+        // GET /api/v1/configs
 
-        group.MapGet("arquivos", async (
+        group.MapGet("configs", async (
             [FromServices] IDbConnectionFactory dbf   // usa o serviço de DB já existente
         ) =>
         {
@@ -65,9 +65,9 @@ public static class ConfigEndpoints
         });
 
         // ============================================================
-        // GET /xml/{pdcName}/terminais
+        // GET configs/{pdcName}/terminals
         // ============================================================
-        group.MapGet("xml/{pdcName}/terminais", async (
+        group.MapGet("configs/{pdcName}/terminals", async (
             [FromRoute] string pdcName,
             [FromServices] IDbConnectionFactory dbf
         ) =>
@@ -164,54 +164,7 @@ ORDER BY m.area, m.state, m.volt_level, m.station, m.id_name;";
             return Results.Json(response);
         });
 
-        // GET /buscas-realizadas
-        group.MapGet("/buscas-realizadas", async (
-            [FromServices] IDbConnectionFactory dbf,
-            [FromQuery] string? status,
-            [FromServices] ITimeService time,
-            [FromServices] ILabelService labels
-        ) =>
-        {
-            using var db = dbf.Create();
-            var rows = await db.QueryAsync<SearchRunRow>(SearchSql.ListRuns, new { status });
-
-            // ano -> mês -> dia -> itens
-            var calendar = new Dictionary<string, Dictionary<string, Dictionary<string, List<SearchRunItem>>>>();
-
-            foreach (var r in rows)
-            {
-                var label = labels.BuildLabel(r.from_ts, r.to_ts, r.select_rate, r.source, r.terminal_id);
-
-                // agrupa pela data no fuso do Brasil
-                var fromUtc = DateTime.SpecifyKind(r.from_ts, DateTimeKind.Utc);
-                //var timeFilter = TimeZoneInfo.ConvertTimeFromUtc(fromUtc, time.BrazilTz);
-
-                var y = fromUtc.Year.ToString("0000");
-                var m = fromUtc.Month.ToString("00");
-                var d = fromUtc.Day.ToString("00");
-
-                if (!calendar.TryGetValue(y, out var months))
-                    calendar[y] = months = new();
-
-                if (!months.TryGetValue(m, out var days))
-                    months[m] = days = new();
-
-                if (!days.TryGetValue(d, out var items))
-                    days[d] = items = new();
-
-                items.Add(new SearchRunItem
-                {
-                    label = label,
-                    status = r.status,
-                    id = r.id.ToString()
-                });
-            }
-
-            // agora data é só o calendário (sem lookup)
-            var data = calendar;
-
-            return Results.Json(new { status = 200, data });
-        });
+        
 
 
     }
