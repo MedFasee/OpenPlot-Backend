@@ -8,12 +8,13 @@ WITH d AS (
 )
 INSERT INTO openplot.search_runs
   (id, pdc_id, source, terminal_id, pmus, signals, from_ts, to_ts, select_rate,
-   status, progress, message, pmu_count, label)
+   status, progress, message, pmu_count, label, username)
 SELECT
   @id, d.pdc_id, @source, 'multi', @pmus::jsonb, '[]'::jsonb, @from, @to, @rate,
-  'queued', 0, 'Na fila', @pmu_count, @label
+  'queued', 0, 'Na fila', @pmu_count, @label, @username
 FROM d;";
 
+        // Buscas abaixo não levam o usuário. Ainda não sabemos se haverá filtro por user
         public const string ListRuns = @"
 SELECT id, source, terminal_id, from_ts, to_ts, select_rate, status, created_at
 FROM openplot.search_runs

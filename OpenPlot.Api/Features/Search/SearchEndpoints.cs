@@ -6,6 +6,7 @@ using System.Data;
 using Data.Sql;
 using System.Text.Json;
 using OpenPlot.Data.Dtos;
+using System.Security.Claims;
 
 public static class SearchEndpoints
 {
@@ -17,6 +18,7 @@ public static class SearchEndpoints
         // POST /search (legado)
         group.MapPost("", async (
             SearchRequest req,                                    // body
+            ClaimsPrincipal user,
             [FromServices] IDbConnectionFactory dbf               // serviço
         ) =>
         {
@@ -34,12 +36,15 @@ public static class SearchEndpoints
             }
 
             var id = Guid.NewGuid();
+            var username = user.Identity?.Name ?? "unknown";  // <- NOVO
+
             using var db = dbf.Create();
             const string sql = @"
 INSERT INTO openplot.search_runs
-  (id, source, terminal_id, signals, from_ts, to_ts, select_rate, status, progress, message)
+  (id, source, terminal_id, signals, from_ts, to_ts, select_rate, status, progress, message, username)
 VALUES
-  (@id, @source, @terminal_id, to_jsonb(@signals::json), @from, @to, @select_rate, 'queued', 0, 'Na fila');";
+  (@id, @source, @terminal_id, to_jsonb(@signals::json), @from, @to, @select_rate, 'queued', 0, 'Na fila', @username);";
+
 
             await db.ExecuteAsync(sql, new
             {
@@ -49,7 +54,8 @@ VALUES
                 signals = JsonSerializer.Serialize(req.Signals),
                 from = req.From.ToUniversalTime(),
                 to = req.To.ToUniversalTime(),
-                select_rate = ParseResolutionToSeconds(req.Resolution)
+                select_rate = ParseResolutionToSeconds(req.Resolution),
+                username
             });
 
             return Results.Accepted($"/search/{id}", new { jobId = id });
@@ -58,6 +64,7 @@ VALUES
         // POST /search/all (multi-PMU)
         group.MapPost("/all", async (
             SearchReq req,                                       // body
+            ClaimsPrincipal user,
             [FromServices] IDbConnectionFactory dbf,
             [FromServices] ILabelService labels
         ) =>
@@ -81,6 +88,7 @@ VALUES
             var rate = ParseRes(req.Resolution ?? "0");
             var label = labels.BuildLabel(fromUtc, toUtc, rate, req.Source.Trim(), null);
             var id = Guid.NewGuid();
+            var username = user.Identity?.Name ?? "unknown";
 
             using var db = dbf.Create();
             var affected = await db.ExecuteAsync(SearchSql.InsertRunBlind, new
@@ -92,8 +100,10 @@ VALUES
                 to = toUtc,
                 rate,
                 pmu_count = req.Pmus.Count,
-                label
+                label,
+                username     
             });
+
 
             if (affected == 0)
                 return Results.BadRequest(new { error = "PDC não encontrado em openplot.pdc", source_tentado = req.Source });

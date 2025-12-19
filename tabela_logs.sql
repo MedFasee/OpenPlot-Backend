@@ -40,3 +40,8 @@ ADD COLUMN request_body TEXT;
 
 ALTER TABLE openplot.api_request_log
 ADD COLUMN IF NOT EXISTS query_string TEXT;
+
+
+-- Adição de coluna usuário (dando dono a cada consulta)
+ALTER TABLE openplot.search_runs
+  ADD COLUMN username text;
