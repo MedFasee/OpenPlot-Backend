@@ -11,7 +11,7 @@ public static class RunsEndpoints
     public static IEndpointRouteBuilder MapRuns(this IEndpointRouteBuilder app)
     {
         var grp = app.MapGroup("")
-                     .WithTags("Runs");
+                     .WithTags("Runs").RequireAuthorization();
 
         grp.MapGet("/terminais/{nomeBusca}", async (
             string nomeBusca,                                 // rota

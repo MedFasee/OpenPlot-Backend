@@ -34,7 +34,7 @@ public static class ConfigEndpoints
     public static void MapConfig(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("")
-                     .WithTags("Config");
+                     .WithTags("Config").RequireAuthorization();
 
         // GET /api/v1/arquivos
 

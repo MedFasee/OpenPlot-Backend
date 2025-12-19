@@ -12,7 +12,7 @@ public static class SearchEndpoints
     public static IEndpointRouteBuilder MapSearch(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/search")
-                     .WithTags("Search");
+                     .WithTags("Search").RequireAuthorization();
 
         // POST /search (legado)
         group.MapPost("", async (
