@@ -59,6 +59,9 @@ var cs = builder.Configuration.GetConnectionString("Db")
 
 builder.Services.AddScoped<IDbConnectionFactory>(_ => new NpgsqlConnectionFactory(cs));
 
+// Repositório de logs de request (Postgres / openplot.api_request_log)
+builder.Services.AddScoped<IApiRequestLogRepository, ApiRequestLogRepository>();
+
 // ======================================================================
 // Serviços internos
 // ======================================================================

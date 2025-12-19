@@ -1,5 +1,7 @@
 ﻿using System.Diagnostics;
+using System.IO;
 using System.Security.Claims;
+using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using OpenPlot.Auth.Web.Session;
@@ -19,7 +21,7 @@ public class RequestLoggingMiddleware
         _logger = logger;
     }
 
-    public async Task Invoke(HttpContext context)
+    public async Task Invoke(HttpContext context, IApiRequestLogRepository logRepo)
     {
         var sw = Stopwatch.StartNew();
         var request = context.Request;
@@ -33,9 +35,9 @@ public class RequestLoggingMiddleware
         string? userName = null;
         string? userId = null;
 
-        // =========================================================
-        // (1) Via Claims (JWT)
-        // =========================================================
+        // ==========================================
+        // 1) Usuário via Claims (JWT)
+        // ==========================================
         if (context.User?.Identity?.IsAuthenticated == true)
         {
             userName =
@@ -49,14 +51,13 @@ public class RequestLoggingMiddleware
                 ?? context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         }
 
-        // =========================================================
-        // (2) Via SessionUserService (LoginResponse)
-        // =========================================================
+        // ==========================================
+        // 2) Fallback via SessionUserService
+        // ==========================================
         if (userName is null)
         {
             var sessionUserSvc = context.RequestServices.GetService<ISessionUserService>();
-
-            var login = sessionUserSvc?.GetCurrentUser();  // LoginResponse
+            var login = sessionUserSvc?.GetCurrentUser();
 
             if (login is not null)
             {
@@ -65,10 +66,52 @@ public class RequestLoggingMiddleware
             }
         }
 
-        // =========================================================
         var remoteIp = context.Connection.RemoteIpAddress?.ToString();
         var userAgent = request.Headers["User-Agent"].FirstOrDefault();
-       
+
+        // ==========================================
+        // (NOVO) Captura de body do REQUEST
+        // ==========================================
+        string? requestBodyForLog = null;
+
+        var isLoginEndpoint = request.Path.StartsWithSegments("/api/v1/auth/login",
+                              StringComparison.OrdinalIgnoreCase);
+
+        // Tem body? (Content-Length > 0 ou Transfer-Encoding chunked)
+        var hasBody =
+            (request.ContentLength ?? 0) > 0 ||
+            string.Equals(request.Headers["Transfer-Encoding"], "chunked",
+                          StringComparison.OrdinalIgnoreCase);
+
+        if (hasBody && !isLoginEndpoint)
+        {
+            request.EnableBuffering();   // permite ler sem consumir o stream
+
+            const int maxBodyLength = 10 * 1024; // 10 kB
+
+            using var reader = new StreamReader(
+                request.Body,
+                Encoding.UTF8,
+                detectEncodingFromByteOrderMarks: false,
+                bufferSize: 1024,
+                leaveOpen: true);
+
+            var body = await reader.ReadToEndAsync();
+
+            requestBodyForLog = body.Length > maxBodyLength
+                ? body.Substring(0, maxBodyLength) + "...(truncated)"
+                : body;
+
+            request.Body.Position = 0; // volta pro começo pro resto do pipeline
+        }
+
+        // Linha completa da requisição 
+        var protocol = request.Protocol; 
+        var queryString = request.QueryString.Value;
+
+        // Tipo e tamanho DO REQUEST (o que o usuário mandou)
+        var contentType = request.ContentType;
+        var contentLength = request.ContentLength;
 
         try
         {
@@ -79,8 +122,7 @@ public class RequestLoggingMiddleware
 
             _logger.LogInformation(
                 "HTTP {Method} {Path} -> {StatusCode} in {ElapsedMs} ms | " +
-                "User={User} | UserId={UserId} | IP={IP} | CorrelationId={CorrelationId}" +
-                " | UA={UserAgent}",
+                "User={User} | UserId={UserId} | IP={IP} | CorrelationId={CorrelationId} | UA={UserAgent}",
                 request.Method,
                 request.Path,
                 statusCode,
@@ -91,6 +133,34 @@ public class RequestLoggingMiddleware
                 correlationId,
                 userAgent
             );
+
+            var entry = new ApiRequestLogEntry
+            {
+                TimestampUtc = DateTime.UtcNow,
+                Method = request.Method,
+                Path = request.Path,
+                StatusCode = statusCode,
+                ElapsedMs = (int)sw.ElapsedMilliseconds,
+                UserName = userName,
+                UserId = userId,
+                Ip = remoteIp,
+                CorrelationId = correlationId,
+                UserAgent = userAgent,
+                Protocol = protocol,
+                ContentType = contentType,
+                ContentLength = contentLength,
+                RequestBody = requestBodyForLog,
+                QueryString = queryString
+            };
+
+            try
+            {
+                await logRepo.InsertAsync(entry);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falha ao gravar log de request em openplot.api_request_log.");
+            }
         }
         catch (Exception ex)
         {
@@ -99,8 +169,7 @@ public class RequestLoggingMiddleware
             _logger.LogError(
                 ex,
                 "HTTP {Method} {Path} threw exception after {ElapsedMs} ms | " +
-                "User={User} | UserId={UserId} | IP={IP} | CorrelationId={CorrelationId}" +
-                " | UA={UserAgent}",
+                "User={User} | UserId={UserId} | IP={IP} | CorrelationId={CorrelationId} | UA={UserAgent}",
                 request.Method,
                 request.Path,
                 sw.ElapsedMilliseconds,
@@ -110,6 +179,8 @@ public class RequestLoggingMiddleware
                 correlationId,
                 userAgent
             );
+
+            // se quiser, pode também gravar na tabela aqui usando requestBodyForLog
 
             throw;
         }
