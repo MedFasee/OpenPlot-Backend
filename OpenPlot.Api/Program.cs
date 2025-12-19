@@ -4,6 +4,9 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Data;
 using Microsoft.Extensions.Options;
+using Serilog;
+using Serilog.Events;
+
 
 // ==== OpenPlot usings ====
 using OpenPlot.Features.Import;
@@ -12,8 +15,20 @@ using OpenPlot.Auth.Infrastructure.Auth;
 using OpenPlot.Auth.Infrastructure.Auth.Options;
 using OpenPlot.Auth.Services;
 using OpenPlot.Auth.Web.Session;
+using OpenPlot.Api.Services.Logging;
+
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Debug()
+    .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
+    .Enrich.FromLogContext()
+    .WriteTo.Console()
+    .WriteTo.File("logs/api-.log", rollingInterval: RollingInterval.Day)
+    .CreateLogger();
+
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog(); // substitui o logger padrão pelo Serilog
 
 // ======================================================================
 // API ouvindo na LAN
@@ -63,8 +78,9 @@ builder.Services.AddSession(o =>
     o.IdleTimeout = TimeSpan.FromMinutes(60);
     o.Cookie.HttpOnly = true;
     o.Cookie.SameSite = SameSiteMode.None;
-    o.Cookie.SecurePolicy = CookieSecurePolicy.None;
+    o.Cookie.SecurePolicy = CookieSecurePolicy.Always; 
 });
+
 
 // 👍 Registro que estava faltando e gerava erro: “session UNKNOWN”
 builder.Services.AddScoped<ISessionUserService, SessionUserService>();
@@ -168,13 +184,21 @@ var app = builder.Build();
 // CORS sempre no topo
 app.UseCors("DevCors");
 
+// 1) Sessão precisa ser carregada antes de qualquer coisa que use SessionUserService
+app.UseSession();
+
+// 2) Autenticação (se tiver JWT/cookie, ele já pode usar a sessão também)
 app.UseAuthentication();
+
+// 3) Agora o middleware de logging já enxerga HttpContext.User e Session
+app.UseMiddleware<RequestLoggingMiddleware>();
+
+// 4) Autorização
 app.UseAuthorization();
 
+// 5) Swagger etc.
 app.UseSwagger();
 app.UseSwaggerUI();
-
-app.UseSession();
 
 // ======================================================================
 // ENDPOINTS

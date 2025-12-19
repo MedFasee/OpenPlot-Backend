@@ -207,3 +207,28 @@ C:\Users\tatia\openPlot_V0-feature-backend_medplot\OpenPlot.Api\obj\Debug\net8.0
 C:\Users\tatia\openPlot_V0-feature-backend_medplot\OpenPlot.Api\obj\Debug\net8.0\OpenPlot.genruntimeconfig.cache
 C:\Users\tatia\openPlot_V0-feature-backend_medplot\OpenPlot.Api\obj\Debug\net8.0\ref\OpenPlot.dll
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Microsoft.Extensions.Configuration.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Microsoft.Extensions.Configuration.Abstractions.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Microsoft.Extensions.Configuration.Binder.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Microsoft.Extensions.DependencyInjection.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Microsoft.Extensions.DependencyModel.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Microsoft.Extensions.Diagnostics.Abstractions.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Microsoft.Extensions.FileProviders.Abstractions.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Microsoft.Extensions.Hosting.Abstractions.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Microsoft.Extensions.Logging.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Microsoft.Extensions.Options.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Microsoft.Extensions.Primitives.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Serilog.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Serilog.AspNetCore.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Serilog.Extensions.Hosting.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Serilog.Extensions.Logging.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Serilog.Formatting.Compact.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Serilog.Settings.Configuration.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Serilog.Sinks.Console.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Serilog.Sinks.Debug.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\Serilog.Sinks.File.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\System.Diagnostics.DiagnosticSource.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\System.IO.Pipelines.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\System.Text.Encodings.Web.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\System.Text.Json.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\runtimes\browser\lib\net8.0\System.Text.Encodings.Web.dll
