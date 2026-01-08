@@ -93,9 +93,6 @@
         }
       },
       "Npgsql/5.0.18": {
-        "dependencies": {
-          "System.Runtime.CompilerServices.Unsafe": "4.6.0"
-        },
         "runtime": {
           "lib/net5.0/Npgsql.dll": {
             "assemblyVersion": "5.0.18.0",
@@ -114,8 +111,7 @@
             "fileVersion": "7.7.1.50719"
           }
         }
-      },
-      "System.Runtime.CompilerServices.Unsafe/4.6.0": {}
+      }
     }
   },
   "libraries": {
@@ -186,13 +182,6 @@
       "sha512": "sha512-rQkO1YbAjLwnDJSMpRhRtrc6XwIcEOcUvoEcge+evurpzSZM3UNK+MZfD3sKyTlYsvknZ6eJjSBfnmXqwOsT9Q==",
       "path": "system.identitymodel.tokens.jwt/7.7.1",
       "hashPath": "system.identitymodel.tokens.jwt.7.7.1.nupkg.sha512"
-    },
-    "System.Runtime.CompilerServices.Unsafe/4.6.0": {
-      "type": "package",
-      "serviceable": true,
-      "sha512": "sha512-HxozeSlipUK7dAroTYwIcGwKDeOVpQnJlpVaOkBz7CM4TsE5b/tKlQBZecTjh6FzcSbxndYaxxpsBMz+wMJeyw==",
-      "path": "system.runtime.compilerservices.unsafe/4.6.0",
-      "hashPath": "system.runtime.compilerservices.unsafe.4.6.0.nupkg.sha512"
     }
   }
 }

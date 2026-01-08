@@ -2,8 +2,8 @@ CREATE SCHEMA IF NOT EXISTS openPlot;
 
 -- 0) Domínios/enums úteis
 CREATE TYPE qty_kind AS ENUM ('Voltage','Current','Frequency');
-CREATE TYPE phase_kind AS ENUM ('A','B','C','None');      -- None para freq/dfreq/digital
-CREATE TYPE comp_kind AS ENUM ('MAG','ANG','FREQ','DFREQ');
+CREATE TYPE phase_kind AS ENUM ('A','B','C','None','Digital');      -- None para freq/dfreq
+CREATE TYPE comp_kind AS ENUM ('MAG','ANG','FREQ','DFREQ','THD','DIG');
 
 -- 1) Fonte de dados (PDC / historian)
 CREATE TABLE openPlot.pdc (
@@ -125,8 +125,6 @@ ALTER TABLE openplot.search_runs
     ADD COLUMN IF NOT EXISTS label text,
     ADD COLUMN IF NOT EXISTS pmus jsonb;
 
--- 11) Lógica THD
-ALTER TYPE comp_kind ADD VALUE IF NOT EXISTS 'THD';
 
 
 -- 12) PMUs que retornam dados
@@ -136,4 +134,4 @@ ADD COLUMN pmus_ok jsonb;
 
 -- 13) Lógica Digitais
 ALTER TYPE qty_kind  ADD VALUE IF NOT EXISTS 'Digital';
-ALTER TYPE comp_kind ADD VALUE IF NOT EXISTS 'DIG';
+

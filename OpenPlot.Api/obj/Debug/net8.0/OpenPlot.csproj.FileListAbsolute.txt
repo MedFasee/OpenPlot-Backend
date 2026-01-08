@@ -142,12 +142,6 @@ C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\staticwebassets.build.json
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\staticwebassets.development.json
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\staticwebassets.build.endpoints.json
-C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\staticwebassets\msbuild.OpenPlot.Microsoft.AspNetCore.StaticWebAssets.props
-C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\staticwebassets\msbuild.OpenPlot.Microsoft.AspNetCore.StaticWebAssetEndpoints.props
-C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\staticwebassets\msbuild.build.OpenPlot.props
-C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\staticwebassets\msbuild.buildMultiTargeting.OpenPlot.props
-C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\staticwebassets\msbuild.buildTransitive.OpenPlot.props
-C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\staticwebassets.pack.json
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\OpenPlot.csproj.Up2Date
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\OpenPlot.dll
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\refint\OpenPlot.dll
@@ -232,3 +226,9 @@ C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\System.Text.Encodings.Web.dll
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\System.Text.Json.dll
 C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\bin\Debug\net8.0\runtimes\browser\lib\net8.0\System.Text.Encodings.Web.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\rpswa.dswa.cache.json
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\rjimswa.dswa.cache.json
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\rjsmrazor.dswa.cache.json
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\rjsmcshtml.dswa.cache.json
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\staticwebassets.build.json.cache
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.Api\obj\Debug\net8.0\swae.build.ex.cache
