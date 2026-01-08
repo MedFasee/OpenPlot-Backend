@@ -431,7 +431,7 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
 
                             txCopy.Commit();
                             Interlocked.Exchange(ref hasData, 1); // houve dados inseridos
-                            //Console.WriteLine("[ok] " + term.Id + " " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " inserido");
+                            Console.WriteLine("[ok] " + term.Id + " " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " inserido");
                         }
                     }
                 }
