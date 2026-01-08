@@ -1,0 +1,9 @@
+**/.vs
+**/bin
+**/obj
+**/.git
+**/.github
+**/*.user
+**/*.suo
+packages/
+Config/

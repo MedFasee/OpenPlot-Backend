@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "h7oo/ZhQsZA=",
+  "dgSpecHash": "SsdYJ5ONU1g=",
   "success": true,
   "projectFilePath": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.Api\\OpenPlot.csproj",
   "expectedPackageFiles": [
@@ -29,6 +29,7 @@
     "C:\\Users\\Win 10\\.nuget\\packages\\serilog.extensions.logging\\10.0.0\\serilog.extensions.logging.10.0.0.nupkg.sha512",
     "C:\\Users\\Win 10\\.nuget\\packages\\serilog.formatting.compact\\3.0.0\\serilog.formatting.compact.3.0.0.nupkg.sha512",
     "C:\\Users\\Win 10\\.nuget\\packages\\serilog.settings.configuration\\10.0.0\\serilog.settings.configuration.10.0.0.nupkg.sha512",
+    "C:\\Users\\Win 10\\.nuget\\packages\\serilog.sinks.async\\2.1.0\\serilog.sinks.async.2.1.0.nupkg.sha512",
     "C:\\Users\\Win 10\\.nuget\\packages\\serilog.sinks.console\\6.1.1\\serilog.sinks.console.6.1.1.nupkg.sha512",
     "C:\\Users\\Win 10\\.nuget\\packages\\serilog.sinks.debug\\3.0.0\\serilog.sinks.debug.3.0.0.nupkg.sha512",
     "C:\\Users\\Win 10\\.nuget\\packages\\serilog.sinks.file\\7.0.0\\serilog.sinks.file.7.0.0.nupkg.sha512",

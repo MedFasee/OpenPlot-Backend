@@ -8,6 +8,8 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Diagnostics;
+
 
 namespace OpenPlot.Ingestor.Gsf
 {
@@ -18,6 +20,52 @@ namespace OpenPlot.Ingestor.Gsf
         private static int PollIntervalSeconds;
         private static int ChunkMinutes;
         private static int MaxParallelChunks;
+
+        // ----------------- TIMING HELPERS -----------------
+private static string FmtMs(long ms)
+{
+    if (ms < 1000) return ms + "ms";
+    var ts = TimeSpan.FromMilliseconds(ms);
+    if (ts.TotalMinutes >= 1) return $"{(int)ts.TotalMinutes}m{ts.Seconds:D2}s";
+    return $"{ts.Seconds}s{ts.Milliseconds:D3}ms";
+}
+
+private static IDisposable TimeBlock(string name)
+{
+    var sw = Stopwatch.StartNew();
+    Console.WriteLine($"[t] ▶ {name}");
+    return new ActionOnDispose(() =>
+    {
+        sw.Stop();
+        Console.WriteLine($"[t] ✓ {name} = {FmtMs(sw.ElapsedMilliseconds)}");
+    });
+}
+
+private sealed class ActionOnDispose : IDisposable
+{
+    private readonly Action _a;
+    public ActionOnDispose(Action a) => _a = a;
+    public void Dispose() => _a();
+}
+
+// Watchdog: se passar do limite, imprime stacktrace (bom p/ travas/espera)
+private static CancellationTokenSource StartWatchdog(TimeSpan limit, string label)
+{
+    var cts = new CancellationTokenSource();
+    _ = Task.Run(async () =>
+    {
+        try
+        {
+            await Task.Delay(limit, cts.Token);
+            Console.WriteLine($"[watchdog] ⏱ passou de {limit}. label={label}");
+            Console.WriteLine(new StackTrace(true).ToString());
+        }
+        catch (OperationCanceledException) { /* ok */ }
+        catch (Exception ex) { Console.WriteLine("[watchdog-erro] " + ex.Message); }
+    });
+    return cts;
+}
+
 
         private static void Main()
         {
@@ -86,45 +134,74 @@ namespace OpenPlot.Ingestor.Gsf
 
                                 try
                                 {
-
-                                    var fromUtc = from.Kind == DateTimeKind.Utc ? from : from.ToUniversalTime();
-                                    var toUtc = to.Kind == DateTimeKind.Utc ? to : to.ToUniversalTime();
-
-
-
-
-
-                                    // 1) Monta SystemData a partir do BD (usa cache interno por pdc_id)
-                                    var sysCfg = DbSystemDataFactory.BuildByPdcName(
-                                        PgConnString,
-                                        source,
-                                        TimeSpan.FromMinutes(10)
-                                    );
-
-                                    // Lista de PMUs pedidas nesse job
-                                    var pmuList = TryParsePmus(pmusJson);
-
-                                    // Vamos acumular só as PMUs que efetivamente tiveram dados
-                                    List<string> pmusComDados = null;
-
-
-
-                                    if (pmuList != null && pmuList.Count > 0)
+                                    using (TimeBlock($"JOB {id} (source={source}) from={from:O} to={to:O}"))
+                                    using (var wd = StartWatchdog(TimeSpan.FromMinutes(2), $"JOB {id}"))  // ajuste 2 min como limite inicial
                                     {
-                                        pmusComDados = new List<string>();
+                                        var fromUtc = from.Kind == DateTimeKind.Utc ? from : from.ToUniversalTime();
+                                        var toUtc = to.Kind == DateTimeKind.Utc ? to : to.ToUniversalTime();
 
-                                        foreach (var pmuIdName in pmuList)
+
+
+
+
+                                        // 1) Monta SystemData a partir do BD (usa cache interno por pdc_id)
+                                        var sysCfg = DbSystemDataFactory.BuildByPdcName(
+                                            PgConnString,
+                                            source,
+                                            TimeSpan.FromMinutes(10)
+                                        );
+
+                                        // Lista de PMUs pedidas nesse job
+                                        var pmuList = TryParsePmus(pmusJson);
+
+                                        // Vamos acumular só as PMUs que efetivamente tiveram dados
+                                        List<string> pmusComDados = null;
+
+
+
+                                        if (pmuList != null && pmuList.Count > 0)
                                         {
-                                            // Terminal vem do SystemData montado pelo DB
-                                            var term = TerminalResolver.Resolve(sysCfg, pmuIdName);
+                                            pmusComDados = new List<string>();
 
-                                            // Canais vindos do DB (Id = historian_point)
-                                            var channels = LoadChannelsFromDb(conn, source, pmuIdName);
+                                            foreach (var pmuIdName in pmuList)
+                                            {
+                                                // Terminal vem do SystemData montado pelo DB
+                                                var term = TerminalResolver.Resolve(sysCfg, pmuIdName);
 
+                                                // Canais vindos do DB (Id = historian_point)
+                                                var channels = LoadChannelsFromDb(conn, source, pmuIdName);
+
+                                                if (channels == null || channels.Count == 0)
+                                                    throw new Exception("Nenhum canal encontrado no DB para a PMU '" + pmuIdName + "'.");
+
+                                                // FetchAndInsert agora devolve se houve dado (novo ou já existente)
+                                                var teveDados = FetchAndInsert(
+                                                    conn,
+                                                    id,
+                                                    source ?? sysCfg.Name,
+                                                    sysCfg,
+                                                    term,
+                                                    channels,
+                                                    fromUtc,
+                                                    toUtc,
+                                                    selectRate
+                                                );
+
+                                                if (teveDados)
+                                                    pmusComDados.Add(pmuIdName);
+                                            }
+                                        }
+                                        else
+                                        {
+                                            // Caminho legado (sem pmus em search_runs) – se quiser, pode reativar aqui
+                                            /*
+
+                                            var term = TerminalResolver.Resolve(sysCfg, terminalId);
+                                            var signals = ParseSignals(signalsJson);
+                                            var channels = TerminalResolver.MapChannels(term, signals);
                                             if (channels == null || channels.Count == 0)
-                                                throw new Exception("Nenhum canal encontrado no DB para a PMU '" + pmuIdName + "'.");
+                                                throw new Exception("Nenhum canal mapeado para os sinais requisitados.");
 
-                                            // FetchAndInsert agora devolve se houve dado (novo ou já existente)
                                             var teveDados = FetchAndInsert(
                                                 conn,
                                                 id,
@@ -138,56 +215,31 @@ namespace OpenPlot.Ingestor.Gsf
                                             );
 
                                             if (teveDados)
-                                                pmusComDados.Add(pmuIdName);
+                                                pmusComDados = new List<string> { term.Id }; // ou outra identificação
+                                            */
                                         }
-                                    }
-                                    else
-                                    {
-                                        // Caminho legado (sem pmus em search_runs) – se quiser, pode reativar aqui
-                                        /*
 
-                                        var term = TerminalResolver.Resolve(sysCfg, terminalId);
-                                        var signals = ParseSignals(signalsJson);
-                                        var channels = TerminalResolver.MapChannels(term, signals);
-                                        if (channels == null || channels.Count == 0)
-                                            throw new Exception("Nenhum canal mapeado para os sinais requisitados.");
-
-                                        var teveDados = FetchAndInsert(
-                                            conn,
-                                            id,
-                                            source ?? sysCfg.Name,
-                                            sysCfg,
-                                            term,
-                                            channels,
-                                            fromUtc,
-                                            toUtc,
-                                            selectRate
-                                        );
-
-                                        if (teveDados)
-                                            pmusComDados = new List<string> { term.Id }; // ou outra identificação
-                                        */
-                                    }
-
-                                    // Ao final do job, marcamos DONE e, se for o caso, salvamos pmus_ok
-                                    using (var tx2 = conn.BeginTransaction())
-                                    {
-                                        if (pmusComDados != null)
+                                        // Ao final do job, marcamos DONE e, se for o caso, salvamos pmus_ok
+                                        using (var tx2 = conn.BeginTransaction())
                                         {
-                                            var json = JsonSerializer.Serialize(pmusComDados);
-                                            using (var cmd = new NpgsqlCommand(@"
-                                                UPDATE openplot.search_runs
-                                                   SET pmus_ok = @ok::jsonb
-                                                 WHERE id = @id;", conn, tx2))
+                                            if (pmusComDados != null)
                                             {
-                                                cmd.Parameters.AddWithValue("id", id);
-                                                cmd.Parameters.AddWithValue("ok", json);
-                                                cmd.ExecuteNonQuery();
+                                                var json = JsonSerializer.Serialize(pmusComDados);
+                                                using (var cmd = new NpgsqlCommand(@"
+                                                    UPDATE openplot.search_runs
+                                                       SET pmus_ok = @ok::jsonb
+                                                     WHERE id = @id;", conn, tx2))
+                                                {
+                                                    cmd.Parameters.AddWithValue("id", id);
+                                                    cmd.Parameters.AddWithValue("ok", json);
+                                                    cmd.ExecuteNonQuery();
+                                                }
                                             }
-                                        }
 
-                                        DbOps.UpdateStatus(conn, tx2, id, "done", 100, "Concluído");
-                                        tx2.Commit();
+                                            DbOps.UpdateStatus(conn, tx2, id, "done", 100, "Concluído");
+                                            tx2.Commit();
+                                        }
+                                        wd.Cancel(); // cancela watchdog se terminou
                                     }
                                 }
                                 catch (Exception ex)
@@ -379,13 +431,13 @@ namespace OpenPlot.Ingestor.Gsf
 
                             txCopy.Commit();
                             Interlocked.Exchange(ref hasData, 1); // houve dados inseridos
-                            Console.WriteLine("[ok] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " inserido");
+                            //Console.WriteLine("[ok] " + term.Id + " " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " inserido");
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine("[erro-chunk] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + ": " + ex.Message);
+                    Console.WriteLine("[erro-chunk] " + term.Id + " " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + ": " + ex.Message);
                 }
             });
 

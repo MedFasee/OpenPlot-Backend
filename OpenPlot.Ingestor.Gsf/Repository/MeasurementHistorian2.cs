@@ -109,6 +109,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
 
         private static Dictionary<Channel, ITimeSeries> ParseJson(string jsonData, Dictionary<string, Channel> measurements, double framesPerSecond, bool downloadStat)
         {
+            Console.WriteLine("Início ParseJSON");
             if (jsonData == "{\"TimeSeriesDataPoints\":[]}")
                 throw new InvalidQueryException(InvalidQueryException.EMPTY);
 
@@ -166,6 +167,5 @@ namespace OpenPlot.Ingestor.Gsf.Repository
 
             return series;
         }
-
     }
 }

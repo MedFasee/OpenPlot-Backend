@@ -74,6 +74,10 @@
               "target": "Package",
               "version": "[10.0.0, )"
             },
+            "Serilog.Sinks.Async": {
+              "target": "Package",
+              "version": "[2.1.0, )"
+            },
             "Serilog.Sinks.Console": {
               "target": "Package",
               "version": "[6.1.1, )"
@@ -528,7 +532,7 @@
       "version": "1.0.0",
       "restore": {
         "projectUniqueName": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.Ingestor.Gsf\\OpenPlot.Ingestor.Gsf.csproj",
-        "projectName": "OpenPLot.Ingestor.Gsf",
+        "projectName": "OpenPlot.Ingestor.Gsf",
         "projectPath": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.Ingestor.Gsf\\OpenPlot.Ingestor.Gsf.csproj",
         "packagesPath": "C:\\Users\\Win 10\\.nuget\\packages\\",
         "outputPath": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.Ingestor.Gsf\\obj\\",

@@ -3,13 +3,15 @@
     <TargetFramework>net10.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <RootNamespace>OpenPlot.Ingestor.Gsf</RootNamespace>
-    <AssemblyName>OpenPLot.Ingestor.Gsf</AssemblyName>
+    <AssemblyName>OpenPlot.Ingestor.Gsf</AssemblyName>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <AssemblyTitle>OpenPlot.Ingestor.Gsf</AssemblyTitle>
     <Product>OpenPlot.Ingestor.Gsf</Product>
     <Copyright>Copyright ©  2025</Copyright>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
+    <Platforms>AnyCPU;x64;x86</Platforms>
+    <RunAnalyzersDuringLiveAnalysis>True</RunAnalyzersDuringLiveAnalysis>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="GSF.SortedTreeStore">

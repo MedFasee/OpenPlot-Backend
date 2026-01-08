@@ -1,0 +1,52 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: openplot
+      POSTGRES_USER: openplot
+      POSTGRES_PASSWORD: openplot
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # se você quer rodar init SQL automaticamente:
+      - ./init_SQL:/docker-entrypoint-initdb.d/init.sql:ro
+
+  api:
+    build:
+      context: .
+      dockerfile: OpenPlot.Api/Dockerfile
+    environment:
+      ASPNETCORE_URLS: http://+:5173
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Default: Host=db;Port=5432;Database=openplot;Username=openplot;Password=openplot
+    ports:
+      - "5173:5173"
+    depends_on:
+      - db
+
+  ingestor:
+    build:
+      context: .
+      dockerfile: OpenPlot.Ingestor.Gsf/Dockerfile
+    environment:
+      ConnectionStrings__Default: Host=db;Port=5432;Database=openplot;Username=openplot;Password=openplot
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  xmlimporter:
+    build:
+      context: .
+      dockerfile: OpenPlot.XmlImporter/Dockerfile
+    environment:
+      ConnectionStrings__Default: Host=db;Port=5432;Database=openplot;Username=openplot;Password=openplot
+    depends_on:
+      - db
+    restart: "no"
+    # se seu importer precisa de um diretório de XMLs, monte volume:
+    # volumes:
+    #   - ./Config:/imports:ro
+
+volumes:
+  pgdata:

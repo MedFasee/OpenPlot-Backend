@@ -1513,8 +1513,9 @@ ORDER BY s.id_name, s.signal_id, r.ts;
 
             using var db = dbf.Create();
 
+            // FIX: alias correto é "c" (ctx c), não "pmu"
             var pmuFilter = !string.IsNullOrWhiteSpace(pmuName)
-                ? "LOWER(pmu.id_name) = LOWER(@pmu)"
+                ? "LOWER(c.id_name) = LOWER(@pmu)"
                 : "TRUE";
 
             const string sqlTemplate = @"
