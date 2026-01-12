@@ -44,12 +44,9 @@ public static class ConfigEndpoints
         {
             using var db = dbf.Create();
 
-            const string sql = @"
-                SELECT name, fps
-                FROM openplot.pdc
-                ORDER BY pdc_id ASC;";
-
-            var rows = await db.QueryAsync<PdcRow>(sql);
+            var rows = await db.QueryAsync(
+                PdcSql.ListPdcNames
+            );
 
             var arquivos = rows.Select(r => new
             {

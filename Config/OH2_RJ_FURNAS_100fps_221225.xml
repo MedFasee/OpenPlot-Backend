@@ -1,527 +1,15 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <smsf xmlns="smsf2">
   <pdc>
-    <name>OH2_RJ_FURNAS_50fps_041125_v3</name>
+    <name>OH2_RJ_FURNAS_100fps_221225</name>
     <type>openpdc</type>
-    <fps>50</fps>
+    <fps>100</fps>
     <address>192.168.254.21:6156</address>
     <security>
       <user></user>
       <pswd></pswd>
     </security>
   </pdc>
-  <pmu>
-    <idName>CV STF6 500 P1 TR1 VAO</idName>
-    <fullName>CV STF6 500 P1 TR1 VAO</fullName>
-    <voltLevel>500000</voltLevel>
-    <local>
-      <area>S</area>
-      <state>PR</state>
-      <station>Foz do Iguaçu</station>
-      <lat>-25.471197</lat>
-      <lon>-54.549554</lon>
-    </local>
-    <measurements>
-      <phasor>
-        <pName>TENSAO_A</pName>
-        <pType>Voltage</pType>
-        <pPhase>A</pPhase>
-        <modId>20217</modId>
-        <angId>20218</angId>
-      </phasor>
-      <phasor>
-        <pName>TENSAO_B</pName>
-        <pType>Voltage</pType>
-        <pPhase>B</pPhase>
-        <modId>20215</modId>
-        <angId>20216</angId>
-      </phasor>
-      <phasor>
-        <pName>TENSAO_C</pName>
-        <pType>Voltage</pType>
-        <pPhase>C</pPhase>
-        <modId>20213</modId>
-        <angId>20214</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_A</pName>
-        <pType>Current</pType>
-        <pPhase>A</pPhase>
-        <modId>20223</modId>
-        <angId>20224</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_B</pName>
-        <pType>Current</pType>
-        <pPhase>B</pPhase>
-        <modId>20221</modId>
-        <angId>20222</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_C</pName>
-        <pType>Current</pType>
-        <pPhase>C</pPhase>
-        <modId>20219</modId>
-        <angId>20220</angId>
-      </phasor>
-      <freq>
-        <fName>FREQUENCIA</fName>
-        <fId>20210</fId>
-      </freq>
-      <dFreq>
-        <dfName>DFREQ</dfName>
-        <dfId>20211</dfId>
-      </dFreq>
-    </measurements>
-  </pmu>
-  <pmu>
-    <idName>CV STF6 500 P1 TR3 VAO</idName>
-    <fullName>CV STF6 500 P1 TR3 VAO</fullName>
-    <voltLevel>500000</voltLevel>
-    <local>
-      <area>S</area>
-      <state>PR</state>
-      <station>Foz do Iguaçu</station>
-      <lat>-25.471197</lat>
-      <lon>-54.549554</lon>
-    </local>
-    <measurements>
-      <phasor>
-        <pName>TENSAO_A</pName>
-        <pType>Voltage</pType>
-        <pPhase>A</pPhase>
-        <modId>20319</modId>
-        <angId>20320</angId>
-      </phasor>
-      <phasor>
-        <pName>TENSAO_B</pName>
-        <pType>Voltage</pType>
-        <pPhase>B</pPhase>
-        <modId>20317</modId>
-        <angId>20318</angId>
-      </phasor>
-      <phasor>
-        <pName>TENSAO_C</pName>
-        <pType>Voltage</pType>
-        <pPhase>C</pPhase>
-        <modId>20315</modId>
-        <angId>20316</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_A</pName>
-        <pType>Current</pType>
-        <pPhase>A</pPhase>
-        <modId>20325</modId>
-        <angId>20326</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_B</pName>
-        <pType>Current</pType>
-        <pPhase>B</pPhase>
-        <modId>20323</modId>
-        <angId>20324</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_C</pName>
-        <pType>Current</pType>
-        <pPhase>C</pPhase>
-        <modId>20321</modId>
-        <angId>20322</angId>
-      </phasor>
-      <freq>
-        <fName>FREQUENCIA</fName>
-        <fId>20312</fId>
-      </freq>
-      <dFreq>
-        <dfName>DFREQ</dfName>
-        <dfId>20313</dfId>
-      </dFreq>
-    </measurements>
-  </pmu>
-  <pmu>
-    <idName>CV STF6 500 P2 TR2 VAO</idName>
-    <fullName>CV STF6 500 P2 TR2 VAO</fullName>
-    <voltLevel>500000</voltLevel>
-    <local>
-      <area>S</area>
-      <state>PR</state>
-      <station>Foz do Iguaçu</station>
-      <lat>-25.471197</lat>
-      <lon>-54.549554</lon>
-    </local>
-    <measurements>
-      <phasor>
-        <pName>TENSAO_A</pName>
-        <pType>Voltage</pType>
-        <pPhase>A</pPhase>
-        <modId>20421</modId>
-        <angId>20422</angId>
-      </phasor>
-      <phasor>
-        <pName>TENSAO_B</pName>
-        <pType>Voltage</pType>
-        <pPhase>B</pPhase>
-        <modId>20419</modId>
-        <angId>20420</angId>
-      </phasor>
-      <phasor>
-        <pName>TENSAO_C</pName>
-        <pType>Voltage</pType>
-        <pPhase>C</pPhase>
-        <modId>20417</modId>
-        <angId>20418</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_A</pName>
-        <pType>Current</pType>
-        <pPhase>A</pPhase>
-        <modId>20427</modId>
-        <angId>20428</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_B</pName>
-        <pType>Current</pType>
-        <pPhase>B</pPhase>
-        <modId>20425</modId>
-        <angId>20426</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_C</pName>
-        <pType>Current</pType>
-        <pPhase>C</pPhase>
-        <modId>20423</modId>
-        <angId>20424</angId>
-      </phasor>
-      <freq>
-        <fName>FREQUENCIA</fName>
-        <fId>20414</fId>
-      </freq>
-      <dFreq>
-        <dfName>DFREQ</dfName>
-        <dfId>20415</dfId>
-      </dFreq>
-    </measurements>
-  </pmu>
-  <pmu>
-    <idName>CV STF6 500 P2 TR4 VAO</idName>
-    <fullName>CV STF6 500 P2 TR4 VAO</fullName>
-    <voltLevel>500000</voltLevel>
-    <local>
-      <area>S</area>
-      <state>PR</state>
-      <station>Foz do Iguaçu</station>
-      <lat>-25.471197</lat>
-      <lon>-54.549554</lon>
-    </local>
-    <measurements>
-      <phasor>
-        <pName>TENSAO_A</pName>
-        <pType>Voltage</pType>
-        <pPhase>A</pPhase>
-        <modId>20523</modId>
-        <angId>20524</angId>
-      </phasor>
-      <phasor>
-        <pName>TENSAO_B</pName>
-        <pType>Voltage</pType>
-        <pPhase>B</pPhase>
-        <modId>20521</modId>
-        <angId>20522</angId>
-      </phasor>
-      <phasor>
-        <pName>TENSAO_C</pName>
-        <pType>Voltage</pType>
-        <pPhase>C</pPhase>
-        <modId>20519</modId>
-        <angId>20520</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_A</pName>
-        <pType>Current</pType>
-        <pPhase>A</pPhase>
-        <modId>20529</modId>
-        <angId>20530</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_B</pName>
-        <pType>Current</pType>
-        <pPhase>B</pPhase>
-        <modId>20527</modId>
-        <angId>20528</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_C</pName>
-        <pType>Current</pType>
-        <pPhase>C</pPhase>
-        <modId>20525</modId>
-        <angId>20526</angId>
-      </phasor>
-      <freq>
-        <fName>FREQUENCIA</fName>
-        <fId>20516</fId>
-      </freq>
-      <dFreq>
-        <dfName>DFREQ</dfName>
-        <dfId>20517</dfId>
-      </dFreq>
-    </measurements>
-  </pmu>
-  <pmu>
-    <idName>CV STF6 500 P3 TR5 VAO</idName>
-    <fullName>CV STF6 500 P3 TR5 VAO</fullName>
-    <voltLevel>500000</voltLevel>
-    <local>
-      <area>S</area>
-      <state>PR</state>
-      <station>Foz do Iguaçu</station>
-      <lat>-25.471197</lat>
-      <lon>-54.549554</lon>
-    </local>
-    <measurements>
-      <phasor>
-        <pName>TENSAO_A</pName>
-        <pType>Voltage</pType>
-        <pPhase>A</pPhase>
-        <modId>20625</modId>
-        <angId>20626</angId>
-      </phasor>
-      <phasor>
-        <pName>TENSAO_B</pName>
-        <pType>Voltage</pType>
-        <pPhase>B</pPhase>
-        <modId>20623</modId>
-        <angId>20624</angId>
-      </phasor>
-      <phasor>
-        <pName>TENSAO_C</pName>
-        <pType>Voltage</pType>
-        <pPhase>C</pPhase>
-        <modId>20621</modId>
-        <angId>20622</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_A</pName>
-        <pType>Current</pType>
-        <pPhase>A</pPhase>
-        <modId>20631</modId>
-        <angId>20632</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_B</pName>
-        <pType>Current</pType>
-        <pPhase>B</pPhase>
-        <modId>20629</modId>
-        <angId>20630</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_C</pName>
-        <pType>Current</pType>
-        <pPhase>C</pPhase>
-        <modId>20627</modId>
-        <angId>20628</angId>
-      </phasor>
-      <freq>
-        <fName>FREQUENCIA</fName>
-        <fId>20618</fId>
-      </freq>
-      <dFreq>
-        <dfName>DFREQ</dfName>
-        <dfId>20619</dfId>
-      </dFreq>
-    </measurements>
-  </pmu>
-  <pmu>
-    <idName>CV STF6 500 P3 TR7 VAO</idName>
-    <fullName>CV STF6 500 P3 TR7 VAO</fullName>
-    <voltLevel>500000</voltLevel>
-    <local>
-      <area>S</area>
-      <state>PR</state>
-      <station>Foz do Iguaçu</station>
-      <lat>-25.471197</lat>
-      <lon>-54.549554</lon>
-    </local>
-    <measurements>
-      <phasor>
-        <pName>TENSAO_A</pName>
-        <pType>Voltage</pType>
-        <pPhase>A</pPhase>
-        <modId>20727</modId>
-        <angId>20728</angId>
-      </phasor>
-      <phasor>
-        <pName>TENSAO_B</pName>
-        <pType>Voltage</pType>
-        <pPhase>B</pPhase>
-        <modId>20725</modId>
-        <angId>20726</angId>
-      </phasor>
-      <phasor>
-        <pName>TENSAO_C</pName>
-        <pType>Voltage</pType>
-        <pPhase>C</pPhase>
-        <modId>20723</modId>
-        <angId>20724</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_A</pName>
-        <pType>Current</pType>
-        <pPhase>A</pPhase>
-        <modId>20733</modId>
-        <angId>20734</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_B</pName>
-        <pType>Current</pType>
-        <pPhase>B</pPhase>
-        <modId>20731</modId>
-        <angId>20732</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_C</pName>
-        <pType>Current</pType>
-        <pPhase>C</pPhase>
-        <modId>20729</modId>
-        <angId>20730</angId>
-      </phasor>
-      <freq>
-        <fName>FREQUENCIA</fName>
-        <fId>20720</fId>
-      </freq>
-      <dFreq>
-        <dfName>DFREQ</dfName>
-        <dfId>20721</dfId>
-      </dFreq>
-    </measurements>
-  </pmu>
-  <pmu>
-    <idName>CV STF6 500 P4 TR6 VAO</idName>
-    <fullName>CV STF6 500 P4 TR6 VAO</fullName>
-    <voltLevel>500000</voltLevel>
-    <local>
-      <area>S</area>
-      <state>PR</state>
-      <station>Foz do Iguaçu</station>
-      <lat>-25.471197</lat>
-      <lon>-54.549554</lon>
-    </local>
-    <measurements>
-      <phasor>
-        <pName>TENSAO_A</pName>
-        <pType>Voltage</pType>
-        <pPhase>A</pPhase>
-        <modId>20829</modId>
-        <angId>20830</angId>
-      </phasor>
-      <phasor>
-        <pName>TENSAO_B</pName>
-        <pType>Voltage</pType>
-        <pPhase>B</pPhase>
-        <modId>20827</modId>
-        <angId>20828</angId>
-      </phasor>
-      <phasor>
-        <pName>TENSAO_C</pName>
-        <pType>Voltage</pType>
-        <pPhase>C</pPhase>
-        <modId>20825</modId>
-        <angId>20826</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_A</pName>
-        <pType>Current</pType>
-        <pPhase>A</pPhase>
-        <modId>20835</modId>
-        <angId>20836</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_B</pName>
-        <pType>Current</pType>
-        <pPhase>B</pPhase>
-        <modId>20833</modId>
-        <angId>20834</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_C</pName>
-        <pType>Current</pType>
-        <pPhase>C</pPhase>
-        <modId>20831</modId>
-        <angId>20832</angId>
-      </phasor>
-      <freq>
-        <fName>FREQUENCIA</fName>
-        <fId>20822</fId>
-      </freq>
-      <dFreq>
-        <dfName>DFREQ</dfName>
-        <dfId>20823</dfId>
-      </dFreq>
-    </measurements>
-  </pmu>
-  <pmu>
-    <idName>CV STF6 500 P4 TR8 VAO</idName>
-    <fullName>CV STF6 500 P4 TR8 VAO</fullName>
-    <voltLevel>500000</voltLevel>
-    <local>
-      <area>S</area>
-      <state>PR</state>
-      <station>Foz do Iguaçu</station>
-      <lat>-25.471197</lat>
-      <lon>-54.549554</lon>
-    </local>
-    <measurements>
-      <phasor>
-        <pName>TENSAO_A</pName>
-        <pType>Voltage</pType>
-        <pPhase>A</pPhase>
-        <modId>20931</modId>
-        <angId>20932</angId>
-      </phasor>
-      <phasor>
-        <pName>TENSAO_B</pName>
-        <pType>Voltage</pType>
-        <pPhase>B</pPhase>
-        <modId>20929</modId>
-        <angId>20930</angId>
-      </phasor>
-      <phasor>
-        <pName>TENSAO_C</pName>
-        <pType>Voltage</pType>
-        <pPhase>C</pPhase>
-        <modId>20927</modId>
-        <angId>20928</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_A</pName>
-        <pType>Current</pType>
-        <pPhase>A</pPhase>
-        <modId>20937</modId>
-        <angId>20938</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_B</pName>
-        <pType>Current</pType>
-        <pPhase>B</pPhase>
-        <modId>20935</modId>
-        <angId>20936</angId>
-      </phasor>
-      <phasor>
-        <pName>CORRENTE_C</pName>
-        <pType>Current</pType>
-        <pPhase>C</pPhase>
-        <modId>20933</modId>
-        <angId>20934</angId>
-      </phasor>
-      <freq>
-        <fName>FREQUENCIA</fName>
-        <fId>20924</fId>
-      </freq>
-      <dFreq>
-        <dfName>DFREQ</dfName>
-        <dfId>20925</dfId>
-      </dFreq>
-    </measurements>
-  </pmu>
   <pmu>
     <idName>CV STF6 500 P1 TR1 Y-D SEC</idName>
     <fullName>CV STF6 500 P1 TR1 Y-D SEC</fullName>
@@ -662,13 +150,49 @@
         <modId>20158</modId>
         <angId>20159</angId>
       </phasor>
+	  <analog>
+        <aName>CTHD_A</aName>
+        <aType>CTHD</aType>
+        <aPhase>A</aPhase>
+        <aId>20151</aId>
+      </analog>
+      <analog>
+        <aName>CTHD_B</aName>
+        <aType>CTHD</aType>
+        <aPhase>B</aPhase>
+        <aId>20152</aId>
+      </analog>
+      <analog>
+        <aName>CTHD_C</aName>
+        <aType>CTHD</aType>
+        <aPhase>C</aPhase>
+        <aId>20153</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_A</aName>
+        <aType>VTHD</aType>
+        <aPhase>A</aPhase>
+        <aId>20164</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_B</aName>
+        <aType>VTHD</aType>
+        <aPhase>B</aPhase>
+        <aId>20165</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_C</aName>
+        <aType>VTHD</aType>
+        <aPhase>C</aPhase>
+        <aId>20166</aId>
+      </analog>
       <freq>
         <fName>FREQUENCIA</fName>
-        <fId>20155</fId>
+        <fId>20168</fId>
       </freq>
       <dFreq>
         <dfName>DFREQ</dfName>
-        <dfId>20156</dfId>
+        <dfId>20169</dfId>
       </dFreq>
     </measurements>
   </pmu>
@@ -812,13 +336,49 @@
         <modId>20260</modId>
         <angId>20261</angId>
       </phasor>
+	  <analog>
+        <aName>CTHD_A</aName>
+        <aType>CTHD</aType>
+        <aPhase>A</aPhase>
+        <aId>20253</aId>
+      </analog>
+      <analog>
+        <aName>CTHD_B</aName>
+        <aType>CTHD</aType>
+        <aPhase>B</aPhase>
+        <aId>20254</aId>
+      </analog>
+      <analog>
+        <aName>CTHD_C</aName>
+        <aType>CTHD</aType>
+        <aPhase>C</aPhase>
+        <aId>20255</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_A</aName>
+        <aType>VTHD</aType>
+        <aPhase>A</aPhase>
+        <aId>20266</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_B</aName>
+        <aType>VTHD</aType>
+        <aPhase>B</aPhase>
+        <aId>20267</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_C</aName>
+        <aType>VTHD</aType>
+        <aPhase>C</aPhase>
+        <aId>20268</aId>
+      </analog>
       <freq>
         <fName>FREQUENCIA</fName>
-        <fId>20257</fId>
+        <fId>20270</fId>
       </freq>
       <dFreq>
         <dfName>DFREQ</dfName>
-        <dfId>20258</dfId>
+        <dfId>20271</dfId>
       </dFreq>
     </measurements>
   </pmu>
@@ -962,13 +522,49 @@
         <modId>20362</modId>
         <angId>20363</angId>
       </phasor>
+	  <analog>
+        <aName>CTHD_A</aName>
+        <aType>CTHD</aType>
+        <aPhase>A</aPhase>
+        <aId>20355</aId>
+      </analog>
+      <analog>
+        <aName>CTHD_B</aName>
+        <aType>CTHD</aType>
+        <aPhase>B</aPhase>
+        <aId>20356</aId>
+      </analog>
+      <analog>
+        <aName>CTHD_C</aName>
+        <aType>CTHD</aType>
+        <aPhase>C</aPhase>
+        <aId>20357</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_A</aName>
+        <aType>VTHD</aType>
+        <aPhase>A</aPhase>
+        <aId>20368</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_B</aName>
+        <aType>VTHD</aType>
+        <aPhase>B</aPhase>
+        <aId>20369</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_C</aName>
+        <aType>VTHD</aType>
+        <aPhase>C</aPhase>
+        <aId>20370</aId>
+      </analog>
       <freq>
         <fName>FREQUENCIA</fName>
-        <fId>20359</fId>
+        <fId>20372</fId>
       </freq>
       <dFreq>
         <dfName>DFREQ</dfName>
-        <dfId>20360</dfId>
+        <dfId>20373</dfId>
       </dFreq>
     </measurements>
   </pmu>
@@ -1112,13 +708,49 @@
         <modId>20464</modId>
         <angId>20465</angId>
       </phasor>
+	  <analog>
+        <aName>CTHD_A</aName>
+        <aType>CTHD</aType>
+        <aPhase>A</aPhase>
+        <aId>20457</aId>
+      </analog>
+      <analog>
+        <aName>CTHD_B</aName>
+        <aType>CTHD</aType>
+        <aPhase>B</aPhase>
+        <aId>20458</aId>
+      </analog>
+      <analog>
+        <aName>CTHD_C</aName>
+        <aType>CTHD</aType>
+        <aPhase>C</aPhase>
+        <aId>20459</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_A</aName>
+        <aType>VTHD</aType>
+        <aPhase>A</aPhase>
+        <aId>20470</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_B</aName>
+        <aType>VTHD</aType>
+        <aPhase>B</aPhase>
+        <aId>20471</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_C</aName>
+        <aType>VTHD</aType>
+        <aPhase>C</aPhase>
+        <aId>20472</aId>
+      </analog>
       <freq>
         <fName>FREQUENCIA</fName>
-        <fId>20461</fId>
+        <fId>20474</fId>
       </freq>
       <dFreq>
         <dfName>DFREQ</dfName>
-        <dfId>20462</dfId>
+        <dfId>20475</dfId>
       </dFreq>
     </measurements>
   </pmu>
@@ -1262,13 +894,49 @@
         <modId>20566</modId>
         <angId>20567</angId>
       </phasor>
+	  <analog>
+        <aName>CTHD_A</aName>
+        <aType>CTHD</aType>
+        <aPhase>A</aPhase>
+        <aId>20559</aId>
+      </analog>
+      <analog>
+        <aName>CTHD_B</aName>
+        <aType>CTHD</aType>
+        <aPhase>B</aPhase>
+        <aId>20560</aId>
+      </analog>
+      <analog>
+        <aName>CTHD_C</aName>
+        <aType>CTHD</aType>
+        <aPhase>C</aPhase>
+        <aId>20561</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_A</aName>
+        <aType>VTHD</aType>
+        <aPhase>A</aPhase>
+        <aId>20572</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_B</aName>
+        <aType>VTHD</aType>
+        <aPhase>B</aPhase>
+        <aId>20573</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_C</aName>
+        <aType>VTHD</aType>
+        <aPhase>C</aPhase>
+        <aId>20574</aId>
+      </analog>
       <freq>
         <fName>FREQUENCIA</fName>
-        <fId>20563</fId>
+        <fId>20576</fId>
       </freq>
       <dFreq>
         <dfName>DFREQ</dfName>
-        <dfId>20564</dfId>
+        <dfId>20577</dfId>
       </dFreq>
     </measurements>
   </pmu>
@@ -1412,13 +1080,49 @@
         <modId>20668</modId>
         <angId>20669</angId>
       </phasor>
+	  <analog>
+        <aName>CTHD_A</aName>
+        <aType>CTHD</aType>
+        <aPhase>A</aPhase>
+        <aId>20661</aId>
+      </analog>
+      <analog>
+        <aName>CTHD_B</aName>
+        <aType>CTHD</aType>
+        <aPhase>B</aPhase>
+        <aId>20662</aId>
+      </analog>
+      <analog>
+        <aName>CTHD_C</aName>
+        <aType>CTHD</aType>
+        <aPhase>C</aPhase>
+        <aId>20663</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_A</aName>
+        <aType>VTHD</aType>
+        <aPhase>A</aPhase>
+        <aId>20674</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_B</aName>
+        <aType>VTHD</aType>
+        <aPhase>B</aPhase>
+        <aId>20675</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_C</aName>
+        <aType>VTHD</aType>
+        <aPhase>C</aPhase>
+        <aId>20676</aId>
+      </analog>
       <freq>
         <fName>FREQUENCIA</fName>
-        <fId>20665</fId>
+        <fId>20678</fId>
       </freq>
       <dFreq>
         <dfName>DFREQ</dfName>
-        <dfId>20666</dfId>
+        <dfId>20679</dfId>
       </dFreq>
     </measurements>
   </pmu>
@@ -1562,13 +1266,49 @@
         <modId>20770</modId>
         <angId>20771</angId>
       </phasor>
+	  <analog>
+        <aName>CTHD_A</aName>
+        <aType>CTHD</aType>
+        <aPhase>A</aPhase>
+        <aId>20763</aId>
+      </analog>
+      <analog>
+        <aName>CTHD_B</aName>
+        <aType>CTHD</aType>
+        <aPhase>B</aPhase>
+        <aId>20764</aId>
+      </analog>
+      <analog>
+        <aName>CTHD_C</aName>
+        <aType>CTHD</aType>
+        <aPhase>C</aPhase>
+        <aId>20765</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_A</aName>
+        <aType>VTHD</aType>
+        <aPhase>A</aPhase>
+        <aId>20776</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_B</aName>
+        <aType>VTHD</aType>
+        <aPhase>B</aPhase>
+        <aId>20777</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_C</aName>
+        <aType>VTHD</aType>
+        <aPhase>C</aPhase>
+        <aId>20778</aId>
+      </analog>
       <freq>
         <fName>FREQUENCIA</fName>
-        <fId>20767</fId>
+        <fId>20780</fId>
       </freq>
       <dFreq>
         <dfName>DFREQ</dfName>
-        <dfId>20768</dfId>
+        <dfId>20781</dfId>
       </dFreq>
     </measurements>
   </pmu>
@@ -1712,13 +1452,49 @@
         <modId>20872</modId>
         <angId>20873</angId>
       </phasor>
+	  <analog>
+        <aName>CTHD_A</aName>
+        <aType>CTHD</aType>
+        <aPhase>A</aPhase>
+        <aId>20865</aId>
+      </analog>
+      <analog>
+        <aName>CTHD_B</aName>
+        <aType>CTHD</aType>
+        <aPhase>B</aPhase>
+        <aId>20866</aId>
+      </analog>
+      <analog>
+        <aName>CTHD_C</aName>
+        <aType>CTHD</aType>
+        <aPhase>C</aPhase>
+        <aId>20867</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_A</aName>
+        <aType>VTHD</aType>
+        <aPhase>A</aPhase>
+        <aId>20878</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_B</aName>
+        <aType>VTHD</aType>
+        <aPhase>B</aPhase>
+        <aId>20879</aId>
+      </analog>
+      <analog>
+        <aName>VTHD_C</aName>
+        <aType>VTHD</aType>
+        <aPhase>C</aPhase>
+        <aId>20880</aId>
+      </analog>
       <freq>
         <fName>FREQUENCIA</fName>
-        <fId>20869</fId>
+        <fId>20882</fId>
       </freq>
       <dFreq>
         <dfName>DFREQ</dfName>
-        <dfId>20870</dfId>
+        <dfId>20883</dfId>
       </dFreq>
     </measurements>
   </pmu>

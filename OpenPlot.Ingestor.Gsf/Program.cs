@@ -701,8 +701,8 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
         {
             PgConnString = ConfigurationManager.AppSettings["Db"];
             PollIntervalSeconds = ReadInt("PollIntervalSeconds", 2);
-            ChunkMinutes = ReadInt("ChunkMinutes", 10);
-            MaxParallelChunks = ReadInt("MaxParallelChunks", 2);
+            ChunkMinutes = ReadInt("ChunkMinutes", 5);
+            MaxParallelChunks = ReadInt("MaxParallelChunks", 10);
 
             if (string.IsNullOrWhiteSpace(PgConnString))
                 throw new Exception("App.config: defina AppSettings key=Db.");

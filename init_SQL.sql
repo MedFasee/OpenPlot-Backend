@@ -13,7 +13,10 @@ CREATE TABLE openPlot.pdc (
   fps          INTEGER NOT NULL,            -- 60, 120
   address      TEXT NOT NULL,               -- host:port
   user_name    TEXT,
-  password     TEXT
+  password     TEXT,
+  active       BOOLEAN NOT NULL             -- Se true: XML vigente, se false: XML antigo
+  											-- Nunca apagar relação PDC-PMU
+											-- Consultas antigas podem precisar
 );
 
 -- 2) PMU 
