@@ -334,11 +334,18 @@ ORDER BY pu.area       NULLS LAST,
 
             var hierarchy = pmuHierarchy.BuildHierarchy(pmus);
 
+            var fromUtc = (run.from_ts.Kind == DateTimeKind.Utc) ? run.from_ts : run.from_ts.ToUniversalTime();
+            var toUtc = (run.to_ts.Kind == DateTimeKind.Utc) ? run.to_ts : run.to_ts.ToUniversalTime();
+
             var data = new
             {
                 xml_file = run.source,
                 total_terminais = pmus.Count,
                 nome_busca = labels.BuildLabel(run.from_ts, run.to_ts, run.select_rate, run.source, run.terminal_id),
+
+                from = fromUtc.ToString("O"),
+                to = toUtc.ToString("O"),
+
                 terminais = hierarchy
             };
 
