@@ -10,5 +10,6 @@ public sealed class UsuarioDto
 {
     public required string Nome { get; init; }
     public required string Email { get; init; }
+    public required string NomePref { get; init; }
     public required string Role { get; init; } // "admin" | "editor" | "reader"
 }

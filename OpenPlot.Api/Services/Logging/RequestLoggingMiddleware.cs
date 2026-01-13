@@ -62,7 +62,7 @@ public class RequestLoggingMiddleware
             if (login is not null)
             {
                 userId = login.Sub ?? login.Username;
-                userName = login.DisplayName ?? login.Username;
+                userName = login.Username;
             }
         }
 

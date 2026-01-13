@@ -50,12 +50,14 @@ public static class AuthEndpoints
                 var jwt = jwtOpt.Value;
 
                 var claims = new List<Claim>
-                {
-                    new(JwtRegisteredClaimNames.Sub, resp.Sub),
-                    new(JwtRegisteredClaimNames.UniqueName, resp.Username),
-                    new(JwtRegisteredClaimNames.Email, resp.Email ?? string.Empty),
-                    new("sid", resp.SessionId ?? Guid.NewGuid().ToString("N"))
-                };
+{
+                new(JwtRegisteredClaimNames.Sub, resp.Sub),
+                new(JwtRegisteredClaimNames.UniqueName, resp.Username),
+                new("preferred_username", resp.PreferredUsername ?? resp.Username),
+                new(JwtRegisteredClaimNames.Email, resp.Email ?? string.Empty),
+                new("sid", resp.SessionId ?? Guid.NewGuid().ToString("N"))
+            };
+
 
                 if (resp.Roles is not null)
                     claims.AddRange(resp.Roles.Select(r => new Claim(ClaimTypes.Role, r)));
@@ -89,8 +91,9 @@ public static class AuthEndpoints
                         Token = tokenStr,
                         Usuario = new UsuarioDto
                         {
-                            Nome = resp.DisplayName ?? resp.Username,
+                            Nome = resp.Username,
                             Email = resp.Email ?? $"{resp.Username}@medplot.com",
+                            NomePref = resp.PreferredUsername,
                             Role = MapRole(resp.Roles)
                         }
                     }

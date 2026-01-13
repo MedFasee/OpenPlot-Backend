@@ -27,7 +27,7 @@
     "sub": "e6f7e6c1-0e3c-4e5e-9b30-a2e2f0d91f11",
     "username": "renan.dev",
     "password": "Renan@1234",
-    "preferred_username": "renan.dev",
+    "preferred_username": "Renan Pires",
     "email": "renan@openplot.dev",
     "roles": ["reader"],
     "claims": {
@@ -93,6 +93,18 @@
         "claims": {
             "organization": "UFSC",
             "tenant": "UFSC_dev"
+        }
+    },
+	{
+        "sub": "e6fe57c1-0e6c-4e5e-9c50-a2e2f0d9fd12",
+        "username": "valmor",
+        "password": "ValmorLabPlan26!",
+        "preferred_username": "Valmor Zimmer",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "UFSC",
+            "tenant": "UFSC_qa"
         }
     }
 ]

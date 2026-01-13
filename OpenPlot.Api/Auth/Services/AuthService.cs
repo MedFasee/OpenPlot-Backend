@@ -41,8 +41,7 @@ namespace OpenPlot.Auth.Services
                 Email = user.email,
                 Claims = user.claims,
                 SessionId = sessionId,
-                DisplayName = user.preferred_username
-                // NÃO gere token aqui; o JWT será criado no endpoint/controller
+                PreferredUsername = user.preferred_username
             };
 
             // grava o usuário autenticado na sessão

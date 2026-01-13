@@ -50,7 +50,7 @@ public static class ConfigEndpoints
 
             var arquivos = rows.Select(r => new
             {
-                nome = $"{r.name}",          // ajuste aqui se quiser outra convenção
+                nome = $"{r.name}",          
                 resolucao_maxima = r.fps
             });
 

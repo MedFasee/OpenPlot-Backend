@@ -29,6 +29,7 @@ namespace OpenPlot.Auth.Services
             {
                 Sub = user.sub,
                 Username = user.username,
+                PreferredUsername = user.preferred_username,
                 Roles = user.roles,
                 Email = user.email,
                 Claims = user.claims,

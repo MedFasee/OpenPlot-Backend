@@ -3,7 +3,7 @@
 public sealed record UserRecord(
     string sub,
     string username,
-    string password,                 // MOCK: texto puro — em prod use hash!
+    string password,                 // MOCK: texto puro — em prod usar hash!
     string preferred_username,
     string email,
     string[] roles,
