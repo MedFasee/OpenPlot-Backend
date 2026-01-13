@@ -49,20 +49,12 @@ builder.WebHost.UseUrls("http://0.0.0.0:7011");
 // CORS — versão que funciona na LAN (dev-friendly)
 // Aceita QUALQUER origem, mas sem wildcard '*' (compatível com cookies)
 // ======================================================================
-var allowedOrigins = new[]
-{
-    "http://localhost:5173",
-    "http://localhost:7011",
-    "https://unacerbic-clarine-machinely.ngrok-free.dev"
-};
-
-
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("CorsPolicy", policy =>
+    options.AddPolicy("DevCors", policy =>
     {
         policy
-            .WithOrigins(allowedOrigins)
+            .SetIsOriginAllowed(_ => true)  // <-- QUALQUER origem aceita
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();
@@ -203,7 +195,7 @@ builder.Services.AddSwaggerGen(c =>
 var app = builder.Build();
 
 // CORS sempre no topo
-app.UseCors("CorsPolicy");
+app.UseCors("DevCors");
 
 // 1) Sessão precisa ser carregada antes de qualquer coisa que use SessionUserService
 app.UseSession();
