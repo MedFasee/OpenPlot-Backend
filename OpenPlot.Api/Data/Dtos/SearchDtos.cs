@@ -119,6 +119,19 @@ namespace OpenPlot.Data.Dtos
     [property: FromQuery(Name = "pmu")] string? Pmu,
     [property: FromQuery(Name = "maxPoints")] int MaxPoints = 5000
 );
+    public sealed class DigitalRunQuery
+    {
+        [FromQuery(Name = "run_id")]
+        public Guid RunId { get; init; }
+
+        [FromQuery(Name = "maxPoints")]
+        public int MaxPoints { get; init; } = 5000;
+
+        // opcional: filtrar uma PMU (igual freq)
+        [FromQuery(Name = "pmu")]
+        public string? Pmu { get; init; }
+    }
+
     public record SeqPosRunQuery(
     [property: FromQuery(Name = "run_id")] Guid RunId,
     [property: FromQuery(Name = "pmu")] string? Pmu,          // ⬅️ uma PMU opcional
