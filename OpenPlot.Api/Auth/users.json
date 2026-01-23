@@ -3,7 +3,7 @@
     "sub": "7b8a9c10-5a1e-4d82-91b2-08b3e4afbd11",
     "username": "beatriz.dev",
     "password": "Bea@1234",
-    "preferred_username": "beatriz.dev",
+    "preferred_username": "Marcia Beatriz",
     "email": "beatriz@openplot.dev",
     "roles": ["admin"],
     "claims": {
@@ -105,6 +105,18 @@
         "claims": {
             "organization": "UFSC",
             "tenant": "UFSC_qa"
+        }
+    },
+	{
+        "sub": "e6se57c1-0e1c-4e5e-9c50-a2e2f0d9fad12",
+        "username": "MarioE",
+        "password": "maioneseverde123!",
+        "preferred_username": "Mario Eduardo",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "UFSC",
+            "tenant": "UFSC_user"
         }
     }
 ]

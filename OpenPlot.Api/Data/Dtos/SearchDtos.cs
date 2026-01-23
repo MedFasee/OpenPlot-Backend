@@ -40,7 +40,7 @@ namespace OpenPlot.Data.Dtos
 
     public sealed class SearchReq
     {
-        public string Source { get; set; } = "";     // = OpenPlot.pdc.name
+        public string Source { get; set; } = "";   
         public List<string> Pmus { get; set; } = new();
         public DateTime From { get; set; }
         public DateTime To { get; set; }
@@ -48,7 +48,7 @@ namespace OpenPlot.Data.Dtos
     }
     public record SearchRequest(
     string Source,
-    string TerminalId,              // ⬅️ novo
+    string TerminalId, 
     string[] Signals,
     DateTime From,
     DateTime To,

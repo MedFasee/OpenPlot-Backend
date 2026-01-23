@@ -130,7 +130,7 @@ namespace OpenPlot.Ingestor.Gsf
                     user = r.IsDBNull(r.GetOrdinal("user_name")) ? "" : r.GetString(r.GetOrdinal("user_name"));
                     pass = r.IsDBNull(r.GetOrdinal("password")) ? "" : r.GetString(r.GetOrdinal("password"));
 
-                    // 👇 NOVO: pega o db_name que o XmlImporter gravou (ex: "db_smf")
+                    // pega o db_name que o XmlImporter gravou (ex: "db_smf")
                     if (!r.IsDBNull(r.GetOrdinal("db_name")))
                         dbName = r.GetString(r.GetOrdinal("db_name"));
                 }
@@ -204,7 +204,7 @@ namespace OpenPlot.Ingestor.Gsf
                             ? 0.0
                             : Convert.ToDouble(r.GetValue(r.GetOrdinal("volt_kV")));
 
-                        // 👇 aqui vem a mágica:
+                        
                         int idNumber;
                         var localNumOrdinal = r.GetOrdinal("local_numeric_id");
                         if (MapKindToType(kind) == DatabaseType.Medfasee &&

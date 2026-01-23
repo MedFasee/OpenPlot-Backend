@@ -70,7 +70,7 @@ public class RequestLoggingMiddleware
         var userAgent = request.Headers["User-Agent"].FirstOrDefault();
 
         // ==========================================
-        // (NOVO) Captura de body do REQUEST
+        // Captura de body do REQUEST
         // ==========================================
         string? requestBodyForLog = null;
 

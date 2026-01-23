@@ -36,7 +36,7 @@ public static class SearchEndpoints
             }
 
             var id = Guid.NewGuid();
-            var username = user.Identity?.Name ?? "unknown";  // <- NOVO
+            var username = user.Identity?.Name ?? "unknown";
 
             using var db = dbf.Create();
             const string sql = @"

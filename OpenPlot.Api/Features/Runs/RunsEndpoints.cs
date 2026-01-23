@@ -222,7 +222,7 @@ signals_final AS (
       WHEN CARDINALITY(phases_raw) = 1 AND phases_raw[1] = 'A'
         THEN ARRAY['A']::text[]
       WHEN ARRAY['A','B','C']::text[] <@ phases_raw
-        THEN ARRAY['A','B','C','Trifásico','Sequência Positiva']::text[]
+        THEN ARRAY['A','B','C','Trifásico','Sequência Positiva','Sequência Negativa', 'Sequência Zero', 'Desequilíbrio']::text[]
       ELSE (
         SELECT ARRAY(
           SELECT p
@@ -1880,6 +1880,254 @@ ORDER BY s.signal_id, r.ts;
                 series
             });
         });
+
+        // -----------------------------------------------
+        // X) /series/thd/by-run  (THD de tensão ou corrente)
+        // -----------------------------------------------
+        grp.MapGet("/series/thd/by-run",
+        async Task<IResult> (
+            [AsParameters] ByRunQuery q,
+            [FromQuery] string kind,            // "voltage" | "current"
+            [FromServices] IDbConnectionFactory dbf,
+            [FromQuery] DateTime? from,
+            [FromQuery] DateTime? to
+        ) =>
+        {
+            var tri = q.Tri;
+            var pmuName = q.Pmu?.Trim();
+
+            // ---------------------------
+            // Validação: kind obrigatório
+            // ---------------------------
+            if (string.IsNullOrWhiteSpace(kind))
+                return Results.BadRequest("kind é obrigatório (voltage|current).");
+
+            var k = kind.Trim().ToLowerInvariant();
+            if (k is not ("voltage" or "current"))
+                return Results.BadRequest("kind deve ser 'voltage' ou 'current'.");
+
+            // ---------------------------
+            // Validação de parâmetros (fase/tri/pmu)
+            // ---------------------------
+            string? uphase = null;
+
+            if (!tri)
+            {
+                // modo monofásico: phase é obrigatória
+                if (string.IsNullOrWhiteSpace(q.Phase))
+                    return Results.BadRequest("phase é obrigatório (A|B|C) quando tri=false.");
+
+                uphase = q.Phase.Trim().ToUpperInvariant();
+                if (!new[] { "A", "B", "C" }.Contains(uphase))
+                    return Results.BadRequest("phase deve ser A, B ou C.");
+            }
+            else
+            {
+                // modo trifásico: exige PMU
+                if (string.IsNullOrWhiteSpace(pmuName))
+                    return Results.BadRequest("para tri=true é obrigatório informar pmu (id_name da PMU).");
+            }
+
+            var maxPts = Math.Max(q.MaxPoints, 100);
+
+            DateTime? fromUtc = from?.ToUniversalTime();
+            DateTime? toUtc = to?.ToUniversalTime();
+            if (fromUtc.HasValue && toUtc.HasValue && fromUtc >= toUtc)
+                return Results.BadRequest("from < to");
+
+            using var db = dbf.Create();
+
+            // Clausula de fase dinâmica
+            var phaseClause = tri
+                ? "UPPER(s.phase::text) IN ('A','B','C')"          // trifásico
+                : "UPPER(s.phase::text) = UPPER(@phase)";          // uma fase só
+
+            // Filtro de PMU (usado no modo tri, opcional no mono)
+            var pmuFilter = !string.IsNullOrWhiteSpace(pmuName)
+                ? "LOWER(pmu.id_name) = LOWER(@pmu)"
+                : "TRUE";
+
+            // Filtro de grandeza (kind)
+            var qtyClause = k == "voltage"
+                ? "LOWER(s.quantity::text) IN ('voltage','v')"
+                : "LOWER(s.quantity::text) IN ('current','i')";
+
+            const string sqlTemplate = @"
+WITH run AS (
+  SELECT id, source AS pdc_name, from_ts, to_ts, COALESCE(pmus_ok, pmus) AS pmus, signals
+  FROM openplot.search_runs
+  WHERE id = @run_id::uuid
+),
+run_window AS (
+  SELECT
+    CASE WHEN pg_typeof(r.from_ts)::text = 'timestamp without time zone'
+         THEN r.from_ts::timestamptz ELSE r.from_ts END AS from_utc,
+    CASE WHEN pg_typeof(r.to_ts)::text = 'timestamp without time zone'
+         THEN r.to_ts::timestamptz ELSE r.to_ts   END AS to_utc,
+    r.pdc_name, r.signals, r.pmus
+  FROM run r
+),
+win AS (
+  SELECT
+    COALESCE(@from_utc, rw.from_utc) AS from_utc,
+    COALESCE(@to_utc,   rw.to_utc)   AS to_utc,
+    rw.pdc_name, rw.signals, rw.pmus
+  FROM run_window rw
+),
+src AS (
+  SELECT w.pdc_name,
+         w.from_utc AS from_ts,
+         w.to_utc   AS to_ts,
+         CASE
+           WHEN jsonb_typeof(w.signals) = 'array' AND jsonb_array_length(w.signals) > 0 THEN w.signals
+           WHEN jsonb_typeof(w.pmus)    = 'array' AND jsonb_array_length(w.pmus)    > 0 THEN w.pmus
+           ELSE '[]'::jsonb
+         END AS arr
+  FROM win w
+),
+elems AS (
+  SELECT pdc_name, from_ts, to_ts, jsonb_array_elements(arr) AS elem
+  FROM src
+),
+pmu_ids AS (
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN openplot.pmu p ON p.id_name = btrim(r.elem::text, '""')
+  WHERE jsonb_typeof(r.elem) = 'string'
+  UNION ALL
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN LATERAL (
+    SELECT NULLIF(TRIM(r.elem->>'pmu'), '')     AS key_pmu,
+           NULLIF(TRIM(r.elem->>'id_name'), '') AS key_idname
+  ) k ON TRUE
+  JOIN openplot.pmu p ON p.id_name = COALESCE(k.key_pmu, k.key_idname)
+  WHERE jsonb_typeof(r.elem) = 'object'
+    AND COALESCE(k.key_pmu, k.key_idname) IS NOT NULL
+  UNION ALL
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN LATERAL (SELECT NULLIF(r.elem->>'pdc_pmu_id','')::int AS key_pdc_pmu_id) k ON TRUE
+  JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = k.key_pdc_pmu_id
+  JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
+  WHERE jsonb_typeof(r.elem) = 'object'
+  UNION ALL
+  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
+  FROM elems r
+  JOIN LATERAL (SELECT NULLIF(r.elem->>'signal_id','')::int AS key_signal_id) k ON TRUE
+  JOIN openplot.signal s ON s.signal_id = k.key_signal_id
+  JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = s.pdc_pmu_id
+  JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
+  WHERE jsonb_typeof(r.elem) = 'object'
+),
+pdc_ctx AS (
+  SELECT w.pdc_name, w.from_ts, w.to_ts, pdc.pdc_id
+  FROM src w
+  JOIN openplot.pdc pdc ON LOWER(pdc.name) = LOWER(w.pdc_name)
+),
+ctx AS (
+  SELECT pc.pdc_name, pc.from_ts, pc.to_ts, pid.id_name, pid.pmu_id, pc.pdc_id
+  FROM pdc_ctx pc
+  JOIN pmu_ids pid ON pid.pdc_name = pc.pdc_name
+),
+sig AS (
+  SELECT s.signal_id, s.pdc_pmu_id, s.phase, s.component,
+         c.id_name, c.pdc_name
+  FROM ctx c
+  JOIN openplot.pdc_pmu pp ON pp.pdc_id = c.pdc_id AND pp.pmu_id = c.pmu_id
+  JOIN openplot.signal s   ON s.pdc_pmu_id = pp.pdc_pmu_id
+  JOIN openplot.pmu pmu    ON pmu.pmu_id   = c.pmu_id
+  WHERE {PHASE_CLAUSE}
+    AND {QTY_CLAUSE}
+    AND LOWER(s.component::text) IN ('thd')
+    AND {PMU_FILTER}
+),
+raw AS (
+  SELECT m.signal_id, m.ts, m.value
+  FROM openplot.measurements m
+  WHERE m.ts >= (SELECT from_utc FROM win)
+    AND m.ts <= (SELECT to_utc   FROM win)
+)
+SELECT
+  s.signal_id, s.pdc_pmu_id, s.phase, s.component,
+  s.id_name, s.pdc_name,
+  r.ts, r.value
+FROM sig s
+JOIN raw r USING (signal_id)
+ORDER BY s.signal_id, r.ts;";
+
+            var sql = sqlTemplate
+                .Replace("{PHASE_CLAUSE}", phaseClause)
+                .Replace("{PMU_FILTER}", pmuFilter)
+                .Replace("{QTY_CLAUSE}", qtyClause);
+
+            var rows = (await db.QueryAsync<(
+                int Signal_Id, int Pdc_Pmu_Id, string Phase, string Component,
+                string Id_Name, string Pdc_Name, DateTime Ts, double Value
+            )>(sql, new
+            {
+                run_id = q.RunId,
+                phase = uphase,      // ignorado se tri=true
+                from_utc = fromUtc,
+                to_utc = toUtc,
+                pmu = pmuName
+            })).ToList();
+
+            if (rows.Count == 0)
+                return Results.NotFound("Nada encontrado para esse run_id/filtro no intervalo solicitado.");
+
+            var series = rows
+                .GroupBy(r => r.Signal_Id)
+                .Select(g =>
+                {
+                    var any = g.First();
+
+                    var downs = TimeBucketDownsampleMinMax(
+                        g.Select(r => (r.Ts, r.Value)), maxPts);
+
+                    return new
+                    {
+                        pmu = any.Id_Name,
+                        pdc = any.Pdc_Name,
+                        signal_id = any.Signal_Id,
+                        pdc_pmu_id = any.Pdc_Pmu_Id,
+                        meta = new
+                        {
+                            phase = any.Phase,
+                            component = any.Component,
+                            kind = k
+                        },
+                        unit = "%", // THD normalmente é percentual
+                        points = downs.Select(p => new object[] { p.ts, p.val })
+                    };
+                })
+                .ToList();
+
+            var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
+            var windowTo = toUtc ?? rows.Max(r => r.Ts);
+
+            var data = windowFrom
+                .Date
+                .ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+
+            return Results.Ok(new
+            {
+                run_id = q.RunId,
+                data,
+                tri = tri,
+                phase = tri ? "ABC" : uphase,
+                kind = k,
+                unit = "%",
+                window = new { from = windowFrom, to = windowTo },
+                resolved = new
+                {
+                    pdc = rows.First().Pdc_Name,
+                    pmu_count = series.Select(s => s.pmu).Distinct().Count()
+                },
+                series
+            });
+        });
+
         // -----------------------------------------
         // 8) /series/power/by-run  (P ou Q)
         // -----------------------------------------

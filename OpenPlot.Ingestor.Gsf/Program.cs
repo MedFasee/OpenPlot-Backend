@@ -118,7 +118,7 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
                                     from = rdr.GetDateTime(4);
                                     to = rdr.GetDateTime(5);
                                     selectRate = rdr.IsDBNull(6) ? 0 : rdr.GetInt32(6);
-                                    pmusJson = rdr.IsDBNull(7) ? null : rdr.GetString(7); // NOVO
+                                    pmusJson = rdr.IsDBNull(7) ? null : rdr.GetString(7); 
                                 }
                             }
 
@@ -174,7 +174,7 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
                                                 if (channels == null || channels.Count == 0)
                                                     throw new Exception("Nenhum canal encontrado no DB para a PMU '" + pmuIdName + "'.");
 
-                                                // FetchAndInsert agora devolve se houve dado (novo ou já existente)
+                                                // FetchAndInsert devolve se houve dado (novo ou já existente)
                                                 var teveDados = FetchAndInsert(
                                                     conn,
                                                     id,
@@ -505,7 +505,7 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
                     return OpenPlot.Ingestor.Gsf.ChannelQuantity.DFREQ;
                 return OpenPlot.Ingestor.Gsf.ChannelQuantity.FREQUENCY;
             }
-            // NOVO: digital
+            // digital
             if (string.Equals(qty, "Digital", StringComparison.OrdinalIgnoreCase))
                 return OpenPlot.Ingestor.Gsf.ChannelQuantity.DIGITAL;
             return OpenPlot.Ingestor.Gsf.ChannelQuantity.ANALOG;
@@ -526,7 +526,7 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
                 if (string.Equals(component, "MAG", StringComparison.OrdinalIgnoreCase)) return OpenPlot.Ingestor.Gsf.ChannelValueType.ABSOLUTE;
                 if (string.Equals(component, "ANG", StringComparison.OrdinalIgnoreCase)) return OpenPlot.Ingestor.Gsf.ChannelValueType.ANGLE;
             }
-            // NOVO: digital
+            // digital
             if (q == OpenPlot.Ingestor.Gsf.ChannelQuantity.DIGITAL)
                 return OpenPlot.Ingestor.Gsf.ChannelValueType.ABSOLUTE;
 
