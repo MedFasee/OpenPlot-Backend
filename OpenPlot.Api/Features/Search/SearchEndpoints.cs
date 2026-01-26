@@ -61,6 +61,40 @@ VALUES
             return Results.Accepted($"/search/{id}", new { jobId = id });
         });
 
+        group.MapPost("/share", async (
+        HttpContext http,
+        [FromServices] IDbConnectionFactory dbf,
+        [FromBody] ShareRunRequest req
+    ) =>
+            {
+                var username =
+                    http.User?.FindFirst("username")?.Value
+                    ?? http.User?.Identity?.Name;
+
+                if (string.IsNullOrWhiteSpace(username))
+                    return Results.Unauthorized();
+
+                if (req.id == Guid.Empty)
+                    return Results.BadRequest("id inválido");
+
+                using var db = dbf.Create();
+
+                var updated = await db.QuerySingleOrDefaultAsync(
+                    SearchSql.SetRunShared,
+                    new { id = req.id, shared = req.shared, username }
+                );
+
+                if (updated is null)
+                    return Results.NotFound("run não encontrado (ou não pertence ao usuário).");
+
+                return Results.Ok(new
+                {
+                    status = 200,
+                    data = updated
+                });
+            });
+
+
         // POST /search/all (multi-PMU)
         group.MapPost("/all", async (
             SearchReq req,                                       // body

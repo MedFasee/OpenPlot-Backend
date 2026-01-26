@@ -15,6 +15,13 @@ namespace OpenPlot.Data.Dtos
         public string shared { get; set; }
     }
 
+    public sealed record ShareRunRequest(
+    Guid id,
+    bool shared,
+    string? label
+);
+
+
     public sealed class SearchRunFull
     {
         public Guid id { get; set; }

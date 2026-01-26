@@ -14,6 +14,14 @@ SELECT
   'queued', 0, 'Na fila', @pmu_count, @label, @username
 FROM d;";
 
+        public const string SetRunShared = @"
+UPDATE openplot.search_runs
+SET shared = @shared
+WHERE id = @id
+  AND LOWER(username) = LOWER(@username)
+RETURNING id, shared, username, created_at;";
+
+
         // Buscas abaixo não levam o usuário. Ainda não sabemos se haverá filtro por user
         public const string ListRuns = @"
 SELECT
