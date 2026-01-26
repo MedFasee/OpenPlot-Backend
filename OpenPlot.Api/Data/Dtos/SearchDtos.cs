@@ -14,6 +14,7 @@ namespace OpenPlot.Data.Dtos
         public DateTime created_at { get; set; }
         public string shared { get; set; }
     }
+    public sealed record SoftDeleteRun(Guid id, bool is_visible);
 
     public sealed record ShareRunRequest(
     Guid id,

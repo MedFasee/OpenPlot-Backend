@@ -95,6 +95,35 @@ VALUES
             });
 
 
+        group.MapPost("/soft_delete", async (
+        HttpContext http,
+        [FromServices] IDbConnectionFactory dbf,
+        [FromBody] SoftDeleteRun req
+    ) =>
+            {
+                var username = http.User?.FindFirst("unique_name")?.Value
+                               ?? http.User?.Identity?.Name;
+
+                if (string.IsNullOrWhiteSpace(username))
+                    return Results.Unauthorized();
+
+                if (req.id == Guid.Empty)
+                    return Results.BadRequest("id inválido");
+
+                using var db = dbf.Create();
+
+                var updated = await db.QuerySingleOrDefaultAsync(
+                    SearchSql.SoftDeleteRun,
+                    new { id = req.id, is_visible = req.is_visible, username }
+                );
+
+                if (updated is null)
+                    return Results.NotFound("run não encontrado (ou não pertence ao usuário).");
+
+                return Results.Ok(new { status = 200, data = updated });
+            });
+
+
         // POST /search/all (multi-PMU)
         group.MapPost("/all", async (
             SearchReq req,                                       // body

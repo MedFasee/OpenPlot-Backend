@@ -21,8 +21,17 @@ WHERE id = @id
   AND LOWER(username) = LOWER(@username)
 RETURNING id, shared, username, created_at;";
 
+        public const string SoftDeleteRun = @"
+UPDATE openplot.search_runs
+SET
+  is_visible = @is_visible,
+  deleted_at = CASE WHEN @is_visible = FALSE THEN now() ELSE NULL END
+WHERE id = @id
+  AND LOWER(username) = LOWER(@username)
+RETURNING id, is_visible, deleted_at;";
 
-        // Buscas abaixo não levam o usuário. Ainda não sabemos se haverá filtro por user
+
+
         public const string ListRuns = @"
 SELECT
   id, source, terminal_id, from_ts, to_ts, select_rate, status, created_at, shared, username
@@ -31,6 +40,8 @@ WHERE
   ( @status IS NULL OR status = @status )
   AND
   ( shared = TRUE OR LOWER(username) = LOWER(@username) )
+AND 
+(is_visible = TRUE)
 ORDER BY created_at DESC
 LIMIT 5000;";
 

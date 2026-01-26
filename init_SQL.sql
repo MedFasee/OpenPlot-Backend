@@ -107,7 +107,8 @@ CREATE TABLE IF NOT EXISTS openPlot.search_runs (
   message      text         NULL,
   created_at   timestamptz  NOT NULL DEFAULT now(),
   username 		text		NULL,
-  shared 		BOOLEAN 	NOT NULL DEFAULT FALSE
+  shared 		BOOLEAN 	NOT NULL DEFAULT FALSE,
+  is_visible    BOOLEAN     NOT NULL DEFAULT TRUE
 );
 
 -- 9) 
