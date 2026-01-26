@@ -16,11 +16,16 @@ FROM d;";
 
         // Buscas abaixo não levam o usuário. Ainda não sabemos se haverá filtro por user
         public const string ListRuns = @"
-SELECT id, source, terminal_id, from_ts, to_ts, select_rate, status, created_at
+SELECT
+  id, source, terminal_id, from_ts, to_ts, select_rate, status, created_at, shared, username
 FROM openplot.search_runs
-WHERE (@status IS NULL OR status = @status)
+WHERE
+  ( @status IS NULL OR status = @status )
+  AND
+  ( shared = TRUE OR LOWER(username) = LOWER(@username) )
 ORDER BY created_at DESC
 LIMIT 5000;";
+
 
         public const string GetRunById = @"
 SELECT id, source, terminal_id, signals::text, from_ts, to_ts, select_rate, status, created_at

@@ -12,6 +12,7 @@ namespace OpenPlot.Data.Dtos
         public int select_rate { get; set; }
         public string status { get; set; } = "";
         public DateTime created_at { get; set; }
+        public string shared { get; set; }
     }
 
     public sealed class SearchRunFull

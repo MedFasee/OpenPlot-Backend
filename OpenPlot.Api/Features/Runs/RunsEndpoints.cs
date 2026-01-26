@@ -17,14 +17,26 @@ public static class RunsEndpoints
 
         // GET /runs
         grp.MapGet("/runs", async (
-            [FromServices] IDbConnectionFactory dbf,
-            [FromQuery] string? status,
-            [FromServices] ITimeService time,
-            [FromServices] ILabelService labels
-        ) =>
-        {
-            using var db = dbf.Create();
-            var rows = await db.QueryAsync<SearchRunRow>(SearchSql.ListRuns, new { status });
+        HttpContext http,
+        [FromServices] IDbConnectionFactory dbf,
+        [FromQuery] string? status,
+        [FromServices] ITimeService time,
+        [FromServices] ILabelService labels
+    ) =>
+            {
+                var username =
+                    http.User?.FindFirst("username")?.Value
+                    ?? http.User?.Identity?.Name;
+
+                if (string.IsNullOrWhiteSpace(username))
+                    return Results.Unauthorized();
+
+                using var db = dbf.Create();
+
+                var rows = await db.QueryAsync<SearchRunRow>(
+                    SearchSql.ListRuns,
+                    new { status, username }
+                );
 
             // ano -> mês -> dia -> itens
             var calendar = new Dictionary<string, Dictionary<string, Dictionary<string, List<SearchRunItem>>>>();
