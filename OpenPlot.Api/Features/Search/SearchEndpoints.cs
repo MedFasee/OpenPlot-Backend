@@ -95,7 +95,7 @@ VALUES
             });
 
 
-        group.MapPost("/soft_delete", async (
+        group.MapPost("/soft-delete", async (
         HttpContext http,
         [FromServices] IDbConnectionFactory dbf,
         [FromBody] SoftDeleteRun req
