@@ -118,5 +118,17 @@
             "organization": "UFSC",
             "tenant": "UFSC_user"
         }
+    },
+	{
+        "sub": "e6sa57c1-0e1c-4e5e-9c50-a1e2f0d9fad92",
+        "username": "ONS_OpenPlot",
+        "password": "OpenPlot_2026_1",
+        "preferred_username": "ONS TESTE",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "ONS",
+            "tenant": "ONS_tester"
+        }
     }
 ]
