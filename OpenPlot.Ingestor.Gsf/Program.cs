@@ -85,6 +85,91 @@ namespace OpenPlot.Ingestor.Gsf
             }
         }
 
+        // ----------------- PROGRESS HELPERS -----------------
+        // Progresso: calculado por "unidade de trabalho" = (PMU x chunk de tempo).
+        // - total = (qtde PMUs) * (qtde intervals)
+        // - done  = incrementa 1 ao finalizar cada chunk (skip/sem dados/ok/erro-chunk contam como concluído)
+        // - throttling: atualiza no DB no máx a cada X ms OU quando variar >= 1%
+        private sealed class ProgressReporter
+        {
+            private readonly string _connString;
+            private readonly Guid _jobId;
+            private readonly int _total;
+
+            private readonly int _minStepPercent;
+            private readonly TimeSpan _minInterval;
+
+            private long _done;
+            private int _lastPct;
+            private long _lastTick;
+
+            public ProgressReporter(string connString, Guid jobId, int total, int minStepPercent = 1, int minIntervalMs = 800)
+            {
+                _connString = connString;
+                _jobId = jobId;
+                _total = Math.Max(1, total);
+                _minStepPercent = Math.Max(1, minStepPercent);
+                _minInterval = TimeSpan.FromMilliseconds(Math.Max(200, minIntervalMs));
+                _lastTick = Stopwatch.GetTimestamp();
+                _lastPct = 0;
+            }
+
+            public int Total => _total;
+
+            public void Tick(string msg = null)
+            {
+                var done = Interlocked.Increment(ref _done);
+                var pct = (int)Math.Floor(100.0 * done / _total);
+
+                // Reserva 100% para o encerramento (done/no_data). Aqui fica no máximo 99%.
+                if (pct > 99) pct = 99;
+
+                var now = Stopwatch.GetTimestamp();
+                var elapsed = TimeSpan.FromSeconds((now - _lastTick) / (double)Stopwatch.Frequency);
+
+                // throttle por passo (%) ou tempo
+                if ((pct - _lastPct) < _minStepPercent && elapsed < _minInterval)
+                    return;
+
+                _lastPct = pct;
+                _lastTick = now;
+
+                try
+                {
+                    using (var c = new NpgsqlConnection(_connString))
+                    {
+                        c.Open();
+                        using (var tx = c.BeginTransaction())
+                        {
+                            // Mantém status 'running' e atualiza progress.
+                            // msg curta para O&M / UI (opcional)
+                            DbOps.UpdateStatus(c, tx, _jobId, "running", pct, msg ?? $"Processando ({done}/{_total})");
+                            tx.Commit();
+                        }
+                    }
+                }
+                catch
+                {
+                    // noop (não quebra o job por falha de update de progresso)
+                }
+            }
+        }
+
+        private static int CountIntervals(DateTime fromUtc, DateTime toUtc)
+        {
+            var totalSpan = toUtc - fromUtc;
+            if (totalSpan <= TimeSpan.Zero) return 1;
+
+            var chunkSize = TimeSpan.FromMinutes(Math.Max(1, ChunkMinutes));
+            if (chunkSize > totalSpan) chunkSize = totalSpan;
+
+            int n = 0;
+            for (var cs = fromUtc; cs < toUtc; cs = cs.Add(chunkSize))
+                n++;
+
+            return Math.Max(1, n);
+        }
+
         private static void Main()
         {
             try
@@ -168,6 +253,12 @@ namespace OpenPlot.Ingestor.Gsf
                                         // Lista de PMUs pedidas nesse job
                                         var pmuList = TryParsePmus(pmusJson);
 
+                                        // Progresso do job (PMU x chunk)
+                                        // - Se pmuList não vier, assume 1 (caminho legado desabilitado no momento)
+                                        var nPmus = (pmuList != null && pmuList.Count > 0) ? pmuList.Count : 1;
+                                        var nIntervals = CountIntervals(fromUtc, toUtc);
+                                        var progress = new ProgressReporter(PgConnString, id, nPmus * nIntervals);
+
                                         // Vamos acumular só as PMUs que efetivamente tiveram dados
                                         List<string> pmusComDados = null;
 
@@ -196,7 +287,8 @@ namespace OpenPlot.Ingestor.Gsf
                                                     channels,
                                                     fromUtc,
                                                     toUtc,
-                                                    selectRate
+                                                    selectRate,
+                                                    progress
                                                 );
 
                                                 if (teveDados)
@@ -205,7 +297,7 @@ namespace OpenPlot.Ingestor.Gsf
                                         }
                                         else
                                         {
-                                            // Caminho legado (sem pmus em search_runs) – se quiser, pode reativar aqui
+                                            // Caminho legado (sem pmus em search_runs)
                                             /*
                                             var term = TerminalResolver.Resolve(sysCfg, terminalId);
                                             var signals = ParseSignals(signalsJson);
@@ -222,7 +314,8 @@ namespace OpenPlot.Ingestor.Gsf
                                                 channels,
                                                 fromUtc,
                                                 toUtc,
-                                                selectRate
+                                                selectRate,
+                                                progress
                                             );
 
                                             if (teveDados)
@@ -233,6 +326,8 @@ namespace OpenPlot.Ingestor.Gsf
                                         // Ao final do job, marcamos DONE e, se for o caso, salvamos pmus_ok
                                         using (var tx2 = conn.BeginTransaction())
                                         {
+                                            // Adição: status terminal informativo quando a consulta executa com sucesso,
+                                            // porém não retorna dados em todo o intervalo solicitado.
                                             if (pmusComDados == null || pmusComDados.Count == 0)
                                             {
                                                 DbOps.UpdateStatus(
@@ -256,6 +351,8 @@ namespace OpenPlot.Ingestor.Gsf
                                                 );
                                             }
 
+                                            // Importante: commit da transação final (status done/no_data)
+                                            tx2.Commit();
                                         }
 
                                         wd.Cancel();
@@ -307,7 +404,8 @@ namespace OpenPlot.Ingestor.Gsf
             List<Channel> channels,
             DateTime fromUtc,
             DateTime toUtc,
-            int selectRate)
+            int selectRate,
+            ProgressReporter progress)   // <<< progresso do job
         {
             // Flag: 0 = não teve dado, 1 = teve dado (novo ou já existente)
             int hasData = 0;
@@ -363,6 +461,10 @@ namespace OpenPlot.Ingestor.Gsf
                         {
                             Console.WriteLine("[skip] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " (já existente)");
                             Interlocked.Exchange(ref hasData, 1);
+
+                            // Progresso: este chunk foi "concluído"
+                            progress?.Tick($"Processando: {term.Id}");
+
                             return;
                         }
 
@@ -387,6 +489,10 @@ namespace OpenPlot.Ingestor.Gsf
                         if (dict == null || dict.Count == 0)
                         {
                             Console.WriteLine("[info] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " sem dados");
+
+                            // Progresso: este chunk foi "concluído"
+                            progress?.Tick($"Processando: {term.Id}");
+
                             return;
                         }
 
@@ -459,6 +565,9 @@ namespace OpenPlot.Ingestor.Gsf
                                 Console.WriteLine("[ok] " + term.Id + " " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " inserido");
                             }
                         }
+
+                        // Progresso: este chunk foi "concluído"
+                        progress?.Tick($"Processando: {term.Id}");
                     }
                     catch (InvalidConnectionException ex)
                     {
@@ -474,6 +583,9 @@ namespace OpenPlot.Ingestor.Gsf
                     catch (Exception ex)
                     {
                         Console.WriteLine("[erro-chunk] " + term.Id + " " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + ": " + ex.Message);
+
+                        // Progresso: mesmo com erro de chunk, este chunk foi "concluído"
+                        progress?.Tick($"Processando: {term.Id}");
                     }
                 });
             }
@@ -548,6 +660,7 @@ namespace OpenPlot.Ingestor.Gsf
                 return OpenPlot.Ingestor.Gsf.ChannelQuantity.FREQUENCY;
             }
 
+            // digital
             if (string.Equals(qty, "Digital", StringComparison.OrdinalIgnoreCase))
                 return OpenPlot.Ingestor.Gsf.ChannelQuantity.DIGITAL;
 
@@ -570,6 +683,7 @@ namespace OpenPlot.Ingestor.Gsf
                 if (string.Equals(component, "ANG", StringComparison.OrdinalIgnoreCase)) return OpenPlot.Ingestor.Gsf.ChannelValueType.ANGLE;
             }
 
+            // digital
             if (q == OpenPlot.Ingestor.Gsf.ChannelQuantity.DIGITAL)
                 return OpenPlot.Ingestor.Gsf.ChannelValueType.ABSOLUTE;
 
