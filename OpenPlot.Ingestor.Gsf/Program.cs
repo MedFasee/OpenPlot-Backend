@@ -1,15 +1,15 @@
-﻿using Newtonsoft.Json.Linq;
-using Npgsql;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Data;
+using System.Diagnostics;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Diagnostics;
-
+using Newtonsoft.Json.Linq;
+using Npgsql;
+using OpenPlot.Ingestor.Gsf.Repository;
 
 namespace OpenPlot.Ingestor.Gsf
 {
@@ -22,50 +22,68 @@ namespace OpenPlot.Ingestor.Gsf
         private static int MaxParallelChunks;
 
         // ----------------- TIMING HELPERS -----------------
-private static string FmtMs(long ms)
-{
-    if (ms < 1000) return ms + "ms";
-    var ts = TimeSpan.FromMilliseconds(ms);
-    if (ts.TotalMinutes >= 1) return $"{(int)ts.TotalMinutes}m{ts.Seconds:D2}s";
-    return $"{ts.Seconds}s{ts.Milliseconds:D3}ms";
-}
-
-private static IDisposable TimeBlock(string name)
-{
-    var sw = Stopwatch.StartNew();
-    Console.WriteLine($"[t] ▶ {name}");
-    return new ActionOnDispose(() =>
-    {
-        sw.Stop();
-        Console.WriteLine($"[t] ✓ {name} = {FmtMs(sw.ElapsedMilliseconds)}");
-    });
-}
-
-private sealed class ActionOnDispose : IDisposable
-{
-    private readonly Action _a;
-    public ActionOnDispose(Action a) => _a = a;
-    public void Dispose() => _a();
-}
-
-// Watchdog: se passar do limite, imprime stacktrace (bom p/ travas/espera)
-private static CancellationTokenSource StartWatchdog(TimeSpan limit, string label)
-{
-    var cts = new CancellationTokenSource();
-    _ = Task.Run(async () =>
-    {
-        try
+        private static string FmtMs(long ms)
         {
-            await Task.Delay(limit, cts.Token);
-            Console.WriteLine($"[watchdog] ⏱ passou de {limit}. label={label}");
-            Console.WriteLine(new StackTrace(true).ToString());
+            if (ms < 1000) return ms + "ms";
+            var ts = TimeSpan.FromMilliseconds(ms);
+            if (ts.TotalMinutes >= 1) return $"{(int)ts.TotalMinutes}m{ts.Seconds:D2}s";
+            return $"{ts.Seconds}s{ts.Milliseconds:D3}ms";
         }
-        catch (OperationCanceledException) { /* ok */ }
-        catch (Exception ex) { Console.WriteLine("[watchdog-erro] " + ex.Message); }
-    });
-    return cts;
-}
 
+        private static IDisposable TimeBlock(string name)
+        {
+            var sw = Stopwatch.StartNew();
+            Console.WriteLine($"[t] ▶ {name}");
+            return new ActionOnDispose(() =>
+            {
+                sw.Stop();
+                Console.WriteLine($"[t] ✓ {name} = {FmtMs(sw.ElapsedMilliseconds)}");
+            });
+        }
+
+        private sealed class ActionOnDispose : IDisposable
+        {
+            private readonly Action _a;
+            public ActionOnDispose(Action a) => _a = a;
+            public void Dispose() => _a();
+        }
+
+        // Watchdog: se passar do limite, imprime stacktrace (bom p/ travas/espera)
+        private static CancellationTokenSource StartWatchdog(TimeSpan limit, string label)
+        {
+            var cts = new CancellationTokenSource();
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(limit, cts.Token);
+                    Console.WriteLine($"[watchdog] ⏱ passou de {limit}. label={label}");
+                    Console.WriteLine(new StackTrace(true).ToString());
+                }
+                catch (OperationCanceledException) { /* ok */ }
+                catch (Exception ex) { Console.WriteLine("[watchdog-erro] " + ex.Message); }
+            });
+            return cts;
+        }
+
+        // ----------------- STATUS HELPERS -----------------
+        private static void MarkBadConnection(NpgsqlConnection conn, Guid id, string details = null)
+        {
+            var msg = string.IsNullOrWhiteSpace(details) ? "bad_connection" : ("bad_connection: " + details);
+
+            try
+            {
+                using (var tx = conn.BeginTransaction())
+                {
+                    DbOps.UpdateStatus(conn, tx, id, "bad_connection", 0, msg);
+                    tx.Commit();
+                }
+            }
+            catch
+            {
+                // noop
+            }
+        }
 
         private static void Main()
         {
@@ -118,7 +136,7 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
                                     from = rdr.GetDateTime(4);
                                     to = rdr.GetDateTime(5);
                                     selectRate = rdr.IsDBNull(6) ? 0 : rdr.GetInt32(6);
-                                    pmusJson = rdr.IsDBNull(7) ? null : rdr.GetString(7); 
+                                    pmusJson = rdr.IsDBNull(7) ? null : rdr.GetString(7);
                                 }
                             }
 
@@ -135,14 +153,10 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
                                 try
                                 {
                                     using (TimeBlock($"JOB {id} (source={source}) from={from:O} to={to:O}"))
-                                    using (var wd = StartWatchdog(TimeSpan.FromMinutes(2), $"JOB {id}"))  // ajuste 2 min como limite inicial
+                                    using (var wd = StartWatchdog(TimeSpan.FromMinutes(2), $"JOB {id}"))
                                     {
                                         var fromUtc = from.Kind == DateTimeKind.Utc ? from : from.ToUniversalTime();
                                         var toUtc = to.Kind == DateTimeKind.Utc ? to : to.ToUniversalTime();
-
-
-
-
 
                                         // 1) Monta SystemData a partir do BD (usa cache interno por pdc_id)
                                         var sysCfg = DbSystemDataFactory.BuildByPdcName(
@@ -156,8 +170,6 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
 
                                         // Vamos acumular só as PMUs que efetivamente tiveram dados
                                         List<string> pmusComDados = null;
-
-
 
                                         if (pmuList != null && pmuList.Count > 0)
                                         {
@@ -174,7 +186,7 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
                                                 if (channels == null || channels.Count == 0)
                                                     throw new Exception("Nenhum canal encontrado no DB para a PMU '" + pmuIdName + "'.");
 
-                                                // FetchAndInsert devolve se houve dado (novo ou já existente)
+                                                // FetchAndInsert pode lançar InvalidConnectionException (bad_connection)
                                                 var teveDados = FetchAndInsert(
                                                     conn,
                                                     id,
@@ -195,7 +207,6 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
                                         {
                                             // Caminho legado (sem pmus em search_runs) – se quiser, pode reativar aqui
                                             /*
-
                                             var term = TerminalResolver.Resolve(sysCfg, terminalId);
                                             var signals = ParseSignals(signalsJson);
                                             var channels = TerminalResolver.MapChannels(term, signals);
@@ -215,32 +226,46 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
                                             );
 
                                             if (teveDados)
-                                                pmusComDados = new List<string> { term.Id }; // ou outra identificação
+                                                pmusComDados = new List<string> { term.Id };
                                             */
                                         }
 
                                         // Ao final do job, marcamos DONE e, se for o caso, salvamos pmus_ok
                                         using (var tx2 = conn.BeginTransaction())
                                         {
-                                            if (pmusComDados != null)
+                                            if (pmusComDados == null || pmusComDados.Count == 0)
                                             {
-                                                var json = JsonSerializer.Serialize(pmusComDados);
-                                                using (var cmd = new NpgsqlCommand(@"
-                                                    UPDATE openplot.search_runs
-                                                       SET pmus_ok = @ok::jsonb
-                                                     WHERE id = @id;", conn, tx2))
-                                                {
-                                                    cmd.Parameters.AddWithValue("id", id);
-                                                    cmd.Parameters.AddWithValue("ok", json);
-                                                    cmd.ExecuteNonQuery();
-                                                }
+                                                DbOps.UpdateStatus(
+                                                    conn,
+                                                    tx2,
+                                                    id,
+                                                    "no_data",
+                                                    100,
+                                                    "Consulta executada com sucesso, porém sem dados no intervalo solicitado"
+                                                );
+                                            }
+                                            else
+                                            {
+                                                DbOps.UpdateStatus(
+                                                    conn,
+                                                    tx2,
+                                                    id,
+                                                    "done",
+                                                    100,
+                                                    "Concluído"
+                                                );
                                             }
 
-                                            DbOps.UpdateStatus(conn, tx2, id, "done", 100, "Concluído");
-                                            tx2.Commit();
                                         }
-                                        wd.Cancel(); // cancela watchdog se terminou
+
+                                        wd.Cancel();
                                     }
+                                }
+                                catch (InvalidConnectionException ex)
+                                {
+                                    // >>> COMPORTAMENTO 1: bad_connection + progress=0 + encerra tentativa
+                                    Console.WriteLine("[bad_connection] job " + id + ": " + ex.Message);
+                                    MarkBadConnection(conn, id, ex.Message);
                                 }
                                 catch (Exception ex)
                                 {
@@ -257,12 +282,6 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
                                     {
                                         // noop
                                     }
-
-
-
-
-
-
                                 }
                             }
                         }
@@ -317,61 +336,67 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
                 intervals.Add((cs, ce));
             }
 
-            var po = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, MaxParallelChunks) };
+            // >>> Para abortar todos os chunks se houver bad_connection
+            using var cts = new CancellationTokenSource();
+            InvalidConnectionException badConn = null;
 
-            Parallel.ForEach(intervals, po, interval =>
+            var po = new ParallelOptions
             {
-                var cs = interval.cs;
-                var ce = interval.ce;
+                MaxDegreeOfParallelism = Math.Max(1, MaxParallelChunks),
+                CancellationToken = cts.Token
+            };
 
-                try
+            try
+            {
+                Parallel.ForEach(intervals, po, (interval, state) =>
                 {
-                    // 4) dedupe (meia-aberta no SQL também)
-                    if (ChunkAlreadyPresentDb(PgConnString, pdcPmuId, allSignalIds, cs, ce))
-                    {
-                        Console.WriteLine("[skip] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " (já existente)");
-                        Interlocked.Exchange(ref hasData, 1); // já existe dado pra essa PMU nesse intervalo
+                    if (po.CancellationToken.IsCancellationRequested)
                         return;
-                    }
 
-                    // 5) consulta historian
-                    var repo = RepositoryFactory.Create(systemCfg);
+                    var cs = interval.cs;
+                    var ce = interval.ce;
 
-                    // Escolhe o “código da PMU” conforme o tipo de banco
-
-
-                    string terminalCode;
-
-                    if (systemCfg.Type == DatabaseType.Medfasee)
-
-                        terminalCode = term.IdNumber.ToString();
-
-                    else
-
-                        terminalCode = term.Id; // openpdc / openhistorian2 usam id_name
-
-
-                    var dict = repo.QueryTerminalSeries(
-                        terminalCode,
-                        cs, ce,
-                        channels,
-                        selectRate,
-                        term.EquipmentRate,
-                        false);
-
-                    if (dict == null || dict.Count == 0)
+                    try
                     {
-                        Console.WriteLine("[info] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " sem dados");
-                        return;
-                    }
-
-                    // 6) staging + upsert (1 conexão por thread)
-                    using (var connCopy = new NpgsqlConnection(PgConnString))
-                    {
-                        connCopy.Open();
-                        using (var txCopy = connCopy.BeginTransaction())
+                        // 4) dedupe (meia-aberta no SQL também)
+                        if (ChunkAlreadyPresentDb(PgConnString, pdcPmuId, allSignalIds, cs, ce))
                         {
-                            using (var cmd = new NpgsqlCommand(@"
+                            Console.WriteLine("[skip] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " (já existente)");
+                            Interlocked.Exchange(ref hasData, 1);
+                            return;
+                        }
+
+                        // 5) consulta historian
+                        var repo = RepositoryFactory.Create(systemCfg);
+
+                        // Escolhe o “código da PMU” conforme o tipo de banco
+                        string terminalCode;
+                        if (systemCfg.Type == DatabaseType.Medfasee)
+                            terminalCode = term.IdNumber.ToString();
+                        else
+                            terminalCode = term.Id;
+
+                        var dict = repo.QueryTerminalSeries(
+                            terminalCode,
+                            cs, ce,
+                            channels,
+                            selectRate,
+                            term.EquipmentRate,
+                            false);
+
+                        if (dict == null || dict.Count == 0)
+                        {
+                            Console.WriteLine("[info] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " sem dados");
+                            return;
+                        }
+
+                        // 6) staging + upsert (1 conexão por thread)
+                        using (var connCopy = new NpgsqlConnection(PgConnString))
+                        {
+                            connCopy.Open();
+                            using (var txCopy = connCopy.BeginTransaction())
+                            {
+                                using (var cmd = new NpgsqlCommand(@"
                                 CREATE TEMP TABLE IF NOT EXISTS measurements_stage_tmp (
                                     ts          timestamptz       NOT NULL,
                                     pdc_pmu_id  integer           NOT NULL,
@@ -379,73 +404,91 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
                                     value       double precision  NOT NULL
                                 ) ON COMMIT DROP;
                                 TRUNCATE measurements_stage_tmp;", connCopy, txCopy))
-                            {
-                                cmd.ExecuteNonQuery();
-                            }
+                                {
+                                    cmd.ExecuteNonQuery();
+                                }
 
-                            using (var imp = connCopy.BeginBinaryImport(@"
+                                using (var imp = connCopy.BeginBinaryImport(@"
                                 COPY measurements_stage_tmp
                                 (ts, pdc_pmu_id, signal_id, value)
                                 FROM STDIN (FORMAT BINARY)"))
-                            {
-                                foreach (var kv in dict)
                                 {
-                                    var ch = kv.Key;      // Channel
-                                    var series = kv.Value;
-                                    if (series == null || series.Count == 0) continue;
-
-                                    var key = (ch.Id, ch.Quantity, ch.Phase, ch.Value);
-
-                                    if (!signalMap.TryGetValue(key, out var sigId))
-                                        continue; // não mapeado no catálogo (signal)
-
-                                    var ts = series.GetTimestamps();
-                                    var rd = series.GetReadings();
-
-                                    for (int i = 0; i < series.Count; i++)
+                                    foreach (var kv in dict)
                                     {
-                                        var dt = FromOADateUtc(ts[i]);
-                                        var val = rd[i];
-                                        if (double.IsNaN(val) || double.IsInfinity(val)) continue;
-                                        if (dt.Year < 1970 || dt.Year > 2100) continue;
+                                        var ch = kv.Key;
+                                        var series = kv.Value;
+                                        if (series == null || series.Count == 0) continue;
 
-                                        imp.StartRow();
-                                        imp.Write(dt, NpgsqlTypes.NpgsqlDbType.TimestampTz);
-                                        imp.Write(pdcPmuId, NpgsqlTypes.NpgsqlDbType.Integer);
-                                        imp.Write(sigId, NpgsqlTypes.NpgsqlDbType.Integer);
-                                        imp.Write(val, NpgsqlTypes.NpgsqlDbType.Double);
+                                        var key = (ch.Id, ch.Quantity, ch.Phase, ch.Value);
+
+                                        if (!signalMap.TryGetValue(key, out var sigId))
+                                            continue;
+
+                                        var ts = series.GetTimestamps();
+                                        var rd = series.GetReadings();
+
+                                        for (int i = 0; i < series.Count; i++)
+                                        {
+                                            var dt = FromOADateUtc(ts[i]);
+                                            var val = rd[i];
+                                            if (double.IsNaN(val) || double.IsInfinity(val)) continue;
+                                            if (dt.Year < 1970 || dt.Year > 2100) continue;
+
+                                            imp.StartRow();
+                                            imp.Write(dt, NpgsqlTypes.NpgsqlDbType.TimestampTz);
+                                            imp.Write(pdcPmuId, NpgsqlTypes.NpgsqlDbType.Integer);
+                                            imp.Write(sigId, NpgsqlTypes.NpgsqlDbType.Integer);
+                                            imp.Write(val, NpgsqlTypes.NpgsqlDbType.Double);
+                                        }
                                     }
+
+                                    imp.Complete();
                                 }
 
-                                imp.Complete();
-                            }
-
-                            using (var upsert = new NpgsqlCommand(@"
+                                using (var upsert = new NpgsqlCommand(@"
                                 INSERT INTO openplot.measurements (ts, pdc_pmu_id, signal_id, value)
                                 SELECT ts, pdc_pmu_id, signal_id, value
                                   FROM measurements_stage_tmp
                                 ON CONFLICT (pdc_pmu_id, signal_id, ts) DO NOTHING;", connCopy, txCopy))
-                            {
-                                upsert.ExecuteNonQuery();
-                            }
+                                {
+                                    upsert.ExecuteNonQuery();
+                                }
 
-                            txCopy.Commit();
-                            Interlocked.Exchange(ref hasData, 1); // houve dados inseridos
-                            Console.WriteLine("[ok] " + term.Id + " " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " inserido");
+                                txCopy.Commit();
+                                Interlocked.Exchange(ref hasData, 1);
+                                Console.WriteLine("[ok] " + term.Id + " " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " inserido");
+                            }
                         }
                     }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine("[erro-chunk] " + term.Id + " " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + ": " + ex.Message);
-                }
-            });
+                    catch (InvalidConnectionException ex)
+                    {
+                        // >>> bad_connection: aborta todos os chunks e propaga para o Main marcar status
+                        badConn = ex;
+                        cts.Cancel();
+                        state.Stop();
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // cancelado por bad_connection
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("[erro-chunk] " + term.Id + " " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + ": " + ex.Message);
+                    }
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                // cancelado por bad_connection
+            }
+
+            if (badConn != null)
+                throw badConn;
 
             return hasData != 0;
         }
 
         // ----------------- HELPERS (BD / MAPAS) -----------------
-
         static List<OpenPlot.Ingestor.Gsf.Channel> LoadChannelsFromDb(NpgsqlConnection conn, string source, string pmuIdName)
         {
             const string sql = @"
@@ -493,7 +536,6 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
         }
 
         // ---------- Mapas: DB -> enums usados por Channel ----------
-
         static OpenPlot.Ingestor.Gsf.ChannelQuantity GetQuantityFromDb(string qty, string component)
         {
             if (string.Equals(qty, "Voltage", StringComparison.OrdinalIgnoreCase)) return OpenPlot.Ingestor.Gsf.ChannelQuantity.VOLTAGE;
@@ -505,9 +547,10 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
                     return OpenPlot.Ingestor.Gsf.ChannelQuantity.DFREQ;
                 return OpenPlot.Ingestor.Gsf.ChannelQuantity.FREQUENCY;
             }
-            // digital
+
             if (string.Equals(qty, "Digital", StringComparison.OrdinalIgnoreCase))
                 return OpenPlot.Ingestor.Gsf.ChannelQuantity.DIGITAL;
+
             return OpenPlot.Ingestor.Gsf.ChannelQuantity.ANALOG;
         }
 
@@ -526,7 +569,7 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
                 if (string.Equals(component, "MAG", StringComparison.OrdinalIgnoreCase)) return OpenPlot.Ingestor.Gsf.ChannelValueType.ABSOLUTE;
                 if (string.Equals(component, "ANG", StringComparison.OrdinalIgnoreCase)) return OpenPlot.Ingestor.Gsf.ChannelValueType.ANGLE;
             }
-            // digital
+
             if (q == OpenPlot.Ingestor.Gsf.ChannelQuantity.DIGITAL)
                 return OpenPlot.Ingestor.Gsf.ChannelValueType.ABSOLUTE;
 
@@ -582,10 +625,10 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
                            OpenPlot.Ingestor.Gsf.ChannelQuantity qty,
                            OpenPlot.Ingestor.Gsf.ChannelPhase phase,
                            OpenPlot.Ingestor.Gsf.ChannelValueType val), int>
-    LoadSignalMap(
-        NpgsqlConnection conn,
-        int pdcPmuId,
-        IEnumerable<Channel> channels)
+        LoadSignalMap(
+            NpgsqlConnection conn,
+            int pdcPmuId,
+            IEnumerable<Channel> channels)
         {
             var chList = channels.ToList();
             if (chList.Count == 0)
@@ -644,8 +687,6 @@ private static CancellationTokenSource StartWatchdog(TimeSpan limit, string labe
                 }
             }
         }
-
-
 
         private static bool ChunkAlreadyPresentDb(string connString, int pdcPmuId, int[] signalIds, DateTime from, DateTime to)
         {
