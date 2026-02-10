@@ -403,7 +403,7 @@ public static class RunsEndpoints
 
             var baseUrl = $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}";
             var query = BuildTargetQuery(q);
-            var fullUrl = QueryString.Create(query).AddToUriComponent($"{baseUrl}{route}");
+            var fullUrl = $"{baseUrl}{route}{QueryString.Create(query)}";
 
             using var req = new HttpRequestMessage(HttpMethod.Get, fullUrl);
 
@@ -422,7 +422,7 @@ public static class RunsEndpoints
             var body = await resp.Content.ReadAsStringAsync(http.RequestAborted);
 
             if (!resp.IsSuccessStatusCode)
-                return Results.Content(body, "application/json", (int)resp.StatusCode);
+                return Results.Content(body, "application/json", statusCode: (int)resp.StatusCode);
 
             JsonNode? node;
             try
