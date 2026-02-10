@@ -192,4 +192,40 @@ namespace OpenPlot.Data.Dtos
         public double Value { get; set; }
     }
 
+    public sealed class UnifiedSeriesQuery
+    {
+        [FromQuery(Name = "runId")]
+        public Guid RunId { get; init; }
+
+        [FromQuery(Name = "quantity")]
+        public string Quantity { get; init; } = "";
+
+        [FromQuery(Name = "component")]
+        public string Component { get; init; } = "";
+
+        [FromQuery(Name = "unit")]
+        public string? Unit { get; init; }
+
+        [FromQuery(Name = "phaseMode")]
+        public string? PhaseMode { get; init; }
+
+        [FromQuery(Name = "phase")]
+        public string? Phase { get; init; }
+
+        [FromQuery(Name = "inicioISO")]
+        public DateTime? InicioIso { get; init; }
+
+        [FromQuery(Name = "fimISO")]
+        public DateTime? FimIso { get; init; }
+
+        [FromQuery(Name = "terminals")]
+        public string[]? Terminals { get; init; }
+
+        [FromQuery(Name = "referenceTerminal")]
+        public string? ReferenceTerminal { get; init; }
+
+        [FromQuery(Name = "resolutionSearch")]
+        public string? ResolutionSearch { get; init; }
+    }
+
 }
