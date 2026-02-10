@@ -113,7 +113,7 @@ namespace OpenPlot.Ingestor.Gsf
             string addr = null;
             string user = null;
             string pass = null;
-            string dbName = "";   // NOVO
+            string dbName = "";   // 👈 NOVO
 
             using (var cmd = new NpgsqlCommand(sqlPdc, conn))
             {
@@ -163,7 +163,7 @@ namespace OpenPlot.Ingestor.Gsf
                 type: type,
                 user: user,
                 pass: pass,
-                db: dbName           // AQUI entra o db_name
+                db: dbName           // 👈 AQUI entra o db_name
             );
 
             // 3) Terminais
