@@ -1,24 +1,24 @@
+using System.Data;
 using System.Text;
+// Evitar starvation
+using System.Threading;
+using MathNet.Numerics;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using System.Data;
-using Microsoft.Extensions.Options;
-using Serilog;
-using Serilog.Events;
-
-
-// ==== OpenPlot usings ====
-using OpenPlot.Features.Import;
-using OpenPlot.Features.Auth;
+using OpenPlot.Api.Services.Logging;
 using OpenPlot.Auth.Infrastructure.Auth;
 using OpenPlot.Auth.Infrastructure.Auth.Options;
 using OpenPlot.Auth.Services;
 using OpenPlot.Auth.Web.Session;
-using OpenPlot.Api.Services.Logging;
-
-// Evitar starvation
-using System.Threading;
+using OpenPlot.Core.TimeSeries;
+using OpenPlot.Features.Auth;
+// ==== OpenPlot usings ====
+using OpenPlot.Features.Import;
+using OpenPlot.Features.Runs.Repositories;
+using Serilog;
+using Serilog.Events;
 
 ThreadPool.GetMinThreads(out var worker, out var io);
 ThreadPool.SetMinThreads(
@@ -78,6 +78,12 @@ builder.Services.AddScoped<IApiRequestLogRepository, ApiRequestLogRepository>();
 builder.Services.AddSingleton<ITimeService, TimeService>();
 builder.Services.AddSingleton<ILabelService, LabelService>();
 builder.Services.AddSingleton<IPmuHierarchyService, PmuHierarchyService>();
+builder.Services.AddScoped<IRunContextRepository, RunContextRepository>();
+builder.Services.AddScoped<IMeasurementsRepository, MeasurementsRepository>();
+builder.Services.AddSingleton<ITimeSeriesDownsampler, TimeBucketMinMaxDownsampler>();
+builder.Services.AddScoped<SimpleSeriesHandler>();
+builder.Services.AddSingleton<IPlotMetaBuilder, PlotMetaBuilder>();
+
 
 // ======================================================================
 // Session

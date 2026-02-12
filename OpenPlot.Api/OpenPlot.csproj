@@ -8,13 +8,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="NovaPasta\**" />
-    <Content Remove="NovaPasta\**" />
-    <EmbeddedResource Remove="NovaPasta\**" />
-    <None Remove="NovaPasta\**" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Compile Remove="Data\Dtos\Queries.cs" />
     <Compile Remove="Features\Runs\PlotsQueryEndpoints.cs" />
     <Compile Remove="Features\Search\ConfigEndpoints.cs" />
@@ -38,6 +31,10 @@
 	
   <ItemGroup>
     <ProjectReference Include="..\OpenPlot.Ingestor.Gsf\OpenPlot.Ingestor.Gsf.csproj" />
+  </ItemGroup>
+	
+  <ItemGroup>
+    <Folder Include="Services\Series\" />
   </ItemGroup>
 
 </Project>
