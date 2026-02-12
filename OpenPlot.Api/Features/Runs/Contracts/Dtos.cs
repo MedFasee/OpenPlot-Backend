@@ -2,11 +2,13 @@
 
 public sealed record SeriesPoint(DateTime Ts, double Val);
 
+
 public sealed record PlotMetaDto(
     string Title,
     string XLabel,
     string YLabel
 );
+
 
 public sealed record SeriesDto(
     string Pdc,
@@ -23,7 +25,6 @@ public sealed record SeriesResponseDto(
     string Data,
     object Resolved,
     object Window,
-    PlotMetaDto? Meta,               // <-- AQUI
+    PlotMetaDto? Meta,
     IReadOnlyList<SeriesDto> Series
 );
-

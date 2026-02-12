@@ -1,28 +1,29 @@
-﻿using System;
-using System.Globalization;
-using OpenPlot.Features.Runs.Contracts;
+﻿using System.Globalization;
 using OpenPlot.Features.Runs.Repositories;
+
+namespace OpenPlot.Features.Runs.Contracts;
+
 
 public interface IPlotMetaBuilder
 {
-    PlotMetaDto Build(SimpleSeriesQuery q, WindowQuery w, RunContext ctx, MeasurementsQuery meas);
+    PlotMetaDto Build(WindowQuery w, RunContext ctx, MeasurementsQuery meas);
 }
 
 public sealed class PlotMetaBuilder : IPlotMetaBuilder
 {
-    public PlotMetaDto Build(SimpleSeriesQuery q, WindowQuery w, RunContext ctx, MeasurementsQuery meas)
+    public PlotMetaDto Build(WindowQuery w, RunContext ctx, MeasurementsQuery meas)
     {
-        var title = BuildTitle(w, ctx, meas);
-        var xLabel = BuildXLabel(ctx);
+        var title = BuildTitle(ctx, meas);
+        var xLabel = BuildXLabel(w, ctx);
         var yLabel = BuildYLabel(meas);
 
         return new PlotMetaDto(title, xLabel, yLabel);
     }
 
-    private static string BuildXLabel(RunContext ctx)
+    private static string BuildXLabel(WindowQuery w, RunContext ctx)
     {
-        var from = ctx.FromUtc;
-        var to = ctx.ToUtc;
+        var from = w.FromUtc ?? ctx.FromUtc;
+        var to = w.ToUtc ?? ctx.ToUtc;
 
         if (from.Date == to.Date)
         {
@@ -35,127 +36,82 @@ public sealed class PlotMetaBuilder : IPlotMetaBuilder
 
     private static string BuildYLabel(MeasurementsQuery meas)
     {
-        var quantity = (meas.Quantity ?? "").Trim().ToLowerInvariant();
-        var component = (meas.Component ?? "").Trim().ToLowerInvariant();
-        var unit = (meas.Unit ?? "").Trim().ToLowerInvariant();
-        var phaseMode = meas.PhaseMode;
+        var quantity = Norm(meas.Quantity);
+        var component = Norm(meas.Component);
+        var unit = Norm(meas.Unit);
+        var phaseMode = InferPhaseMode(meas);
 
-        // helpers que NÃO dependem de membros específicos do enum:
-        static bool IsDeseq(object? pm) =>
-            pm is not null && pm.ToString()!.Equals("Deseq", StringComparison.OrdinalIgnoreCase);
-
-        if (quantity == "frequency") return "Frequência (Hz)";
-        if (quantity == "dfreq") return "Var. de Frequência (Hz/s)";
-        if (quantity == "p_active") return "Potência Ativa (MW)";
-        if (quantity == "p_reactive") return "Potência Reativa (MVAr)";
-        if (quantity == "digital") return "Nível";
-
-        if (component == "thd") return "Distorção Harmônica (%)";
-        if (IsDeseq(phaseMode)) return "Desequilíbrio (%)";
-
-        if (quantity == "voltage" && component != "thd" && !IsDeseq(phaseMode))
+        if (quantity == "voltage" && component != "thd" && phaseMode != "deseq")
         {
             if (component == "angle") return "Diferença Angular (Graus)";
             return unit == "pu" ? "Tensão (pu)" : "Tensão (V)";
         }
 
-        if (quantity == "current" && component != "thd" && !IsDeseq(phaseMode))
+        if (quantity == "current" && component != "thd" && phaseMode != "deseq")
         {
             if (component == "angle") return "Diferença Angular (Graus)";
             return "Corrente (A)";
         }
 
-        return "Valor";
-    }
+        if (quantity == "p_active") return "Potência Ativa (MW)";
+        if (quantity == "p_reactive") return "Potência Reativa (MVAr)";
+        if (quantity == "frequency") return "Frequência (Hz)";
+        if (quantity == "dfreq") return "Var. de Frequência (Hz/s)";
+        if (quantity == "digital") return "Nível";
+        if (component == "thd") return "Distorção Harmônica (%)";
+        if (quantity == "unbalance") return "Desequilíbrio (%)";
 
-    private static string BuildTitle(WindowQuery w, RunContext ctx, MeasurementsQuery meas)
-    {
-        var quantity = (meas.Quantity ?? "").Trim().ToLowerInvariant();
-        var component = (meas.Component ?? "").Trim().ToLowerInvariant();
-        var phaseMode = meas.PhaseMode;
-
-        static bool IsDeseq(object? pm) =>
-            pm is not null && pm.ToString()!.Equals("Deseq", StringComparison.OrdinalIgnoreCase);
-
-        var resSuffix = BuildResolutionSuffix(ctx);
-
-
-        if (quantity == "frequency") return "Frequência" + resSuffix;
-        if (quantity == "dfreq") return "Variação de Frequência" + resSuffix;
-        if (quantity == "p_active") return "Potência Ativa" + resSuffix;
-        if (quantity == "p_reactive") return "Potência Reativa" + resSuffix;
-        if (quantity == "digital") return "Sinal Digital" + resSuffix;
-
-        if (component == "thd")
-        {
-            var baseQ = quantity switch
-            {
-                "voltage" => "Tensão",
-                "current" => "Corrente",
-                _ => "Grandeza"
-            };
-            return $"Distorção de {baseQ} Harmônica Total" + resSuffix;
-        }
-
-        if (IsDeseq(phaseMode))
-        {
-            var grandeza = quantity switch
-            {
-                "voltage" => "Tensão",
-                "current" => "Corrente",
-                _ => "Grandeza"
-            };
-            return $"Desequilíbrio de {grandeza}" + resSuffix;
-        }
-
-        if (component == "angle")
-        {
-            var baseQ = quantity switch
-            {
-                "voltage" => "Tensão",
-                "current" => "Corrente",
-                _ => "Grandeza"
-            };
-            return $"Diferença Angular da {baseQ}" + resSuffix;
-        }
-
-        var labelGrandeza = quantity switch
+        return quantity switch
         {
             "voltage" => "Tensão",
             "current" => "Corrente",
-            "frequency" => "Frequência",
-            "dfreq" => "Var. de Frequência",
             "p_active" => "Potência Ativa",
             "p_reactive" => "Potência Reativa",
+            "frequency" => "Frequência",
+            "dfreq" => "Var. de Frequência",
             "digital" => "Digital",
             _ => "Grandeza"
         };
+    }
 
-        var labelComp = component switch
-        {
-            "mag" => "Módulo",
-            "angle" => "Ângulo",
-            "thd" => "THD",
-            _ => ""
-        };
+    private static string BuildTitle(RunContext ctx, MeasurementsQuery meas)
+    {
+        var quantity = Norm(meas.Quantity);
+        var component = Norm(meas.Component);
+        var resSuffix = BuildResolutionSuffix(ctx);
 
-        var baseTitle =
-            !string.IsNullOrWhiteSpace(labelComp) ? $"{labelComp} da {labelGrandeza}" : labelGrandeza;
+        if (quantity == "frequency") return "Frequência" + resSuffix;
+        if (quantity == "dfreq") return "Variação de Frequência" + resSuffix;
+        if (quantity == "digital") return "Sinal Digital" + resSuffix;
 
-        return baseTitle + resSuffix;
+        if (component == "thd") return "Distorção Harmônica Total" + resSuffix;
+        if (component == "angle") return "Ângulo" + resSuffix;
+
+        if (InferPhaseMode(meas) == "deseq")
+            return "Desequilíbrio (|seq-|/|seq+|)" + resSuffix;
+
+        if (quantity == "voltage") return "Tensão" + resSuffix;
+        if (quantity == "current") return "Corrente" + resSuffix;
+        if (quantity == "p_active") return "Potência Ativa" + resSuffix;
+        if (quantity == "p_reactive") return "Potência Reativa" + resSuffix;
+
+        return "Gráfico" + resSuffix;
     }
 
     private static string BuildResolutionSuffix(RunContext ctx)
     {
-        // vem do banco: search_runs.select_rate
         var sr = ctx.SelectRate;
-
         if (sr == 1) return $" - {sr} fasor/s";
-
         if (sr > 1) return $" - {sr} fasores/s";
-
-        else return "";
-
+        return "";
     }
 
+    private static string Norm(string? s) => (s ?? "").Trim().ToLowerInvariant();
+
+    private static string InferPhaseMode(MeasurementsQuery meas)
+    {
+        var component = Norm(meas.Component);
+        if (component == "unbalance") return "deseq";
+        return "";
+    }
 }

@@ -16,6 +16,8 @@ using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Auth;
 // ==== OpenPlot usings ====
 using OpenPlot.Features.Import;
+using OpenPlot.Features.Runs.Contracts;
+using OpenPlot.Features.Runs.Handlers;
 using OpenPlot.Features.Runs.Repositories;
 using Serilog;
 using Serilog.Events;
@@ -78,10 +80,29 @@ builder.Services.AddScoped<IApiRequestLogRepository, ApiRequestLogRepository>();
 builder.Services.AddSingleton<ITimeService, TimeService>();
 builder.Services.AddSingleton<ILabelService, LabelService>();
 builder.Services.AddSingleton<IPmuHierarchyService, PmuHierarchyService>();
+builder.Services.AddSingleton<IPlotMetaBuilder, PlotMetaBuilder>();
 builder.Services.AddScoped<IRunContextRepository, RunContextRepository>();
-builder.Services.AddScoped<IMeasurementsRepository, MeasurementsRepository>();
 builder.Services.AddSingleton<ITimeSeriesDownsampler, TimeBucketMinMaxDownsampler>();
 builder.Services.AddScoped<SimpleSeriesHandler>();
+builder.Services.AddScoped<IRunContextRepository, RunContextRepository>();
+builder.Services.AddScoped<IPlotMetaBuilder, PlotMetaBuilder>();
+builder.Services.AddScoped<VoltageSeriesHandler>();
+builder.Services.AddScoped<CurrentSeriesHandler>();
+builder.Services.AddScoped<SeqSeriesHandler>();
+builder.Services.AddScoped<UnbalanceSeriesHandler>();
+
+// Repositories
+builder.Services.AddScoped<IRunContextRepository, RunContextRepository>();
+builder.Services.AddScoped<IMeasurementsRepository, MeasurementsRepository>();
+
+// Handlers
+builder.Services.AddScoped<SimpleSeriesHandler>();
+builder.Services.AddScoped<VoltageSeriesHandler>();
+builder.Services.AddScoped<CurrentSeriesHandler>();
+builder.Services.AddScoped<SeqSeriesHandler>();
+builder.Services.AddScoped<UnbalanceSeriesHandler>();
+
+// Meta
 builder.Services.AddSingleton<IPlotMetaBuilder, PlotMetaBuilder>();
 
 

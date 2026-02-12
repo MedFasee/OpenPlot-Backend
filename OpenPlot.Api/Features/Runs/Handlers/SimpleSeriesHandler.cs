@@ -3,6 +3,7 @@ using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Repositories;
 
+
 public sealed class SimpleSeriesHandler
 {
     private readonly IRunContextRepository _runRepo;
@@ -41,7 +42,7 @@ public sealed class SimpleSeriesHandler
         var rows = await _measRepo.QueryAsync(ctx, meas, ct);
         if (rows.Count == 0) return Results.NotFound("Nada encontrado para esse run/filtro.");
 
-        var plotMeta = _meta.Build(q, w, ctx, meas); // <-- 1x
+        var plotMeta = _meta.Build(w, ctx, meas);
 
         var series = rows
             .GroupBy(r => r.SignalId)
@@ -56,8 +57,8 @@ public sealed class SimpleSeriesHandler
                     Pmu: any.IdName,
                     SignalId: any.SignalId,
                     PdcPmuId: any.PdcPmuId,
-                    Unit: meas.Quantity == "frequency" ? "Hz" : "raw",
-                    Meta: null, // <-- não é meta do plot
+                    Unit: meas.Unit ?? "raw",
+                    Meta: null,
                     Points: down.Select(p => new object[] { p.Ts, p.Val }).ToList()
                 );
             })
@@ -71,7 +72,7 @@ public sealed class SimpleSeriesHandler
             Data: data,
             Resolved: new { pdc = rows.First().PdcName, pmu_count = series.Select(s => s.Pmu).Distinct().Count() },
             Window: new { from = ctx.FromUtc, to = ctx.ToUtc },
-            Meta: plotMeta,     // <-- AQUI
+            Meta: plotMeta,
             Series: series
         ));
     }
