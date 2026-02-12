@@ -58,9 +58,9 @@ public sealed class VoltageSeriesHandler
         var measQuery = new MeasurementsQuery(
             Quantity: "voltage",
             Component: "mag",
-            PhaseMode: tri ? PhaseMode.ABC : PhaseMode.Single,
+            PhaseMode: tri ? PhaseMode.ThreePhase : PhaseMode.Single,
             Phase: uphase,
-            PmuNames: string.IsNullOrWhiteSpace(pmuName) ? null : new[] { pmuName },
+            PmuNames: tri && !string.IsNullOrWhiteSpace(pmuName) ? new[] { pmuName } : null,
             Unit: unit
         );
 

@@ -52,9 +52,9 @@ public sealed class CurrentSeriesHandler
         var meas = new MeasurementsQuery(
             Quantity: "current",
             Component: "mag",
-            PhaseMode: tri ? PhaseMode.ABC : PhaseMode.Single,
+            PhaseMode: tri ? PhaseMode.ThreePhase : PhaseMode.Single,
             Phase: uphase,
-            PmuNames: string.IsNullOrWhiteSpace(pmuName) ? null : new[] { pmuName },
+            PmuNames: tri && !string.IsNullOrWhiteSpace(pmuName) ? new[] { pmuName } : null,
             Unit: "A"
         );
 

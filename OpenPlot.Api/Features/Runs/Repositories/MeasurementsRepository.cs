@@ -7,7 +7,18 @@ using System.Threading.Tasks;
 
 namespace OpenPlot.Features.Runs.Repositories;
 
-public enum PhaseMode { Any, ABC, Single }
+public enum PhaseMode
+{
+    Any,
+    Single,
+    ABC,        // quando for “ABC cru”
+    ThreePhase, // equivalente ao three_phase do front (usa terminal)
+    Deseq,      // desequilíbrio
+    SeqPos,
+    SeqNeg,
+    SeqZero
+}
+
 
 public enum SeqKind { Voltage, Current }
 public enum SeqType { Pos, Neg, Zero }
@@ -21,7 +32,8 @@ public sealed record MeasurementsQuery(
     PhaseMode PhaseMode = PhaseMode.Any,
     string? Phase = null,
     IReadOnlyList<string>? PmuNames = null, // id_name
-    string? Unit = null
+    string? Unit = null,
+    string? ReferenceTerminal = null   // <-- novo
 );
 
 public sealed record MeasurementRow(

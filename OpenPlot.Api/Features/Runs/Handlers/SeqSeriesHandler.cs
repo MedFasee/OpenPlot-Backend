@@ -143,20 +143,25 @@ public sealed class SeqSeriesHandler
         var windowTo = w.ToUtc ?? rows.Max(r => r.Ts);
         var data = windowFrom.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
-        // meta (sintético) -> precisa refletir a grandeza real (current/voltage)
+        var pmusForMeta = pmuList.Count == 0 ? null : pmuList;
+
+        var seqMode = req.Seq switch
+        {
+            SeqType.Pos => PhaseMode.SeqPos,
+            SeqType.Neg => PhaseMode.SeqNeg,
+            _ => PhaseMode.SeqZero
+        };
+
         var meas = new MeasurementsQuery(
-            Quantity: kind,                // "current" ou "voltage"
-            Component: "mag",              // sequência é magnitude (o ponto é |I1|/|V1|)
-            PhaseMode: PhaseMode.Any,      // não é ABC "cru", é série já processada
-            Phase: null,
-            PmuNames: pmuList.Count == 0 ? null : pmuList,
-            Unit: unit                     // "raw" ou "pu" (não "A"/"V")
+            Quantity: kind,        // "current" ou "voltage"
+            Component: "mag",      // porque é módulo da sequência
+            PhaseMode: seqMode,
+            PmuNames: pmusForMeta,
+            Unit: unit             // "raw" ou "pu"
         );
 
-        // se você quiser que o título mostre que é sequência, passe isso via ctx/req no builder
-        // ou adicione um campo opcional "Seq" no MeasurementsQuery no futuro.
-        // Por agora, pelo menos o yLabel fica correto.
         var plotMeta = _meta.Build(w, ctx, meas);
+
 
         return Results.Ok(new
         {

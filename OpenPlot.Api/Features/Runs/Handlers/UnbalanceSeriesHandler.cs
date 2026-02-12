@@ -211,7 +211,7 @@ public sealed class UnbalanceSeriesHandler
 
         // meta (sintético)
         var meas = new MeasurementsQuery(
-            Quantity: "unbalance",
+            Quantity: kind,
             Component: "ratio",
             Unit: "%"
         );
