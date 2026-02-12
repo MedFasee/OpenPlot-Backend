@@ -1592,14 +1592,27 @@ ORDER BY s.id_name, s.signal_id, r.ts;
         grp.MapGet("/series/frequency/by-run",
         async Task<IResult> (
             [AsParameters] FreqRunQuery q,
+            [FromQuery] string[]? pmu,
             [FromServices] IDbConnectionFactory dbf,
             [FromQuery] DateTime? from,
             [FromQuery] DateTime? to
         ) =>
         {
-            var pmuName = q.Pmu?.Trim();
+            // =============================
+            // lista de PMUs (opcional)
+            // =============================
+            var pmuList = pmu?
+                .Select(p => p.Trim())
+                .Where(p => p.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList()
+                ?? new List<string>();
+
             var maxPts = Math.Max(q.MaxPoints, 100);
 
+            // =============================
+            // janela temporal
+            // =============================
             DateTime? fromUtc = from?.ToUniversalTime();
             DateTime? toUtc = to?.ToUniversalTime();
             if (fromUtc.HasValue && toUtc.HasValue && fromUtc >= toUtc)
@@ -1607,10 +1620,13 @@ ORDER BY s.id_name, s.signal_id, r.ts;
 
             using var db = dbf.Create();
 
-            // FIX: alias correto é "c" (ctx c), não "pmu"
-            var pmuFilter = !string.IsNullOrWhiteSpace(pmuName)
-                ? "LOWER(c.id_name) = LOWER(@pmu)"
-                : "TRUE";
+            // =============================
+            // filtro PMU (alias correto: c)
+            // =============================
+            string pmuFilter =
+                pmuList.Count == 0
+                ? "TRUE"
+                : string.Join(" OR ", pmuList.Select((_, i) => $"LOWER(c.id_name) = LOWER(@pmu{i})"));
 
             const string sqlTemplate = @"
 WITH run AS (
@@ -1698,7 +1714,7 @@ sig AS (
   JOIN openplot.signal s   ON s.pdc_pmu_id = pp.pdc_pmu_id
   WHERE LOWER(s.quantity::text) = 'frequency'
     AND LOWER(s.component::text) = 'freq'
-    AND {PMU_FILTER}
+    AND ({PMU_FILTER})
 ),
 raw AS (
   SELECT m.signal_id, m.ts, m.value
@@ -1717,13 +1733,14 @@ ORDER BY s.signal_id, r.ts;
 
             var sql = sqlTemplate.Replace("{PMU_FILTER}", pmuFilter);
 
-            var rows = (await db.QueryAsync<FreqRow>(sql, new
-            {
-                run_id = q.RunId,
-                from_utc = fromUtc,
-                to_utc = toUtc,
-                pmu = pmuName
-            })).ToList();
+            var dyn = new DynamicParameters();
+            dyn.Add("run_id", q.RunId);
+            dyn.Add("from_utc", fromUtc);
+            dyn.Add("to_utc", toUtc);
+            for (int i = 0; i < pmuList.Count; i++)
+                dyn.Add($"pmu{i}", pmuList[i]);
+
+            var rows = (await db.QueryAsync<FreqRow>(sql, dyn)).ToList();
 
             if (rows.Count == 0)
                 return Results.NotFound("Nenhuma frequência encontrada para esse run_id.");
@@ -1754,10 +1771,9 @@ ORDER BY s.signal_id, r.ts;
             var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
             var windowTo = toUtc ?? rows.Max(r => r.Ts);
 
-            // DIA UTC DA CONSULTA
             var data = windowFrom
-            .Date
-            .ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+                .Date
+                .ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
             return Results.Ok(new
             {
@@ -1771,12 +1787,13 @@ ORDER BY s.signal_id, r.ts;
                 },
                 window = new
                 {
-                    from = fromUtc ?? rows.Min(r => r.Ts),
-                    to = toUtc ?? rows.Max(r => r.Ts)
+                    from = windowFrom,
+                    to = windowTo
                 },
                 series
             });
         });
+
         // -----------------------------------------
         // 7) /series/dfreq/by-run  (Derivada da frequência)
         // -----------------------------------------

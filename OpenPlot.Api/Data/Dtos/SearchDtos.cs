@@ -103,14 +103,12 @@ namespace OpenPlot.Data.Dtos
 
     public sealed class ByRunQuery
     {
-        [FromQuery(Name = "run_Id")]
-        public Guid RunId { get; set; }
+        [FromQuery(Name = "run_Id")] public Guid RunId { get; set; }
 
         // Fase A/B/C – obrigatória quando tri = false
         public string? Phase { get; init; }
 
-        [FromQuery(Name = "maxPoints")]
-        public int MaxPoints { get; init; } = 5000;
+        [FromQuery(Name = "maxPoints")] public int MaxPoints { get; init; } = 5000;
 
         // "raw" ou "pu"
         public string? Unit { get; init; }
@@ -120,8 +118,7 @@ namespace OpenPlot.Data.Dtos
 
         // id_name da PMU (ex.: "N_PA_Belem_UFPA").
         // Obrigatório quando Tri = true.
-        [FromQuery(Name = "id_name")]
-        public string? Pmu { get; init; }
+        [FromQuery(Name = "id_name")] public string? Pmu { get; init; }
     }
     public record FreqRunQuery(
     [property: FromQuery(Name = "run_id")] Guid RunId,
@@ -130,15 +127,11 @@ namespace OpenPlot.Data.Dtos
 );
     public sealed class DigitalRunQuery
     {
-        [FromQuery(Name = "run_id")]
-        public Guid RunId { get; init; }
+        [FromQuery(Name = "run_id")] public Guid RunId { get; init; }
 
-        [FromQuery(Name = "maxPoints")]
-        public int MaxPoints { get; init; } = 5000;
+        [FromQuery(Name = "maxPoints")] public int MaxPoints { get; init; } = 5000;
 
-        // opcional: filtrar uma PMU (igual freq)
-        [FromQuery(Name = "pmu")]
-        public string? Pmu { get; init; }
+        [FromQuery(Name = "pmu")] public string? Pmu { get; init; }
     }
 
     public record SeqPosRunQuery(
@@ -151,29 +144,21 @@ namespace OpenPlot.Data.Dtos
 
     public sealed class PowerPlotQuery
     {
-        [FromQuery(Name = "run_id")]
-        public Guid RunId { get; init; }
+        [FromQuery(Name = "run_id")] public Guid RunId { get; init; }
 
-        [FromQuery(Name = "pmu")]
-        public string[]? Pmu { get; init; }
+        [FromQuery(Name = "pmu")] public string[]? Pmu { get; init; }
 
-        [FromQuery(Name = "which")]
-        public string? Which { get; init; } // active|reactive
+        [FromQuery(Name = "which")] public string? Which { get; init; } // active|reactive
 
-        [FromQuery(Name = "unit")]
-        public string? Unit { get; init; }  // raw|mw
+        [FromQuery(Name = "unit")] public string? Unit { get; init; }  // raw|mw
 
-        [FromQuery(Name = "maxPoints")]
-        public int MaxPoints { get; init; } = 5000;
+        [FromQuery(Name = "maxPoints")] public int MaxPoints { get; init; } = 5000;
 
-        [FromQuery(Name = "tri")]
-        public bool? Tri { get; init; }     // <- bool?
+        [FromQuery(Name = "tri")] public bool? Tri { get; init; }     // <- bool?
 
-        [FromQuery(Name = "total")]
-        public bool? Total { get; init; }   // <- bool?
+        [FromQuery(Name = "total")] public bool? Total { get; init; }   // <- bool?
 
-        [FromQuery(Name = "phase")]
-        public string? Phase { get; init; } // A|B|C
+        [FromQuery(Name = "phase")] public string? Phase { get; init; } // A|B|C
     }
 
 
