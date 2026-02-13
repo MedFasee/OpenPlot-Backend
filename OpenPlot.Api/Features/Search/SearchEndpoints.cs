@@ -131,48 +131,91 @@ VALUES
             [FromServices] IDbConnectionFactory dbf,
             [FromServices] ILabelService labels
         ) =>
-        {
-            if (string.IsNullOrWhiteSpace(req.Source) || req.Pmus is null || req.Pmus.Count == 0)
-                return Results.BadRequest("source e pmus são obrigatórios");
-
-            int ParseRes(string s)
             {
-                if (string.IsNullOrWhiteSpace(s)) return 0;
-                s = s.Trim().ToLowerInvariant();
-                if (s.EndsWith("ms")) return Math.Max(1, int.Parse(s[..^2]) / 1000);
-                if (s.EndsWith("s")) return int.Parse(s[..^1]);
-                if (s.EndsWith("min")) return int.Parse(s[..^3]) * 60;
-                if (s.EndsWith("m")) return int.Parse(s[..^1]) * 60;
-                return int.Parse(s);
-            }
+                static int ParseRes(string s)
+                {
+                    if (string.IsNullOrWhiteSpace(s)) return 0;
+                    s = s.Trim().ToLowerInvariant();
+                    if (s.EndsWith("ms")) return Math.Max(1, int.Parse(s[..^2]) / 1000);
+                    if (s.EndsWith("s")) return int.Parse(s[..^1]);
+                    if (s.EndsWith("min")) return int.Parse(s[..^3]) * 60;
+                    if (s.EndsWith("m")) return int.Parse(s[..^1]) * 60;
+                    return int.Parse(s);
+                }
 
-            var fromUtc = req.From.Kind == DateTimeKind.Utc ? req.From : req.From.ToUniversalTime();
-            var toUtc = req.To.Kind == DateTimeKind.Utc ? req.To : req.To.ToUniversalTime();
-            var rate = ParseRes(req.Resolution ?? "0");
-            var label = labels.BuildLabel(fromUtc, toUtc, rate, req.Source.Trim(), null);
-            var id = Guid.NewGuid();
-            var username = user.Identity?.Name ?? "unknown";
+                static bool WantsAllPmus(IReadOnlyCollection<string>? pmus) =>
+                    pmus is not null && pmus.Any(p => string.Equals(p?.Trim(), "all", StringComparison.OrdinalIgnoreCase));
 
-            using var db = dbf.Create();
-            var affected = await db.ExecuteAsync(SearchSql.InsertRunBlind, new
-            {
-                id,
-                source = req.Source.Trim(),
-                pmus = JsonSerializer.Serialize(req.Pmus),
-                from = fromUtc,
-                to = toUtc,
-                rate,
-                pmu_count = req.Pmus.Count,
-                label,
-                username     
+                // 1) valida source
+                var source = req.Source?.Trim();
+                if (string.IsNullOrWhiteSpace(source))
+                    return Results.BadRequest("source é obrigatório");
+
+                // 2) normaliza janela
+                var fromUtc = req.From.Kind == DateTimeKind.Utc ? req.From : req.From.ToUniversalTime();
+                var toUtc = req.To.Kind == DateTimeKind.Utc ? req.To : req.To.ToUniversalTime();
+                var rate = ParseRes(req.Resolution ?? "0");
+
+                using var db = dbf.Create();
+
+                // 3) resolve PMUs (all ou lista explícita)
+                List<string> pmusResolved;
+
+                if (WantsAllPmus(req.Pmus))
+                {
+                    const string sqlAllPmus = @"
+                SELECT pmu.name
+                FROM openplot.pmu pmu
+                JOIN openplot.pdc pdc ON pdc.id = pmu.pdc_id
+                WHERE pdc.name = @source
+                ORDER BY pmu.name;
+            ";
+
+                    pmusResolved = (await db.QueryAsync<string>(sqlAllPmus, new { source })).ToList();
+
+                    if (pmusResolved.Count == 0)
+                        return Results.BadRequest(new { error = "Nenhuma PMU encontrada para o PDC", source });
+                }
+                else
+                {
+                    if (req.Pmus is null || req.Pmus.Count == 0)
+                        return Results.BadRequest("pmus é obrigatório (ou use pmus=['all'])");
+
+                    // remove lixo/duplicados
+                    pmusResolved = req.Pmus
+                        .Where(p => !string.IsNullOrWhiteSpace(p))
+                        .Select(p => p.Trim())
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    if (pmusResolved.Count == 0)
+                        return Results.BadRequest("pmus é obrigatório (ou use pmus=['all'])");
+                }
+
+                // 4) cria run
+                var label = labels.BuildLabel(fromUtc, toUtc, rate, source, null);
+                var id = Guid.NewGuid();
+                var username = user.Identity?.Name ?? "unknown";
+
+                var affected = await db.ExecuteAsync(SearchSql.InsertRunBlind, new
+                {
+                    id,
+                    source,
+                    pmus = JsonSerializer.Serialize(pmusResolved),
+                    from = fromUtc,
+                    to = toUtc,
+                    rate,
+                    pmu_count = pmusResolved.Count,
+                    label,
+                    username
+                });
+
+                if (affected == 0)
+                    return Results.BadRequest(new { error = "PDC não encontrado em openplot.pdc", source_tentado = source });
+
+                return Results.Accepted($"/search/{id}", new { jobId = id, pmus = pmusResolved.Count, label });
             });
 
-
-            if (affected == 0)
-                return Results.BadRequest(new { error = "PDC não encontrado em openplot.pdc", source_tentado = req.Source });
-
-            return Results.Accepted($"/search/{id}", new { jobId = id, pmus = req.Pmus.Count, label });
-        });
 
         // GET /search/{id}
         group.MapGet("/{id:guid}", async (

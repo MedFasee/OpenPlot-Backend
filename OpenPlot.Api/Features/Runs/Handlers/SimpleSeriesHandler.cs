@@ -29,7 +29,10 @@ public sealed class SimpleSeriesHandler
         MeasurementsQuery meas,
         CancellationToken ct)
     {
-        var maxPts = Math.Max(q.MaxPoints, 100);
+        var noDownsample = q.MaxPointsIsAll;
+        var maxPts = q.ResolveMaxPoints(@default: 5000);
+
+
 
         var fromUtc = w.FromUtc;
         var toUtc = w.ToUtc;
@@ -50,7 +53,8 @@ public sealed class SimpleSeriesHandler
             {
                 var any = g.First();
                 var pts = g.Select(x => new Point(x.Ts, x.Value)).ToList();
-                var down = _down.MinMax(pts, maxPts);
+                var down = noDownsample ? pts : _down.MinMax(pts, maxPts);
+
 
                 return new SeriesDto(
                     Pdc: any.PdcName,

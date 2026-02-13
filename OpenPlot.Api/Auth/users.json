@@ -130,5 +130,17 @@
             "organization": "ONS",
             "tenant": "ONS_tester"
         }
+    },
+	{
+        "sub": "easw7c1-0e1c-4e5e-9c50-a1e2f0d9fad92",
+        "username": "MIF_robo",
+        "password": "MIF_robo",
+        "preferred_username": "MIF_robo",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "ONS",
+            "tenant": "ONS_tester"
+        }
     }
 ]

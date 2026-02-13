@@ -103,44 +103,33 @@ namespace OpenPlot.Data.Dtos
 
     public sealed class ByRunQuery
     {
-        [FromQuery(Name = "run_Id")] public Guid RunId { get; set; }
+        [FromQuery(Name = "run_Id")]
+        public Guid RunId { get; init; }
 
-        // Fase A/B/C – obrigatória quando tri = false
+        public bool Tri { get; init; }
         public string? Phase { get; init; }
-
-        [FromQuery(Name = "maxPoints")] public int MaxPoints { get; init; } = 5000;
-
-        // "raw" ou "pu"
         public string? Unit { get; init; }
 
-        // Se true → plota trifásico (A,B,C) da PMU indicada em Pmu
-        public bool Tri { get; init; } = false;
+        public string? Pmu { get; init; }
 
-        // id_name da PMU (ex.: "N_PA_Belem_UFPA").
-        // Obrigatório quando Tri = true.
-        [FromQuery(Name = "id_name")] public string? Pmu { get; init; }
+        [FromQuery(Name = "pmu")]
+        public string[]? Pmus { get; init; }
+
+        // string pra aceitar "all"
+        [FromQuery(Name = "maxPoints")]
+        public string? MaxPoints { get; init; }
+
+        public bool MaxPointsIsAll =>
+            string.Equals(MaxPoints?.Trim(), "all", StringComparison.OrdinalIgnoreCase);
+
+        public int ResolveMaxPoints(int @default = 5000)
+        {
+            if (MaxPointsIsAll) return int.MaxValue; // não será usado quando IsAll=true
+            if (string.IsNullOrWhiteSpace(MaxPoints)) return @default;
+            return int.TryParse(MaxPoints, out var n) && n > 0 ? n : @default;
+        }
     }
-    public record FreqRunQuery(
-    [property: FromQuery(Name = "run_id")] Guid RunId,
-    [property: FromQuery(Name = "pmu")] string? Pmu,
-    [property: FromQuery(Name = "maxPoints")] int MaxPoints = 5000
-);
-    public sealed class DigitalRunQuery
-    {
-        [FromQuery(Name = "run_id")] public Guid RunId { get; init; }
 
-        [FromQuery(Name = "maxPoints")] public int MaxPoints { get; init; } = 5000;
-
-        [FromQuery(Name = "pmu")] public string? Pmu { get; init; }
-    }
-
-    public record SeqPosRunQuery(
-    [property: FromQuery(Name = "run_id")] Guid RunId,
-    [property: FromQuery(Name = "pmu")] string? Pmu,          // ⬅️ uma PMU opcional
-    [property: FromQuery(Name = "unit")] string? Unit = "raw",
-    [property: FromQuery(Name = "volt_level")] double? VoltLevel = null,
-    [property: FromQuery(Name = "maxPoints")] int MaxPoints = 5000
-);
 
     public sealed class PowerPlotQuery
     {

@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Runs.Calculations;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Repositories;
@@ -10,6 +11,7 @@ public sealed class UnbalanceSeriesHandler
     private readonly IRunContextRepository _runs;
     private readonly IMeasurementsRepository _meas;
     private readonly IPlotMetaBuilder _meta;
+    private readonly ITimeSeriesDownsampler _down = new TimeBucketMinMaxDownsampler();
 
     public UnbalanceSeriesHandler(IRunContextRepository runs, IMeasurementsRepository meas, IPlotMetaBuilder meta)
     {
@@ -25,7 +27,8 @@ public sealed class UnbalanceSeriesHandler
         IReadOnlyList<string> pmuList,
         CancellationToken ct)
     {
-        var maxPts = Math.Max(q.MaxPoints, 100);
+        var noDownsample = q.MaxPointsIsAll;
+        var maxPts = q.ResolveMaxPoints(@default: 5000);
 
         var ctx = await _runs.ResolveAsync(q.RunId, w.FromUtc, w.ToUtc, ct);
         if (ctx is null) return Results.NotFound("run_id não encontrado.");
@@ -109,10 +112,10 @@ public sealed class UnbalanceSeriesHandler
                 else if (ph == "C" && cp == "ANG") vcAng.Add((r.Ts, r.Value));
             }
 
+            // mantém teu comportamento de não quebrar o front
             if (vaMod.Count == 0 || vbMod.Count == 0 || vcMod.Count == 0 ||
                 vaAng.Count == 0 || vbAng.Count == 0 || vcAng.Count == 0)
             {
-                // devolve vazio p/ não quebrar front
                 var f0 = sigRows.First();
                 series.Add(new
                 {
@@ -182,13 +185,15 @@ public sealed class UnbalanceSeriesHandler
                 continue;
             }
 
-            var downs = TimeBucketDownsampleMinMax(
-                ratio.Select(p => (p.ts, p.ratio)),
-                maxPts);
+            // -------- downsample (padrão current/voltage) --------
+            var raw = ratio.Select(p => new Point(p.ts, p.ratio)).ToList();
+
+            var downs = noDownsample ? raw : _down.MinMax(raw, maxPts);
 
             var points = downs
-                .Select(d => new object[] { d.ts, d.val * 100.0 })
+                .Select(p => new object[] { p.Ts, p.Val * 100.0 }) // percent
                 .ToList();
+            // -----------------------------------------------------
 
             series.Add(new
             {
@@ -209,7 +214,6 @@ public sealed class UnbalanceSeriesHandler
         var windowTo = w.ToUtc ?? rows.Max(r => r.Ts);
         var data = windowFrom.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
-        // meta (sintético)
         var meas = new MeasurementsQuery(
             Quantity: kind,
             Component: "ratio",
@@ -229,7 +233,4 @@ public sealed class UnbalanceSeriesHandler
             series
         });
     }
-
-    private static IEnumerable<(DateTime ts, double val)> TimeBucketDownsampleMinMax(
-        IEnumerable<(DateTime ts, double val)> points, int maxPoints) => points;
 }

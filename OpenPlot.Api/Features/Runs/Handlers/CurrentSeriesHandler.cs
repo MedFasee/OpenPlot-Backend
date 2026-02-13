@@ -2,6 +2,7 @@
 using OpenPlot.Data.Dtos;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Repositories;
+using OpenPlot.Core.TimeSeries;
 
 namespace OpenPlot.Features.Runs.Handlers;
 
@@ -10,6 +11,8 @@ public sealed class CurrentSeriesHandler
     private readonly IRunContextRepository _runs;
     private readonly IMeasurementsRepository _meas;
     private readonly IPlotMetaBuilder _meta;
+    private readonly ITimeSeriesDownsampler _down = new TimeBucketMinMaxDownsampler();
+
 
     public CurrentSeriesHandler(IRunContextRepository runs, IMeasurementsRepository meas, IPlotMetaBuilder meta)
     {
@@ -39,7 +42,9 @@ public sealed class CurrentSeriesHandler
                 return Results.BadRequest("para tri=true é obrigatório informar pmu (id_name da PMU).");
         }
 
-        var maxPts = Math.Max(q.MaxPoints, 100);
+        var noDownsample = q.MaxPointsIsAll;
+        var maxPts = q.ResolveMaxPoints(@default: 5000);
+
 
         var fromUtc = w.FromUtc;
         var toUtc = w.ToUtc;
@@ -48,15 +53,22 @@ public sealed class CurrentSeriesHandler
 
         var ctx = await _runs.ResolveAsync(q.RunId, fromUtc, toUtc, ct);
         if (ctx is null) return Results.NotFound("run_id não encontrado.");
+        var pmuNames = q.Pmus?
+            .Select(x => x?.Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
 
         var meas = new MeasurementsQuery(
             Quantity: "current",
             Component: "mag",
             PhaseMode: tri ? PhaseMode.ThreePhase : PhaseMode.Single,
             Phase: uphase,
-            PmuNames: tri && !string.IsNullOrWhiteSpace(pmuName) ? new[] { pmuName } : null,
+            PmuNames: tri ? (string.IsNullOrWhiteSpace(pmuName) ? null : new[] { pmuName }): (pmuNames is { Length: > 0 } ? pmuNames : null),
             Unit: "A"
         );
+
 
         var rows = await _meas.QueryPhasorAsync(ctx, meas, ct);
         if (rows.Count == 0)
@@ -68,13 +80,14 @@ public sealed class CurrentSeriesHandler
             {
                 var any = g.First();
 
-                var downs = TimeBucketDownsampleMinMax(
-                    g.Select(x => (x.Ts, x.Value)),
+                var downs = _down.MinMax(
+                    g.Select(x => new Point(x.Ts, x.Value)).ToList(),
                     maxPts);
 
                 var points = downs
-                    .Select(p => new object[] { p.ts, p.val })
+                    .Select(p => new object[] { p.Ts, p.Val })
                     .ToList();
+
 
                 return new
                 {
@@ -96,7 +109,6 @@ public sealed class CurrentSeriesHandler
         var windowTo2 = toUtc ?? rows.Max(r => r.Ts);
         var data = windowFrom.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
-        Console.WriteLine($"[HANDLER] meas = {meas.GetType().FullName} qty='{meas.Quantity}' comp='{meas.Component}' unit='{meas.Unit}'");
 
 
         var plotMeta = _meta.Build(w, ctx, meas);
@@ -115,6 +127,5 @@ public sealed class CurrentSeriesHandler
         });
     }
 
-    private static IEnumerable<(DateTime ts, double val)> TimeBucketDownsampleMinMax(
-        IEnumerable<(DateTime ts, double val)> points, int maxPoints) => points;
+
 }

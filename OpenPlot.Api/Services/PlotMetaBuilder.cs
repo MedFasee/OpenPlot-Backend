@@ -41,7 +41,8 @@ public sealed class PlotMetaBuilder : IPlotMetaBuilder
         var unit = Norm(meas.Unit);
         var phaseMode = InferPhaseMode(meas);
 
-        if (quantity == "voltage" && component != "thd" && phaseMode != "deseq")
+
+        if (quantity == "voltage" && component != "thd" && phaseMode != "deseq" && unit != "%")
         {
             if (component == "angle") return "Diferença Angular (Graus)";
             return unit == "pu" ? "Tensão (pu)" : "Tensão (V)";
@@ -60,13 +61,15 @@ public sealed class PlotMetaBuilder : IPlotMetaBuilder
         if (quantity == "frequency" || component == "freq")
             return "Frequência (Hz)";
 
+        if (meas.PhaseMode == PhaseMode.Deseq || component is "unbalance" or "ratio")
+            return "Desequilíbrio (%)";
+
         if (quantity == "p_active") return "Potência Ativa (MW)";
         if (quantity == "p_reactive") return "Potência Reativa (MVAr)";
         if (quantity == "frequency") return "Frequência (Hz)";
         if (quantity == "dfreq") return "Var. de Frequência (Hz/s)";
         if (quantity == "digital") return "Nível";
         if (component == "thd") return "Distorção Harmônica (%)";
-        if (quantity == "unbalance") return "Desequilíbrio (%)";
 
         return quantity switch
         {

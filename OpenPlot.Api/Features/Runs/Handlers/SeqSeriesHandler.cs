@@ -1,6 +1,5 @@
 ﻿using System.Globalization;
-using System.Net;
-using MathNet.Numerics.Differentiation;
+using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Runs.Calculations;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Repositories;
@@ -12,6 +11,7 @@ public sealed class SeqSeriesHandler
     private readonly IRunContextRepository _runs;
     private readonly IMeasurementsRepository _meas;
     private readonly IPlotMetaBuilder _meta;
+    private readonly ITimeSeriesDownsampler _down = new TimeBucketMinMaxDownsampler();
 
     public SeqSeriesHandler(IRunContextRepository runs, IMeasurementsRepository meas, IPlotMetaBuilder meta)
     {
@@ -31,7 +31,8 @@ public sealed class SeqSeriesHandler
         if (unit is not ("raw" or "pu"))
             return Results.BadRequest("unit deve ser 'raw' ou 'pu'.");
 
-        var maxPts = Math.Max(q.MaxPoints, 100);
+        var noDownsample = q.MaxPointsIsAll;
+        var maxPts = q.ResolveMaxPoints(@default: 5000);
 
         var ctx = await _runs.ResolveAsync(q.RunId, w.FromUtc, w.ToUtc, ct);
         if (ctx is null) return Results.NotFound("run_id não encontrado.");
@@ -115,11 +116,17 @@ public sealed class SeqSeriesHandler
 
             double Unitize(double m) => unit == "pu" ? (m / baseValue) : m;
 
-            var downs = TimeBucketDownsampleMinMax(
-                seqSeries.Select(p => (p.ts, Unitize(p.mag))),
-                maxPts);
+            // -------- downsample (padrão current/voltage) --------
+            var raw = seqSeries
+                .Select(p => new Point(p.ts, Unitize(p.mag)))
+                .ToList();
 
-            var points = downs.Select(d => new object[] { d.ts, d.val }).ToList();
+            var downs = noDownsample ? raw : _down.MinMax(raw, maxPts);
+
+            var points = downs
+                .Select(p => new object[] { p.Ts, p.Val })
+                .ToList();
+            // -----------------------------------------------------
 
             series.Add(new
             {
@@ -153,15 +160,14 @@ public sealed class SeqSeriesHandler
         };
 
         var meas = new MeasurementsQuery(
-            Quantity: kind,        // "current" ou "voltage"
-            Component: "mag",      // porque é módulo da sequência
+            Quantity: kind,
+            Component: "mag",
             PhaseMode: seqMode,
             PmuNames: pmusForMeta,
-            Unit: unit             // "raw" ou "pu"
+            Unit: unit
         );
 
         var plotMeta = _meta.Build(w, ctx, meas);
-
 
         return Results.Ok(new
         {
@@ -176,7 +182,4 @@ public sealed class SeqSeriesHandler
             series
         });
     }
-
-    private static IEnumerable<(DateTime ts, double val)> TimeBucketDownsampleMinMax(
-        IEnumerable<(DateTime ts, double val)> points, int maxPoints) => points;
 }

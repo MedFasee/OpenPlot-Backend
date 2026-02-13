@@ -388,6 +388,7 @@ public static class RunsEndpoints
         grp.MapGet("/series/voltage/by-run", async (
             [AsParameters] ByRunQuery q,
             [AsParameters] WindowQuery w,
+            [FromQuery] string[]? pmu,
             [FromServices] VoltageSeriesHandler handler,
             CancellationToken ct
         ) => await handler.HandleAsync(q, w, ct));
@@ -395,6 +396,7 @@ public static class RunsEndpoints
         grp.MapGet("/series/current/by-run", async (
             [AsParameters] ByRunQuery q,
             [AsParameters] WindowQuery w,
+            [FromQuery] string[]? pmu,
             [FromServices] CurrentSeriesHandler handler,
             CancellationToken ct
         ) => await handler.HandleAsync(q, w, ct));
@@ -563,7 +565,9 @@ public static class RunsEndpoints
                     return Results.BadRequest("para tri=true é obrigatório informar pmu (id_name da PMU).");
             }
 
-            var maxPts = Math.Max(q.MaxPoints, 100);
+            var noDownsample = q.MaxPointsIsAll;
+            var maxPts = q.ResolveMaxPoints(@default: 5000);
+
 
             DateTime? fromUtc = from?.ToUniversalTime();
             DateTime? toUtc = to?.ToUniversalTime();
@@ -1350,12 +1354,14 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
                 .Where(p => !p.Equals(refPmu, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            var maxPts = Math.Max(q.MaxPoints, 100);
+            var noDownsample = q.MaxPointsIsAll;
+            var maxPts = q.ResolveMaxPoints(@default: 5000);
 
-            // =============================
-            // janela temporal
-            // =============================
-            DateTime? fromUtc = from?.ToUniversalTime();
+
+    // =============================
+    // janela temporal
+    // =============================
+    DateTime? fromUtc = from?.ToUniversalTime();
             DateTime? toUtc = to?.ToUniversalTime();
             if (fromUtc.HasValue && toUtc.HasValue && fromUtc >= toUtc)
                 return Results.BadRequest("from < to");
