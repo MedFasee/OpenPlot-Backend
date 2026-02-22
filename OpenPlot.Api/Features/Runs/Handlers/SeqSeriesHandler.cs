@@ -3,6 +3,7 @@ using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Runs.Calculations;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Repositories;
+using OpenPlot.Features.Ui;
 
 namespace OpenPlot.Features.Runs.Handlers;
 
@@ -20,11 +21,22 @@ public sealed class SeqSeriesHandler
         _meta = meta;
     }
 
+    // Mantém compatibilidade (chamadas antigas)
+    public Task<IResult> HandleAsync(
+        SeqRunQuery q,
+        SeqRequest req,
+        WindowQuery w,
+        IReadOnlyList<string> pmuList,
+        CancellationToken ct)
+        => HandleAsync(q, req, w, pmuList, ui: null, ct);
+
+    // NOVO: recebe UI (já resolvida no endpoint)
     public async Task<IResult> HandleAsync(
         SeqRunQuery q,
         SeqRequest req,
         WindowQuery w,
         IReadOnlyList<string> pmuList,
+        UiCatalog? ui,
         CancellationToken ct)
     {
         var unit = (q.Unit ?? "raw").Trim().ToLowerInvariant();
@@ -171,6 +183,7 @@ public sealed class SeqSeriesHandler
 
         return Results.Ok(new
         {
+            ui,
             run_id = q.RunId,
             data,
             kind,

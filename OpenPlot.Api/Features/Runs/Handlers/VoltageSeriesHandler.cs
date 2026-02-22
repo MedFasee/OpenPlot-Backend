@@ -4,6 +4,7 @@ using OpenPlot.Data.Dtos;
 using OpenPlot.Features.Runs.Calculations;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Repositories;
+using OpenPlot.Features.Ui;
 
 namespace OpenPlot.Features.Runs.Handlers;
 
@@ -21,7 +22,12 @@ public sealed class VoltageSeriesHandler
         _meta = meta;
     }
 
-    public async Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, CancellationToken ct)
+    // Mantém compatibilidade (chamadas antigas)
+    public Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, CancellationToken ct)
+        => HandleAsync(q, w, ui: null, ct);
+
+    // NOVO: recebe UI (já resolvida no endpoint)
+    public async Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, UiCatalog? ui, CancellationToken ct)
     {
         var tri = q.Tri;
         var pmuName = q.Pmu?.Trim();
@@ -95,7 +101,6 @@ public sealed class VoltageSeriesHandler
 
                 if (unit == "pu")
                 {
-                    // assinatura esperada (pelo teu erro): ToVoltagePu(IEnumerable<(DateTime ts,double val)> pts, double? voltLevel)
                     var pu = PerUnit.ToVoltagePu(
                         downs.Select(p => (p.Ts, p.Val)),
                         any.VoltLevel
@@ -133,6 +138,7 @@ public sealed class VoltageSeriesHandler
 
         return Results.Ok(new
         {
+            ui,
             run_id = q.RunId,
             data,
             unit,

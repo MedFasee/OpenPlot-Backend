@@ -3,6 +3,7 @@ using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Runs.Calculations;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Repositories;
+using OpenPlot.Features.Ui; // <-- NOVO (UiCatalog)
 
 namespace OpenPlot.Features.Runs.Handlers;
 
@@ -20,11 +21,22 @@ public sealed class UnbalanceSeriesHandler
         _meta = meta;
     }
 
+    // Mantém compatibilidade (chamadas antigas)
+    public Task<IResult> HandleAsync(
+        UnbalanceRunQuery q,
+        UnbalanceRequest req,
+        WindowQuery w,
+        IReadOnlyList<string> pmuList,
+        CancellationToken ct)
+        => HandleAsync(q, req, w, pmuList, ui: null, ct);
+
+    // NOVO: recebe UI (já resolvida no endpoint)
     public async Task<IResult> HandleAsync(
         UnbalanceRunQuery q,
         UnbalanceRequest req,
         WindowQuery w,
         IReadOnlyList<string> pmuList,
+        UiCatalog? ui,
         CancellationToken ct)
     {
         var noDownsample = q.MaxPointsIsAll;
@@ -187,7 +199,6 @@ public sealed class UnbalanceSeriesHandler
 
             // -------- downsample (padrão current/voltage) --------
             var raw = ratio.Select(p => new Point(p.ts, p.ratio)).ToList();
-
             var downs = noDownsample ? raw : _down.MinMax(raw, maxPts);
 
             var points = downs
@@ -223,6 +234,7 @@ public sealed class UnbalanceSeriesHandler
 
         return Results.Ok(new
         {
+            ui, // <-- NOVO
             run_id = q.RunId,
             data,
             kind,

@@ -3,6 +3,7 @@ using OpenPlot.Data.Dtos;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Repositories;
 using OpenPlot.Core.TimeSeries;
+using OpenPlot.Features.Ui;
 
 namespace OpenPlot.Features.Runs.Handlers;
 
@@ -13,7 +14,6 @@ public sealed class CurrentSeriesHandler
     private readonly IPlotMetaBuilder _meta;
     private readonly ITimeSeriesDownsampler _down = new TimeBucketMinMaxDownsampler();
 
-
     public CurrentSeriesHandler(IRunContextRepository runs, IMeasurementsRepository meas, IPlotMetaBuilder meta)
     {
         _runs = runs;
@@ -21,7 +21,12 @@ public sealed class CurrentSeriesHandler
         _meta = meta;
     }
 
-    public async Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, CancellationToken ct)
+    // Mantém compatibilidade (chamadas antigas)
+    public Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, CancellationToken ct)
+        => HandleAsync(q, w, ui: null, ct);
+
+    // NOVO: recebe UI (já resolvida no endpoint)
+    public async Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, UiCatalog? ui, CancellationToken ct)
     {
         var tri = q.Tri;
         var pmuName = q.Pmu?.Trim();
@@ -45,7 +50,6 @@ public sealed class CurrentSeriesHandler
         var noDownsample = q.MaxPointsIsAll;
         var maxPts = q.ResolveMaxPoints(@default: 5000);
 
-
         var fromUtc = w.FromUtc;
         var toUtc = w.ToUtc;
         if (fromUtc.HasValue && toUtc.HasValue && fromUtc >= toUtc)
@@ -53,22 +57,23 @@ public sealed class CurrentSeriesHandler
 
         var ctx = await _runs.ResolveAsync(q.RunId, fromUtc, toUtc, ct);
         if (ctx is null) return Results.NotFound("run_id não encontrado.");
+
         var pmuNames = q.Pmus?
             .Select(x => x?.Trim())
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-
         var meas = new MeasurementsQuery(
             Quantity: "current",
             Component: "mag",
             PhaseMode: tri ? PhaseMode.ThreePhase : PhaseMode.Single,
             Phase: uphase,
-            PmuNames: tri ? (string.IsNullOrWhiteSpace(pmuName) ? null : new[] { pmuName }): (pmuNames is { Length: > 0 } ? pmuNames : null),
+            PmuNames: tri
+                ? (string.IsNullOrWhiteSpace(pmuName) ? null : new[] { pmuName })
+                : (pmuNames is { Length: > 0 } ? pmuNames : null),
             Unit: "A"
         );
-
 
         var rows = await _meas.QueryPhasorAsync(ctx, meas, ct);
         if (rows.Count == 0)
@@ -87,7 +92,6 @@ public sealed class CurrentSeriesHandler
                 var points = downs
                     .Select(p => new object[] { p.Ts, p.Val })
                     .ToList();
-
 
                 return new
                 {
@@ -109,12 +113,11 @@ public sealed class CurrentSeriesHandler
         var windowTo2 = toUtc ?? rows.Max(r => r.Ts);
         var data = windowFrom.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
-
-
         var plotMeta = _meta.Build(w, ctx, meas);
 
         return Results.Ok(new
         {
+            ui, 
             run_id = q.RunId,
             data,
             unit = "raw",
@@ -126,6 +129,4 @@ public sealed class CurrentSeriesHandler
             series
         });
     }
-
-
 }

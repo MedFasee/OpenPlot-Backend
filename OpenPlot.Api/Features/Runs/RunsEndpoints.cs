@@ -8,6 +8,7 @@ using OpenPlot.Data.Dtos;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers;
 using OpenPlot.Features.Runs.Repositories;
+using OpenPlot.Features.Ui;
 
 using static ConfigEndpoints;
 public static class RunsEndpoints
@@ -385,57 +386,69 @@ public static class RunsEndpoints
             });
 
 
+
+
         grp.MapGet("/series/voltage/by-run", async (
             [AsParameters] ByRunQuery q,
             [AsParameters] WindowQuery w,
             [FromQuery] string[]? pmu,
             [FromServices] VoltageSeriesHandler handler,
+            [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
-        ) => await handler.HandleAsync(q, w, ct));
+        ) =>
+        {
+            var ui = uiMenus.Build(UiMenuSet.Oscillations);
+            return await handler.HandleAsync(q, w, ui, ct);
+        });
 
         grp.MapGet("/series/current/by-run", async (
             [AsParameters] ByRunQuery q,
             [AsParameters] WindowQuery w,
             [FromQuery] string[]? pmu,
             [FromServices] CurrentSeriesHandler handler,
+            [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
-        ) => await handler.HandleAsync(q, w, ct));
-
+        ) =>
+        {
+            var ui = uiMenus.Build(UiMenuSet.Oscillations);
+            return await handler.HandleAsync(q, w, ui, ct);
+        });
 
         grp.MapGet("/series/seq/by-run", async (
             [AsParameters] SeqRunQuery q,
             [AsParameters] WindowQuery w,
             [FromQuery] string[]? pmu,
             [FromServices] SeqSeriesHandler handler,
+            [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
         ) =>
+        {
+            var pmuList = (pmu ?? Array.Empty<string>())
+                .Select(x => x.Trim())
+                .Where(x => x.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var req = new SeqRequest(
+                Kind: (q.Kind ?? "").Trim().ToLowerInvariant() == "current" ? SeqKind.Current : SeqKind.Voltage,
+                Seq: (q.Seq ?? "").Trim().ToLowerInvariant() switch
                 {
-                    var pmuList = (pmu ?? Array.Empty<string>())
-                        .Select(x => x.Trim())
-                        .Where(x => x.Length > 0)
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToList();
-
-                    var req = new SeqRequest(
-                        Kind: (q.Kind ?? "").Trim().ToLowerInvariant() == "current" ? SeqKind.Current : SeqKind.Voltage,
-                        Seq: (q.Seq ?? "").Trim().ToLowerInvariant() switch
-                        {
-                            "pos" or "seq+" or "1" => SeqType.Pos,
-                            "neg" or "seq-" or "2" => SeqType.Neg,
-                            "zero" or "seq0" or "0" => SeqType.Zero,
-                            _ => throw new BadHttpRequestException("seq inválida (pos|neg|zero).")
-                        });
-
-                    return await handler.HandleAsync(q, req, w, pmuList, ct); // <-- ct aqui
+                    "pos" or "seq+" or "1" => SeqType.Pos,
+                    "neg" or "seq-" or "2" => SeqType.Neg,
+                    "zero" or "seq0" or "0" => SeqType.Zero,
+                    _ => throw new BadHttpRequestException("seq inválida (pos|neg|zero).")
                 });
 
-
+            var ui = uiMenus.Build(UiMenuSet.Oscillations);
+            return await handler.HandleAsync(q, req, w, pmuList, ui, ct);
+        });
 
         grp.MapGet("/series/unbalance/by-run", async (
             [AsParameters] UnbalanceRunQuery q,
             [AsParameters] WindowQuery w,
             [FromQuery] string[]? pmu,
             [FromServices] UnbalanceSeriesHandler handler,
+            [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
         ) =>
         {
@@ -449,74 +462,65 @@ public static class RunsEndpoints
                 Kind: (q.Kind ?? "").Trim().ToLowerInvariant() == "current" ? SeqKind.Current : SeqKind.Voltage
             );
 
-            return await handler.HandleAsync(q, req, w, pmuList, ct); // <-- ct aqui
+            var ui = uiMenus.Build(UiMenuSet.Oscillations);
+            return await handler.HandleAsync(q, req, w, pmuList, ui, ct);
         });
 
+        grp.MapGet("/series/frequency/by-run", async (
+            [AsParameters] SimpleSeriesQuery q,
+            [AsParameters] WindowQuery w,
+            [FromQuery] string[]? pmu,
+            [FromServices] SimpleSeriesHandler handler,
+            [FromServices] IUiMenuService uiMenus,
+            CancellationToken ct
+        ) =>
+        {
+            var pmuList = (pmu ?? Array.Empty<string>())
+                .Select(x => x.Trim())
+                .Where(x => x.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
+            var meas = new MeasurementsQuery(
+                Quantity: "frequency",
+                Component: "freq",
+                PhaseMode: PhaseMode.Any,
+                Phase: null,
+                PmuNames: pmuList,
+                Unit: "Hz"
+            );
 
+            var ui = uiMenus.Build(UiMenuSet.Oscillations | UiMenuSet.Events);
+            return await handler.HandleAsync(q, w, meas, ui, ct);
+        });
 
+        grp.MapGet("/series/dfreq/by-run", async (
+            [AsParameters] SimpleSeriesQuery q,
+            [AsParameters] WindowQuery w,
+            [FromQuery] string[]? pmu,
+            [FromServices] SimpleSeriesHandler handler,
+            [FromServices] IUiMenuService uiMenus,
+            CancellationToken ct
+        ) =>
+        {
+            var pmuList = (pmu ?? Array.Empty<string>())
+                .Select(x => x.Trim())
+                .Where(x => x.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
+            var meas = new MeasurementsQuery(
+                Quantity: "frequency",
+                Component: "dfreq",
+                PhaseMode: PhaseMode.Any,
+                Phase: null,
+                PmuNames: pmuList,
+                Unit: "Hz/s"
+            );
 
-        // -----------------------------------------
-        // 6) /series/frequency/by-run  (Frequência)
-        // -----------------------------------------
-        grp.MapGet("/series/frequency/by-run",
-    async (
-        [AsParameters] SimpleSeriesQuery q,
-        [AsParameters] WindowQuery w,
-        [FromQuery] string[]? pmu,
-        [FromServices] SimpleSeriesHandler handler,
-        CancellationToken ct
-    ) =>
-    {
-        var pmuList = (pmu ?? [])
-            .Select(x => x.Trim())
-            .Where(x => x.Length > 0)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var meas = new MeasurementsQuery(
-            Quantity: "frequency",
-            Component: "freq",
-            PhaseMode: PhaseMode.Any,
-            Phase: null,
-            PmuNames: pmuList,
-            Unit: "Hz"
-        );
-
-        return await handler.HandleAsync(q, w, meas, ct);
-    });
-
-
-        // -----------------------------------------
-        // 7) /series/dfreq/by-run  (Derivada da frequência)
-        // -----------------------------------------
-        grp.MapGet("/series/dfreq/by-run",
-        async (
-        [AsParameters] SimpleSeriesQuery q,
-        [AsParameters] WindowQuery w,
-        [FromQuery] string[]? pmu,
-        [FromServices] SimpleSeriesHandler handler,
-        CancellationToken ct
-    ) =>
-    {
-        var pmuList = (pmu ?? [])
-            .Select(x => x.Trim())
-            .Where(x => x.Length > 0)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var meas = new MeasurementsQuery(
-            Quantity: "frequency",
-            Component: "dfreq",
-            PhaseMode: PhaseMode.Any,
-            Phase: null,
-            PmuNames: pmuList,
-            Unit: "Hz/s"
-        );
-
-        return await handler.HandleAsync(q, w, meas, ct);
-    });
+            var ui = uiMenus.Build(UiMenuSet.Oscillations);
+            return await handler.HandleAsync(q, w, meas, ui, ct);
+        });
 
         // -----------------------------------------------
         // X) /series/thd/by-run  (THD de tensão ou corrente)

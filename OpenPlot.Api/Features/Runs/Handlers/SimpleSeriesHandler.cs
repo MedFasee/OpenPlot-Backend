@@ -2,7 +2,8 @@
 using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Repositories;
-
+using OpenPlot.Data.Dtos;
+using OpenPlot.Features.Ui;
 
 public sealed class SimpleSeriesHandler
 {
@@ -23,16 +24,22 @@ public sealed class SimpleSeriesHandler
         _meta = meta;
     }
 
-    public async Task<IResult> HandleAsync(
+    public Task<IResult> HandleAsync(
         SimpleSeriesQuery q,
         WindowQuery w,
         MeasurementsQuery meas,
         CancellationToken ct)
+        => HandleAsync(q, w, meas, ui: null, ct);
+
+    public async Task<IResult> HandleAsync(
+        SimpleSeriesQuery q,
+        WindowQuery w,
+        MeasurementsQuery meas,
+        UiCatalog? ui,
+        CancellationToken ct)
     {
         var noDownsample = q.MaxPointsIsAll;
         var maxPts = q.ResolveMaxPoints(@default: 5000);
-
-
 
         var fromUtc = w.FromUtc;
         var toUtc = w.ToUtc;
@@ -55,7 +62,6 @@ public sealed class SimpleSeriesHandler
                 var pts = g.Select(x => new Point(x.Ts, x.Value)).ToList();
                 var down = noDownsample ? pts : _down.MinMax(pts, maxPts);
 
-
                 return new SeriesDto(
                     Pdc: any.PdcName,
                     Pmu: any.IdName,
@@ -69,15 +75,26 @@ public sealed class SimpleSeriesHandler
             .ToList();
 
         var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
-        var data = windowFrom.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+        var windowTo2 = toUtc ?? rows.Max(r => r.Ts);
+        var dataStr = windowFrom.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
-        return Results.Ok(new SeriesResponseDto(
-            RunId: q.RunId,
-            Data: data,
-            Resolved: new { pdc = rows.First().PdcName, pmu_count = series.Select(s => s.Pmu).Distinct().Count() },
-            Window: new { from = ctx.FromUtc, to = ctx.ToUtc },
-            Meta: plotMeta,
-            Series: series
-        ));
+        return Results.Ok(new
+        {
+            ui,
+
+            run_id = q.RunId,
+            data = dataStr,
+
+            resolved = new
+            {
+                pdc = rows.First().PdcName,
+                pmu_count = series.Select(s => s.Pmu).Distinct().Count()
+            },
+
+            window = new { from = windowFrom, to = windowTo2 },
+
+            meta = plotMeta,
+            series
+        });
     }
 }

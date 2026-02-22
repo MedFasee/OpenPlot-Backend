@@ -19,6 +19,7 @@ using OpenPlot.Features.Import;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers;
 using OpenPlot.Features.Runs.Repositories;
+using OpenPlot.Features.Ui;
 using Serilog;
 using Serilog.Events;
 
@@ -90,6 +91,15 @@ builder.Services.AddScoped<VoltageSeriesHandler>();
 builder.Services.AddScoped<CurrentSeriesHandler>();
 builder.Services.AddScoped<SeqSeriesHandler>();
 builder.Services.AddScoped<UnbalanceSeriesHandler>();
+
+// UI Analise
+builder.Services.AddSingleton(new FeatureFlags(
+    EnablesDFT: true,
+    EnablesProny: true,
+    EnablesCCA: true,
+    EnablesEventsAnalyzer: true
+));
+builder.Services.AddSingleton<IUiMenuService, UiMenuService>();
 
 // Repositories
 builder.Services.AddScoped<IRunContextRepository, RunContextRepository>();
