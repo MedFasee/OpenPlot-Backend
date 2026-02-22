@@ -85,6 +85,32 @@ namespace OpenPlot.Ingestor.Gsf
             }
         }
 
+        // ----------------- PMUS_OK PERSISTENCE -----------------
+        // Salva a lista de PMUs que efetivamente retornaram dados (inclui caso [skip] já existente, pois hasData=1).
+        private static void SavePmusOk(NpgsqlConnection conn, NpgsqlTransaction tx, Guid jobId, List<string> pmusOk)
+        {
+            // Normaliza (evita nulos, remove espaços, distinct)
+            var norm = (pmusOk ?? new List<string>())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            // Decide: aqui salvamos sempre um array JSON (mesmo vazio => "[]")
+            var json = JsonSerializer.Serialize(norm);
+
+            using (var cmd = new NpgsqlCommand(@"
+                UPDATE openplot.search_runs
+                   SET pmus_ok = @pmus_ok::jsonb
+                 WHERE id = @id;", conn, tx))
+            {
+                cmd.Parameters.AddWithValue("@id", jobId);
+                cmd.Parameters.AddWithValue("@pmus_ok", json);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
         // ----------------- PROGRESS HELPERS -----------------
         // Progresso: calculado por "unidade de trabalho" = (PMU x chunk de tempo).
         // - total = (qtde PMUs) * (qtde intervals)
@@ -323,11 +349,13 @@ namespace OpenPlot.Ingestor.Gsf
                                             */
                                         }
 
-                                        // Ao final do job, marcamos DONE e, se for o caso, salvamos pmus_ok
+                                        // Ao final do job, marcamos DONE/NO_DATA e salvamos pmus_ok
                                         using (var tx2 = conn.BeginTransaction())
                                         {
-                                            // Adição: status terminal informativo quando a consulta executa com sucesso,
-                                            // porém não retorna dados em todo o intervalo solicitado.
+                                            // 1) salva pmus_ok SEMPRE (mesmo vazio => "[]")
+                                            SavePmusOk(conn, tx2, id, pmusComDados);
+
+                                            // 2) status final
                                             if (pmusComDados == null || pmusComDados.Count == 0)
                                             {
                                                 DbOps.UpdateStatus(
@@ -351,7 +379,7 @@ namespace OpenPlot.Ingestor.Gsf
                                                 );
                                             }
 
-                                            // Importante: commit da transação final (status done/no_data)
+                                            // Importante: commit da transação final (status done/no_data + pmus_ok)
                                             tx2.Commit();
                                         }
 
