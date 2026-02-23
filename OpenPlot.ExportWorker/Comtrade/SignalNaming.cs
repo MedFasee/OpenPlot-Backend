@@ -46,10 +46,10 @@ public static class SignalNaming
             _ => "X"
         };
 
-        var phaseOk = (ph is "A" or "B" or "C") ? ph : "";
+        var phaseOk = (ph is "A" or "B" or "C") ? ph.ToLowerInvariant() : "";
 
-        if (c is "MAG") return $"{basePrefix}{phaseOk}MAG";
-        if (c is "ANG") return $"{basePrefix}{phaseOk}ANG";
+        if (c is "MAG") return $"{basePrefix}{phaseOk} MAG RMS";
+        if (c is "ANG") return $"{basePrefix}{phaseOk} Phi";
 
         return $"{basePrefix}{phaseOk}{(string.IsNullOrWhiteSpace(c) ? "VAL" : c)}";
     }
