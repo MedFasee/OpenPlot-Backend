@@ -28,7 +28,7 @@ public sealed class UnbalanceSeriesHandler
         WindowQuery w,
         IReadOnlyList<string> pmuList,
         CancellationToken ct)
-        => HandleAsync(q, req, w, pmuList, ui: null, ct);
+        => HandleAsync(q, req, w, pmuList, modes: null, ct);
 
     // NOVO: recebe UI (já resolvida no endpoint)
     public async Task<IResult> HandleAsync(
@@ -36,7 +36,7 @@ public sealed class UnbalanceSeriesHandler
         UnbalanceRequest req,
         WindowQuery w,
         IReadOnlyList<string> pmuList,
-        UiCatalog? ui,
+        Dictionary<string, object?>? modes,
         CancellationToken ct)
     {
         var noDownsample = q.MaxPointsIsAll;
@@ -234,7 +234,7 @@ public sealed class UnbalanceSeriesHandler
 
         return Results.Ok(new
         {
-            ui, // <-- NOVO
+            modes,
             run_id = q.RunId,
             data,
             kind,

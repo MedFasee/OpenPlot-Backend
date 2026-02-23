@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Collections.Generic;
 using OpenPlot.Data.Dtos;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Repositories;
@@ -21,15 +22,24 @@ public sealed class CurrentSeriesHandler
         _meta = meta;
     }
 
-    // Mantém compatibilidade (chamadas antigas)
-    public Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, CancellationToken ct)
-        => HandleAsync(q, w, ui: null, ct);
+    public Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, string[]? pmu, CancellationToken ct)
+        => HandleAsync(q, w, pmu, modes: null, ct);
 
-    // NOVO: recebe UI (já resolvida no endpoint)
-    public async Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, UiCatalog? ui, CancellationToken ct)
+    // NOVO: recebe modes (já resolvido no endpoint)
+    public async Task<IResult> HandleAsync(
+        ByRunQuery q,
+        WindowQuery w,
+        string[]? pmu,
+        Dictionary<string, object?>? modes,
+        CancellationToken ct)
     {
         var tri = q.Tri;
+
+        // tri=true: precisa de 1 PMU (usa q.Pmu; se vier via pmu[]=..., usa o primeiro)
         var pmuName = q.Pmu?.Trim();
+        if (tri && string.IsNullOrWhiteSpace(pmuName) && pmu is { Length: > 0 })
+            pmuName = pmu[0]?.Trim();
+
         string? uphase = null;
 
         if (!tri)
@@ -47,7 +57,6 @@ public sealed class CurrentSeriesHandler
                 return Results.BadRequest("para tri=true é obrigatório informar pmu (id_name da PMU).");
         }
 
-        var noDownsample = q.MaxPointsIsAll;
         var maxPts = q.ResolveMaxPoints(@default: 5000);
 
         var fromUtc = w.FromUtc;
@@ -58,7 +67,8 @@ public sealed class CurrentSeriesHandler
         var ctx = await _runs.ResolveAsync(q.RunId, fromUtc, toUtc, ct);
         if (ctx is null) return Results.NotFound("run_id não encontrado.");
 
-        var pmuNames = q.Pmus?
+        // tri=false: usa pmu[] do endpoint se vier; senão usa q.Pmus (se existir)
+        var pmuNames = (pmu ?? q.Pmus ?? Array.Empty<string>())
             .Select(x => x?.Trim())
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -70,8 +80,8 @@ public sealed class CurrentSeriesHandler
             PhaseMode: tri ? PhaseMode.ThreePhase : PhaseMode.Single,
             Phase: uphase,
             PmuNames: tri
-                ? (string.IsNullOrWhiteSpace(pmuName) ? null : new[] { pmuName })
-                : (pmuNames is { Length: > 0 } ? pmuNames : null),
+                ? new[] { pmuName! }
+                : (pmuNames.Length > 0 ? pmuNames : null),
             Unit: "A"
         );
 
@@ -117,7 +127,7 @@ public sealed class CurrentSeriesHandler
 
         return Results.Ok(new
         {
-            ui, 
+            modes,
             run_id = q.RunId,
             data,
             unit = "raw",

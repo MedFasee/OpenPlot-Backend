@@ -410,8 +410,8 @@ public static class RunsEndpoints
             CancellationToken ct
         ) =>
         {
-            var ui = uiMenus.Build(UiMenuSet.Oscillations);
-            return await handler.HandleAsync(q, w, ui, ct);
+            var modes = uiMenus.Build(UiMenuSet.Oscillations);
+            return await handler.HandleAsync(q, w, pmu, modes, ct);
         });
 
         grp.MapGet("/series/seq/by-run", async (

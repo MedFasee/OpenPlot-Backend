@@ -28,7 +28,7 @@ public sealed class SeqSeriesHandler
         WindowQuery w,
         IReadOnlyList<string> pmuList,
         CancellationToken ct)
-        => HandleAsync(q, req, w, pmuList, ui: null, ct);
+        => HandleAsync(q, req, w, pmuList, modes: null, ct);
 
     // NOVO: recebe UI (já resolvida no endpoint)
     public async Task<IResult> HandleAsync(
@@ -36,7 +36,7 @@ public sealed class SeqSeriesHandler
         SeqRequest req,
         WindowQuery w,
         IReadOnlyList<string> pmuList,
-        UiCatalog? ui,
+        Dictionary<string, object?>? modes,
         CancellationToken ct)
     {
         var unit = (q.Unit ?? "raw").Trim().ToLowerInvariant();
@@ -183,7 +183,7 @@ public sealed class SeqSeriesHandler
 
         return Results.Ok(new
         {
-            ui,
+            modes,
             run_id = q.RunId,
             data,
             kind,

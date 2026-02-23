@@ -29,13 +29,13 @@ public sealed class SimpleSeriesHandler
         WindowQuery w,
         MeasurementsQuery meas,
         CancellationToken ct)
-        => HandleAsync(q, w, meas, ui: null, ct);
+        => HandleAsync(q, w, meas, modes: null, ct);
 
     public async Task<IResult> HandleAsync(
         SimpleSeriesQuery q,
         WindowQuery w,
         MeasurementsQuery meas,
-        UiCatalog? ui,
+        Dictionary<string, object?>? modes,
         CancellationToken ct)
     {
         var noDownsample = q.MaxPointsIsAll;
@@ -80,7 +80,7 @@ public sealed class SimpleSeriesHandler
 
         return Results.Ok(new
         {
-            ui,
+            modes,
 
             run_id = q.RunId,
             data = dataStr,

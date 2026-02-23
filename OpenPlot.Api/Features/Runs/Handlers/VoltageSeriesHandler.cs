@@ -24,10 +24,10 @@ public sealed class VoltageSeriesHandler
 
     // Mantém compatibilidade (chamadas antigas)
     public Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, CancellationToken ct)
-        => HandleAsync(q, w, ui: null, ct);
+        => HandleAsync(q, w, modes: null, ct);
 
     // NOVO: recebe UI (já resolvida no endpoint)
-    public async Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, UiCatalog? ui, CancellationToken ct)
+    public async Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, Dictionary<string, object?>? modes, CancellationToken ct)
     {
         var tri = q.Tri;
         var pmuName = q.Pmu?.Trim();
@@ -138,7 +138,7 @@ public sealed class VoltageSeriesHandler
 
         return Results.Ok(new
         {
-            ui,
+            modes,
             run_id = q.RunId,
             data,
             unit,
