@@ -1,12 +1,14 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
-VisualStudioVersion = 18.3.11312.210 d18.3
+VisualStudioVersion = 18.3.11312.210
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OpenPlot.Ingestor.Gsf", "OpenPlot.Ingestor.Gsf\OpenPlot.Ingestor.Gsf.csproj", "{B6EABEA6-D908-4F4A-87D3-4AFCFBC4C01C}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenPlot", "OpenPlot.Api\OpenPlot.csproj", "{4C532144-E441-4CD0-A669-0D89C9FEDBD3}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenPlot.XmlImporter", "OpenPlot.XmlImporter\OpenPlot.XmlImporter.csproj", "{0CBD728A-27C9-4E7B-910C-7E875CF12449}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenPlot.ExportWorker", "OpenPlot.ExportWorker\OpenPlot.ExportWorker.csproj", "{6B1EBDDF-9E56-46B5-B296-3EA45F0D9401}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -54,6 +56,18 @@ Global
 		{0CBD728A-27C9-4E7B-910C-7E875CF12449}.Release|x64.Build.0 = Release|x64
 		{0CBD728A-27C9-4E7B-910C-7E875CF12449}.Release|x86.ActiveCfg = Release|x86
 		{0CBD728A-27C9-4E7B-910C-7E875CF12449}.Release|x86.Build.0 = Release|x86
+		{6B1EBDDF-9E56-46B5-B296-3EA45F0D9401}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6B1EBDDF-9E56-46B5-B296-3EA45F0D9401}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6B1EBDDF-9E56-46B5-B296-3EA45F0D9401}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{6B1EBDDF-9E56-46B5-B296-3EA45F0D9401}.Debug|x64.Build.0 = Debug|Any CPU
+		{6B1EBDDF-9E56-46B5-B296-3EA45F0D9401}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{6B1EBDDF-9E56-46B5-B296-3EA45F0D9401}.Debug|x86.Build.0 = Debug|Any CPU
+		{6B1EBDDF-9E56-46B5-B296-3EA45F0D9401}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6B1EBDDF-9E56-46B5-B296-3EA45F0D9401}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6B1EBDDF-9E56-46B5-B296-3EA45F0D9401}.Release|x64.ActiveCfg = Release|Any CPU
+		{6B1EBDDF-9E56-46B5-B296-3EA45F0D9401}.Release|x64.Build.0 = Release|Any CPU
+		{6B1EBDDF-9E56-46B5-B296-3EA45F0D9401}.Release|x86.ActiveCfg = Release|Any CPU
+		{6B1EBDDF-9E56-46B5-B296-3EA45F0D9401}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
