@@ -31,9 +31,9 @@ public sealed record MeasurementsQuery(
     string Component,
     PhaseMode PhaseMode = PhaseMode.Any,
     string? Phase = null,
-    IReadOnlyList<string>? PmuNames = null, // id_name
+    IReadOnlyList<string>? PmuNames = null,
     string? Unit = null,
-    string? ReferenceTerminal = null   // <-- novo
+    string? ReferenceTerminal = null
 );
 
 public sealed record MeasurementRow(

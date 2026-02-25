@@ -13,13 +13,13 @@ public sealed class RunComtradeRepo
         const string sql = """
         WITH next_job AS (
           SELECT run_id
-          FROM openplot.run_comtrade
+          FROM openplot.comtrade_runs
           WHERE status = 'queued'
           ORDER BY created_at
           FOR UPDATE SKIP LOCKED
           LIMIT 1
         )
-        UPDATE openplot.run_comtrade j
+        UPDATE openplot.comtrade_runs j
         SET status = 'running',
             started_at = now(),
             progress = 1,
@@ -36,7 +36,7 @@ public sealed class RunComtradeRepo
     public Task UpdateProgressAsync(Guid runId, int progress, string? message, CancellationToken ct)
     {
         const string sql = """
-        UPDATE openplot.run_comtrade
+        UPDATE openplot.comtrade_runs
         SET progress = @progress,
             message = @message
         WHERE run_id = @runId;
@@ -47,7 +47,7 @@ public sealed class RunComtradeRepo
     public Task MarkDoneAsync(Guid runId, string dirPath, string fileName, long sizeBytes, string sha256, CancellationToken ct)
     {
         const string sql = """
-        UPDATE openplot.run_comtrade
+        UPDATE openplot.comtrade_runs
         SET status = 'done',
             progress = 100,
             message = 'Concluído',
@@ -64,7 +64,7 @@ public sealed class RunComtradeRepo
     public Task MarkFailedAsync(Guid runId, string error, CancellationToken ct)
     {
         const string sql = """
-        UPDATE openplot.run_comtrade
+        UPDATE openplot.comtrade_runs
         SET status = 'failed',
             message = 'Falha',
             error = @error,
