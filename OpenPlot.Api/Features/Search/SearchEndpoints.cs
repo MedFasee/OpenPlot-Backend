@@ -162,20 +162,23 @@ VALUES
                 List<string> pmusResolved;
 
                 if (WantsAllPmus(req.Pmus))
-                {
-                    const string sqlAllPmus = @"
-                SELECT pmu.name
-                FROM openplot.pmu pmu
-                JOIN openplot.pdc pdc ON pdc.id = pmu.pdc_id
-                WHERE pdc.name = @source
-                ORDER BY pmu.name;
-            ";
+                    {
+                        const string sqlAllPmus = @"
+                            SELECT
+                                m.id_name
+                            FROM openplot.pdc AS p
+                            JOIN openplot.pdc_pmu AS pp
+                              ON p.pdc_id = pp.pdc_id
+                            JOIN openplot.pmu AS m
+                              ON pp.pmu_id = m.pmu_id
+                            WHERE p.name ILIKE @pdcName
+                            ORDER BY m.area, m.state, m.volt_level, m.station, m.id_name;";
 
-                    pmusResolved = (await db.QueryAsync<string>(sqlAllPmus, new { source })).ToList();
+                        pmusResolved = (await db.QueryAsync<string>(sqlAllPmus, new { pdcName = source })).ToList();
 
-                    if (pmusResolved.Count == 0)
-                        return Results.BadRequest(new { error = "Nenhuma PMU encontrada para o PDC", source });
-                }
+                        if (pmusResolved.Count == 0)
+                            return Results.BadRequest(new { error = "Nenhuma PMU encontrada para o PDC", source });
+                    }
                 else
                 {
                     if (req.Pmus is null || req.Pmus.Count == 0)
