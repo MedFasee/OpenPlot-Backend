@@ -10,9 +10,13 @@ namespace OpenPlot.Data.Dtos
         public DateTime from_ts { get; set; }
         public DateTime to_ts { get; set; }
         public int select_rate { get; set; }
-        public string status { get; set; } = "";
+        public string status { get; set; } = default!;
         public DateTime created_at { get; set; }
-        public string shared { get; set; }
+
+        public bool shared { get; set; }
+        public string username { get; set; } = default!;
+
+        public bool owner { get; set; }
     }
     public sealed record SoftDeleteRun(Guid id, bool is_visible);
 

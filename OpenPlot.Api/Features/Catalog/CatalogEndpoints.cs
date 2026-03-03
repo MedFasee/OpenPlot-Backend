@@ -166,11 +166,15 @@ ORDER BY m.area, m.state, m.volt_level, m.station, m.id_name;";
 
     }
 
-    public class SearchRunItem
+    public sealed class SearchRunItem
     {
         public string label { get; set; } = default!;
         public string status { get; set; } = default!;
         public string id { get; set; } = default!;
+
+        public bool shared { get; set; } = default!;
+
+        public bool owner { get; set; }
     }
 
 

@@ -34,6 +34,7 @@ public static class RunsEndpoints
                 if (string.IsNullOrWhiteSpace(username))
                     return Results.Unauthorized();
 
+
                 using var db = dbf.Create();
 
                 var rows = await db.QueryAsync<SearchRunRow>(
@@ -41,8 +42,8 @@ public static class RunsEndpoints
                     new { status, username }
                 );
 
-            // ano -> mês -> dia -> itens
-            var calendar = new Dictionary<string, Dictionary<string, Dictionary<string, List<SearchRunItem>>>>();
+                // ano -> mês -> dia -> itens
+                var calendar = new Dictionary<string, Dictionary<string, Dictionary<string, List<SearchRunItem>>>>();
 
             foreach (var r in rows)
             {
@@ -65,13 +66,16 @@ public static class RunsEndpoints
                 if (!days.TryGetValue(d, out var items))
                     days[d] = items = new();
 
-                items.Add(new SearchRunItem
-                {
-                    label = label,
-                    status = r.status,
-                    id = r.id.ToString()
-                });
-            }
+                    items.Add(new SearchRunItem
+                    {
+                        label = label,
+                        status = r.status,
+                        id = r.id.ToString(),
+
+                        shared = r.shared,
+                        owner = r.owner
+                    });
+                }
 
             // agora data é só o calendário (sem lookup)
             var data = calendar;

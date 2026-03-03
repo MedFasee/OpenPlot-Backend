@@ -32,16 +32,28 @@ RETURNING id, is_visible, deleted_at;";
 
 
 
-        public const string ListRuns = @"
+        public const string ListRuns =  @"
 SELECT
-  id, source, terminal_id, from_ts, to_ts, select_rate, status, created_at, shared, username
+  id,
+  source,
+  terminal_id,
+  from_ts,
+  to_ts,
+  select_rate,
+  status,
+  created_at,
+  shared,
+  username,
+
+  (LOWER(username) = LOWER(@username)) AS owner
+
 FROM openplot.search_runs
 WHERE
   ( @status IS NULL OR status = @status )
   AND
   ( shared = TRUE OR LOWER(username) = LOWER(@username) )
-AND 
-(is_visible = TRUE)
+  AND
+  ( is_visible = TRUE )
 ORDER BY created_at DESC
 LIMIT 5000;";
 
