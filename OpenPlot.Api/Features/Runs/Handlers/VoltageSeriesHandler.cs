@@ -14,12 +14,14 @@ public sealed class VoltageSeriesHandler
     private readonly IMeasurementsRepository _meas;
     private readonly IPlotMetaBuilder _meta;
     private readonly ITimeSeriesDownsampler _down = new TimeBucketMinMaxDownsampler();
+    private readonly IAnalysisCacheRepository _cacheRepo;
 
-    public VoltageSeriesHandler(IRunContextRepository runs, IMeasurementsRepository meas, IPlotMetaBuilder meta)
+    public VoltageSeriesHandler(IRunContextRepository runs, IMeasurementsRepository meas, IPlotMetaBuilder meta,IAnalysisCacheRepository cacheRepo)
     {
         _runs = runs;
         _meas = meas;
         _meta = meta;
+        _cacheRepo = cacheRepo;
     }
 
     // Mantém compatibilidade (chamadas antigas)
@@ -84,6 +86,44 @@ public sealed class VoltageSeriesHandler
         if (rows.Count == 0)
             return Results.NotFound("Nada encontrado para esse run/filtro no intervalo solicitado.");
 
+        var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
+        var windowTo2 = toUtc ?? rows.Max(r => r.Ts);
+
+        var cachePayload = new RowsCacheV2
+        {
+            From = windowFrom.ToUniversalTime(),
+            To = windowTo2.ToUniversalTime(),
+            SelectRate = (int)ctx.SelectRate, // ajuste se necessário
+            Series = rows
+        .GroupBy(r => r.SignalId)
+        .Select(g =>
+        {
+            var first = g.First();
+
+            return new RowsCacheSeries
+            {
+                SignalId = first.SignalId,
+                PdcPmuId = first.PdcPmuId,
+                IdName = first.IdName,
+                PdcName = first.PdcName,
+                Points = g
+                    .OrderBy(x => x.Ts)
+                    .Select(x => new RowsCachePoint
+                    {
+                        Ts = x.Ts.ToUniversalTime(),
+                        Value = x.Value
+                    })
+                    .ToList()
+            };
+        })
+        .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
+        .ThenBy(s => s.Phase, StringComparer.OrdinalIgnoreCase)
+        .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
+        .ToList()
+        };
+
+        var cacheId = await _cacheRepo.SaveAsync(q.RunId, cachePayload, ct);
+
         var series = rows
             .GroupBy(r => r.SignalId)
             .Select(g =>
@@ -130,8 +170,7 @@ public sealed class VoltageSeriesHandler
             })
             .ToList();
 
-        var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
-        var windowTo2 = toUtc ?? rows.Max(r => r.Ts);
+
         var data = windowFrom.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
         var plotMeta = _meta.Build(w, ctx, meas);
@@ -144,6 +183,10 @@ public sealed class VoltageSeriesHandler
             unit,
             tri,
             phase = tri ? "ABC" : uphase,
+
+
+            cache_id = cacheId,
+
             resolved = new
             {
                 pdc = ctx.PdcName,

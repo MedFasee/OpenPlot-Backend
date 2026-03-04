@@ -104,6 +104,8 @@ builder.Services.AddSingleton<IUiMenuService, UiMenuService>();
 // Repositories
 builder.Services.AddScoped<IRunContextRepository, RunContextRepository>();
 builder.Services.AddScoped<IMeasurementsRepository, MeasurementsRepository>();
+builder.Services.AddScoped<IAnalysisCacheRepository, AnalysisCacheRepository>();
+
 
 // Handlers
 builder.Services.AddScoped<SimpleSeriesHandler>();
@@ -260,6 +262,7 @@ apiV1.MapAuth();
 apiV1.MapConfig();
 apiV1.MapSearch();
 apiV1.MapRuns();
+apiV1.MapPostProcessing();
 apiV1.MapImport();
 
 app.Run();

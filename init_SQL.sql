@@ -132,3 +132,47 @@ ALTER TABLE openplot.search_runs
     ADD COLUMN IF NOT EXISTS pmus jsonb;
 	ADD COLUMN IF NOT EXISTS pmus_ok jsonb;
 
+-- 11 Tabelas de gestao de comtrades e de cache
+CREATE TABLE IF NOT EXISTS openplot.run_export_zip (
+  -- 1:1 com search_runs
+  run_id        uuid PRIMARY KEY
+    REFERENCES openplot.search_runs(id)
+    ON DELETE RESTRICT,
+
+  -- controle do processamento
+  status        text NOT NULL DEFAULT 'queued',        -- queued|running|done|failed
+  progress      integer NOT NULL DEFAULT 0 CHECK (progress BETWEEN 0 AND 100),
+  message       text,
+
+  -- arquivo definitivo (disco local)
+  dir_path      text,   -- ex: /var/lib/openplot/exports/2026/02/07
+  file_name     text,   -- ex: 20260207_152800_152859_60_<source>_<runid>.zip
+  size_bytes    bigint CHECK (size_bytes IS NULL OR size_bytes >= 0),
+  sha256        text,   -- opcional, mas bom p/ integridade
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  started_at    timestamptz,
+  finished_at   timestamptz,
+
+  -- auditoria básica
+  created_by    text,   
+  error         text
+);
+
+-- Ajuda worker a achar jobs pendentes rapidamente
+CREATE INDEX IF NOT EXISTS ix_run_export_zip_status
+  ON openplot.run_export_zip(status);
+
+-- Ajuda listagens por usuário (opcional)
+CREATE INDEX IF NOT EXISTS ix_run_export_zip_created_by
+  ON openplot.run_export_zip(created_by, created_at DESC);
+
+
+  CREATE TABLE IF NOT EXISTS openplot.analysis_cache (
+    cache_id uuid PRIMARY KEY,
+    job_id uuid NOT NULL,
+    payload jsonb NOT NULL,
+    last_accessed_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS ix_analysis_cache_job_id
+    ON openplot.analysis_cache (job_id);
