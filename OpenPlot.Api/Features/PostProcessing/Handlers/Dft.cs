@@ -10,7 +10,16 @@ namespace OpenPlot.Features.PostProcessing.Handlers;
 public static class Dft
 {
     public sealed record SpecPoint(double Hz, double Mag);
-    public sealed record Spec(double Sr, int N, double FMin, IReadOnlyList<SpecPoint> Points);
+
+    // Spec agora carrega metadados da série (pmu/phase/component/quantity)
+    public sealed record Spec(double Sr, int N, double FMin, IReadOnlyList<SpecPoint> Points)
+    {
+        public string? Pmu { get; init; }
+        public string? Phase { get; init; }
+        public string? Component { get; init; }
+        public string? Quantity { get; init; }
+        public string? Unit { get; init; }
+    }
 
     // Igual MedPlot: fMin = 2*sr/N
     public static double FMin(double sr, int n) => (2.0 * sr) / n;
@@ -100,6 +109,7 @@ public static class Dft
             .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        // chave única (pmu|quantity|component|phase|unit) para não sobrescrever fases/componentes
         var specs = new Dictionary<string, Spec>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var serie in orderedSeries)
@@ -112,7 +122,15 @@ public static class Dft
                 continue;
 
             var y = ResampleHoldLast(raw, sr);
-            var spec = ForwardSingleSided(y, sr);
+
+            var spec = ForwardSingleSided(y, sr) with
+            {
+                Pmu = serie.IdName,
+                Phase = serie.Phase,
+                Component = serie.Component,
+                Quantity = serie.Quantity,
+                Unit = serie.Unit,
+            };
 
             specs[BuildSeriesName(serie)] = spec;
         }
@@ -128,21 +146,22 @@ public static class Dft
 
     private static string BuildSeriesName(RowsCacheSeries s)
     {
-        var hasPhase = !string.IsNullOrWhiteSpace(s.Phase);
-        var hasComponent = !string.IsNullOrWhiteSpace(s.Component);
+        var pmu = (s.IdName ?? "").Trim();
 
-        if (hasPhase && hasComponent)
-            return $"{s.IdName} - {s.Phase} - {s.Component}";
+        var qty = (s.Quantity ?? "").Trim().ToUpperInvariant();
+        var comp = (s.Component ?? "").Trim().ToUpperInvariant();
+        var ph = (s.Phase ?? "").Trim().ToUpperInvariant();
 
-        if (hasPhase)
-            return $"{s.IdName} - {s.Phase}";
+        // "PMU|VOLTAGE|MAG|A" (inclui só o que existir, mas mantém unicidade quando houver)
+        var parts = new List<string>(4) { pmu };
+        if (!string.IsNullOrWhiteSpace(qty)) parts.Add(qty);
+        if (!string.IsNullOrWhiteSpace(comp)) parts.Add(comp);
+        if (!string.IsNullOrWhiteSpace(ph)) parts.Add(ph);
 
-        if (hasComponent)
-            return $"{s.IdName} - {s.Component}";
-
-        return s.IdName;
+        return string.Join('|', parts);
     }
 
+    // Mantidos caso você use em outros pontos/validações futuras
     private static DateTime ReadDateTime(JsonElement el)
     {
         return el.ValueKind switch

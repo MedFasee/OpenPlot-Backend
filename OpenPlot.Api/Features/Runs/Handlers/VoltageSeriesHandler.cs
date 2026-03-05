@@ -93,9 +93,19 @@ public sealed class VoltageSeriesHandler
         {
             From = windowFrom.ToUniversalTime(),
             To = windowTo2.ToUniversalTime(),
-            SelectRate = (int)ctx.SelectRate, // ajuste se necessário
+            SelectRate = (int)ctx.SelectRate,
+
             Series = rows
-        .GroupBy(r => r.SignalId)
+        // chave composta: garante separar A/B/C e MAG/ANG etc.
+        .GroupBy(r => new
+        {
+            r.SignalId,    
+            Phase = (r.Phase ?? "").Trim(),
+            Component = (r.Component ?? "").Trim(),
+            r.PdcPmuId,
+            r.IdName,
+            r.PdcName
+        })
         .Select(g =>
         {
             var first = g.First();
@@ -106,6 +116,12 @@ public sealed class VoltageSeriesHandler
                 PdcPmuId = first.PdcPmuId,
                 IdName = first.IdName,
                 PdcName = first.PdcName,
+
+                Unit = unit,
+                Phase = first.Phase,
+                Quantity = "voltage",
+                Component = first.Component,
+
                 Points = g
                     .OrderBy(x => x.Ts)
                     .Select(x => new RowsCachePoint

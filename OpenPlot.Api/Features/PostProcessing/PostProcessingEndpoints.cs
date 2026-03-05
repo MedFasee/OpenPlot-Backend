@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using GSF.Units.EE;
+using Microsoft.AspNetCore.Mvc;
 using OpenPlot.Features.PostProcessing.Handlers;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Repositories;
@@ -25,7 +26,13 @@ public static class PostProcessingEndpoints
 
             var series = dft.Specs.Select(kv => new
             {
-                name = kv.Key,
+                pmu = kv.Value.Pmu,
+                component = kv.Value.Component,
+                quantity = kv.Value.Quantity,
+                phase = kv.Value.Phase,
+                unit= kv.Value.Unit,
+                meta = new {serie= "Nome da série"},
+
                 sr = kv.Value.Sr,
                 n = kv.Value.N,
                 fMin = kv.Value.FMin,
@@ -37,9 +44,13 @@ public static class PostProcessingEndpoints
             return Results.Ok(new
             {
                 cache_id,
+                meta = new {title= "Espectro de Freq. do ... - ... - FPS",
+                            xLabel= "Frequência (Hz)",
+                            yLabel= "Magnitude"},
                 selectRate = payload.SelectRate,
                 window = new { from = payload.From, to = payload.To },
                 series
+                
             });
         });
 

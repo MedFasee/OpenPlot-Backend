@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace OpenPlot.Features.Runs.Contracts;
 
@@ -22,17 +23,6 @@ public sealed record SeriesDto(
     IReadOnlyList<object[]> Points
 );
 
-public sealed record SeriesResponseDto(
-    Guid RunId,
-    string Data,
-    object Resolved,
-    object Window,
-    PlotMetaDto? Meta,
-    IReadOnlyList<SeriesDto> Series
-);
-
-
-
 public sealed class RowsCacheV2
 {
     public DateTime From { get; init; }
@@ -49,8 +39,10 @@ public sealed class RowsCacheSeries
     public string PdcName { get; init; } = default!;
     public string? Phase { get; init; }
     public string? Component { get; init; }
+    public string? Quantity { get; init; }
+    public string? Unit { get; init; }
 
-    public List<RowsCachePoint> Points { get; init; } = new();
+    [JsonPropertyOrder(99)] public List<RowsCachePoint> Points { get; init; } = new();
 }
 
 public sealed class RowsCachePoint
