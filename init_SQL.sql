@@ -129,6 +129,7 @@ ALTER TABLE openplot.search_runs
     ADD COLUMN IF NOT EXISTS signal_count integer DEFAULT 0,
     ADD COLUMN IF NOT EXISTS pmu_count integer DEFAULT 0,
     ADD COLUMN IF NOT EXISTS label text,
+    ADD COLUMN IF NOT EXISTS deleted_at timestamptz,
     ADD COLUMN IF NOT EXISTS pmus jsonb;
 	ADD COLUMN IF NOT EXISTS pmus_ok jsonb;
 
