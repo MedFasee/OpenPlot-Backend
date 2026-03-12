@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using OpenPlot.Data.Dtos;
 using OpenPlot.Features.Runs.Contracts;
+using OpenPlot.Features.Runs.Handlers.Responses;
 using OpenPlot.Features.Runs.Repositories;
 using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Ui;
@@ -195,25 +196,19 @@ public sealed class CurrentSeriesHandler
         var data = windowFrom.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
         var plotMeta = _meta.Build(w, ctx, meas);
 
-        return Results.Ok(new
-        {
-            modes,
-            run_id = q.RunId,
-            data,
-            unit = "raw",
-            tri,
-            phase = tri ? "ABC" : uphase,
-
-            cache_id = cacheId,
-
-            resolved = new
+        var response = SeriesResponseBuilderExtensions
+            .BuildSeriesResponse(q.RunId, windowFrom, windowTo2, series, plotMeta)
+            .WithModes(modes)
+            .WithCacheId(cacheId)
+            .WithResolved(ctx.PdcName, series.Select(s => s.pmu).Distinct(StringComparer.OrdinalIgnoreCase).Count())
+            .WithTypeFields(new Dictionary<string, object?>
             {
-                pdc = ctx.PdcName,
-                pmu_count = series.Select(s => s.pmu).Distinct(StringComparer.OrdinalIgnoreCase).Count()
-            },
-            window = new { from = windowFrom, to = windowTo2 },
-            meta = plotMeta,
-            series
-        });
+                ["unit"] = "raw",
+                ["tri"] = tri,
+                ["phase"] = tri ? "ABC" : uphase
+            })
+            .Build();
+
+        return Results.Ok(response);
     }
 }

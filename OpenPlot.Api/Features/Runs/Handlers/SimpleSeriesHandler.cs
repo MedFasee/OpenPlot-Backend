@@ -1,32 +1,37 @@
-﻿using System.Globalization;
-using OpenPlot.Core.TimeSeries;
+﻿using OpenPlot.Core.TimeSeries;
 using OpenPlot.Data.Dtos;
 using OpenPlot.Features.Runs.Contracts;
+using OpenPlot.Features.Runs.Handlers.Abstractions;
+using OpenPlot.Features.Runs.Handlers.Base;
 using OpenPlot.Features.Runs.Repositories;
-using OpenPlot.Features.Ui;
 
-public sealed class SimpleSeriesHandler
+namespace OpenPlot.Features.Runs.Handlers;
+
+/// <summary>
+/// Handler para séries simples (frequência, dfreq, digital, etc).
+/// Características: não requerem cálculos complexos, apenas passthrough dos valores.
+/// </summary>
+public sealed class SimpleSeriesHandler : BaseSeriesHandler<SimpleSeriesQuery>
 {
-    private readonly IRunContextRepository _runRepo;
-    private readonly IMeasurementsRepository _measRepo;
-    private readonly ITimeSeriesDownsampler _down;
-    private readonly IPlotMetaBuilder _meta;
-    private readonly IAnalysisCacheRepository _cacheRepo;
+    private readonly IMeasurementsRepository _measRepository;
+    private readonly ITimeSeriesDownsampler _downsampler;
+    private MeasurementsQuery? _currentMeasurement; // Armazenado durante execução
 
     public SimpleSeriesHandler(
-        IRunContextRepository runRepo,
-        IMeasurementsRepository measRepo,
-        ITimeSeriesDownsampler down,
-        IPlotMetaBuilder meta,
-        IAnalysisCacheRepository cacheRepo)
+        IRunContextRepository runRepository,
+        IMeasurementsRepository measRepository,
+        ITimeSeriesDownsampler downsampler,
+        IPlotMetaBuilder metaBuilder,
+        IAnalysisCacheRepository cacheRepository)
+        : base(runRepository, metaBuilder, ConvertCacheRepo(cacheRepository))
     {
-        _runRepo = runRepo;
-        _measRepo = measRepo;
-        _down = down;
-        _meta = meta;
-        _cacheRepo = cacheRepo;
+        _measRepository = measRepository ?? throw new ArgumentNullException(nameof(measRepository));
+        _downsampler = downsampler ?? throw new ArgumentNullException(nameof(downsampler));
     }
 
+    /// <summary>
+    /// Sobrecarga para compatibilidade com código antigo.
+    /// </summary>
     public Task<IResult> HandleAsync(
         SimpleSeriesQuery q,
         WindowQuery w,
@@ -34,6 +39,9 @@ public sealed class SimpleSeriesHandler
         CancellationToken ct)
         => HandleAsync(q, w, meas, modes: null, ct);
 
+    /// <summary>
+    /// Sobrecarga que permite especificar MeasurementsQuery customizada.
+    /// </summary>
     public async Task<IResult> HandleAsync(
         SimpleSeriesQuery q,
         WindowQuery w,
@@ -41,101 +49,138 @@ public sealed class SimpleSeriesHandler
         Dictionary<string, object?>? modes,
         CancellationToken ct)
     {
-        var noDownsample = q.MaxPointsIsAll;
-        var maxPts = q.ResolveMaxPoints(@default: 5000);
+        _currentMeasurement = meas;
+        return await base.HandleAsync(q, w, modes, ct);
+    }
 
-        var fromUtc = w.FromUtc;
-        var toUtc = w.ToUtc;
-        if (fromUtc.HasValue && toUtc.HasValue && fromUtc >= toUtc)
-            return Results.BadRequest("from < to");
-
-        var ctx = await _runRepo.ResolveAsync(q.RunId, fromUtc, toUtc, ct);
-        if (ctx is null) return Results.NotFound("run_id não encontrado.");
-
-        var rows = await _measRepo.QueryAsync(ctx, meas, ct);
-        if (rows.Count == 0) return Results.NotFound("Nada encontrado para esse run/filtro.");
-
-        var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
-        var windowTo2 = toUtc ?? rows.Max(r => r.Ts);
-
-        var cachePayload = new RowsCacheV2
+    protected override async Task<IReadOnlyList<MeasurementRow>> QueryDataAsync(
+        SimpleSeriesQuery query,
+        RunContext runContext,
+        WindowQuery window,
+        CancellationToken ct)
+    {
+        if (_currentMeasurement is null)
         {
-            From = windowFrom.ToUniversalTime(),
-            To = windowTo2.ToUniversalTime(),
-            SelectRate = (int)ctx.SelectRate, // ajuste se necessário
-            Series = rows
-        .GroupBy(r => r.SignalId)
-        .Select(g =>
-        {
-            var first = g.First();
+            throw new InvalidOperationException("MeasurementsQuery não foi configurada.");
+        }
 
-            return new RowsCacheSeries
-            {
-                SignalId = first.SignalId,
-                PdcPmuId = first.PdcPmuId,
-                IdName = first.IdName,
-                PdcName = first.PdcName,
-                Points = g
-                    .OrderBy(x => x.Ts)
-                    .Select(x => new RowsCachePoint
-                    {
-                        Ts = x.Ts.ToUniversalTime(),
-                        Value = x.Value
-                    })
-                    .ToList()
-            };
-        })
-        .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
-        .ThenBy(s => s.Phase, StringComparer.OrdinalIgnoreCase)
-        .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
-        .ToList()
-        };
+        return await _measRepository.QueryAsync(runContext, _currentMeasurement, ct);
+    }
 
-        var cacheId = await _cacheRepo.SaveAsync(q.RunId, cachePayload, ct);
-
-        var plotMeta = _meta.Build(w, ctx, meas);
-
-        var series = rows
+    protected override List<object> TransformData(
+        IReadOnlyList<MeasurementRow> rows,
+        int maxPoints,
+        bool noDownsample)
+    {
+        return rows
             .GroupBy(r => r.SignalId)
             .Select(g =>
             {
-                var any = g.First();
-                var pts = g.Select(x => new Point(x.Ts, x.Value)).ToList();
-                var down = noDownsample ? pts : _down.MinMax(pts, maxPts);
+                var first = g.First();
+                var points = g.Select(x => new Point(x.Ts, x.Value)).ToList();
+                var downsampled = noDownsample
+                    ? points
+                    : _downsampler.MinMax(points, maxPoints);
 
                 return new SeriesDto(
-                    Pdc: any.PdcName,
-                    Pmu: any.IdName,
-                    SignalId: any.SignalId,
-                    PdcPmuId: any.PdcPmuId,
-                    Unit: meas.Unit ?? "raw",
+                    Pdc: first.PdcName,
+                    Pmu: first.IdName,
+                    SignalId: first.SignalId,
+                    PdcPmuId: first.PdcPmuId,
+                    Unit: _currentMeasurement?.Unit ?? "raw",
                     Meta: null,
-                    Points: down.Select(p => new object[] { p.Ts, p.Val }).ToList()
+                    Points: downsampled.Select(p => new object[] { p.Ts, p.Val }).ToList()
                 );
             })
+            .Cast<object>()
             .ToList();
+    }
 
-        var dataStr = windowFrom.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
-
-        return Results.Ok(new
+    protected override RowsCacheV2? BuildCachePayload(
+        IReadOnlyList<MeasurementRow> rows,
+        DateTime windowFrom,
+        DateTime windowTo,
+        RunContext runContext)
+    {
+        return new RowsCacheV2
         {
-            modes,
+            From = windowFrom.ToUniversalTime(),
+            To = windowTo.ToUniversalTime(),
+            SelectRate = (int)runContext.SelectRate,
+            Series = rows
+                .GroupBy(r => r.SignalId)
+                .Select(g =>
+                {
+                    var first = g.First();
+                    return new RowsCacheSeries
+                    {
+                        SignalId = first.SignalId,
+                        PdcPmuId = first.PdcPmuId,
+                        IdName = first.IdName,
+                        PdcName = first.PdcName,
+                        Unit = _currentMeasurement?.Unit,
+                        Points = g
+                            .OrderBy(x => x.Ts)
+                            .Select(x => new RowsCachePoint
+                            {
+                                Ts = x.Ts.ToUniversalTime(),
+                                Value = x.Value
+                            })
+                            .ToList()
+                    };
+                })
+                .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(s => s.Phase, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+        };
+    }
 
-            run_id = q.RunId,
-            data = dataStr,
+    protected override PlotMetaDto BuildPlotMeta(
+        RunContext runContext,
+        SimpleSeriesQuery query)
+    {
+        if (_currentMeasurement is null)
+        {
+            return base.BuildPlotMeta(runContext, query);
+        }
 
-            cache_id = cacheId,
+        var yLabel = _currentMeasurement.Unit ?? "raw";
+        var title = $"{_currentMeasurement.Quantity?.ToUpperInvariant()} - {_currentMeasurement.Component?.ToUpperInvariant()}";
 
-            resolved = new
-            {
-                pdc = rows.First().PdcName,
-                pmu_count = series.Select(s => s.Pmu).Distinct().Count()
-            },
+        return new PlotMetaDto(
+            Title: title,
+            XLabel: "Tempo",
+            YLabel: yLabel
+        );
+    }
 
-            window = new { from = windowFrom, to = windowTo2 },
+    protected override string GetEmptyDataMessage() =>
+        "Nada encontrado para esse run/filtro.";
 
-            meta = plotMeta,
-            series
-        });
+    /// <summary>
+    /// Conversor adaptador para ISeriesCacheService.
+    /// </summary>
+    private static ISeriesCacheService ConvertCacheRepo(IAnalysisCacheRepository repo)
+    {
+        return new CacheServiceAdapter(repo);
+    }
+
+    /// <summary>
+    /// Adaptador para converter IAnalysisCacheRepository em ISeriesCacheService.
+    /// </summary>
+    private sealed class CacheServiceAdapter : ISeriesCacheService
+    {
+        private readonly IAnalysisCacheRepository _innerRepo;
+
+        public CacheServiceAdapter(IAnalysisCacheRepository innerRepo)
+        {
+            _innerRepo = innerRepo;
+        }
+
+        public async Task<object?> SaveAsync(Guid runId, RowsCacheV2 payload, CancellationToken ct)
+        {
+            return await _innerRepo.SaveAsync(runId, payload, ct);
+        }
     }
 }

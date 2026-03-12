@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using OpenPlot.Features.Runs.Handlers.Abstractions;
 
 namespace OpenPlot.Data.Dtos
 {
@@ -105,7 +106,7 @@ namespace OpenPlot.Data.Dtos
     }
 
 
-    public sealed class ByRunQuery
+    public sealed class ByRunQuery : ISeriesQuery
     {
         [FromQuery(Name = "run_Id")]
         public Guid RunId { get; init; }
@@ -135,7 +136,7 @@ namespace OpenPlot.Data.Dtos
     }
 
 
-    public sealed class PowerPlotQuery
+    public sealed class PowerPlotQuery : ISeriesQuery
     {
         [FromQuery(Name = "run_id")] public Guid RunId { get; init; }
 
@@ -145,13 +146,23 @@ namespace OpenPlot.Data.Dtos
 
         [FromQuery(Name = "unit")] public string? Unit { get; init; }  // raw|mw
 
-        [FromQuery(Name = "maxPoints")] public int MaxPoints { get; init; } = 5000;
+        [FromQuery(Name = "maxPoints")] public string? MaxPoints { get; init; }
 
         [FromQuery(Name = "tri")] public bool? Tri { get; init; }     // <- bool?
 
         [FromQuery(Name = "total")] public bool? Total { get; init; }   // <- bool?
 
         [FromQuery(Name = "phase")] public string? Phase { get; init; } // A|B|C
+
+        public bool MaxPointsIsAll =>
+            string.Equals(MaxPoints?.Trim(), "all", StringComparison.OrdinalIgnoreCase);
+
+        public int ResolveMaxPoints(int @default = 5000)
+        {
+            if (MaxPointsIsAll) return int.MaxValue;
+            if (string.IsNullOrWhiteSpace(MaxPoints)) return @default;
+            return int.TryParse(MaxPoints, out var n) && n > 0 ? n : @default;
+        }
     }
 
 

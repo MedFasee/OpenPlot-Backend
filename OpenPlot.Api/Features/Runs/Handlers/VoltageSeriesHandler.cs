@@ -3,6 +3,7 @@ using OpenPlot.Core.TimeSeries;
 using OpenPlot.Data.Dtos;
 using OpenPlot.Features.Runs.Calculations;
 using OpenPlot.Features.Runs.Contracts;
+using OpenPlot.Features.Runs.Handlers.Responses;
 using OpenPlot.Features.Runs.Repositories;
 using OpenPlot.Features.Ui;
 
@@ -89,97 +90,89 @@ public sealed class VoltageSeriesHandler
         var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
         var windowTo2 = toUtc ?? rows.Max(r => r.Ts);
 
+        // ===== PROCESSAMENTO DE UNIDADE ANTES DO CACHE =====
+        // Se unit == "pu", converte os valores agora (antes de armazenar em cache)
+        var processedData = unit == "pu"
+            ? rows.Select(r => (r, value: PerUnit.ToVoltagePu(r.Value, r.VoltLevel))).ToList()
+            : rows.Select(r => (r, value: r.Value)).ToList();
+
         var cachePayload = new RowsCacheV2
         {
             From = windowFrom.ToUniversalTime(),
             To = windowTo2.ToUniversalTime(),
             SelectRate = (int)ctx.SelectRate,
 
-            Series = rows
-        // chave composta: garante separar A/B/C e MAG/ANG etc.
-        .GroupBy(r => new
-        {
-            r.SignalId,    
-            Phase = (r.Phase ?? "").Trim(),
-            Component = (r.Component ?? "").Trim(),
-            r.PdcPmuId,
-            r.IdName,
-            r.PdcName
-        })
-        .Select(g =>
-        {
-            var first = g.First();
+            Series = processedData
+                .GroupBy(x => new
+                {
+                    x.r.SignalId,    
+                    Phase = (x.r.Phase ?? "").Trim(),
+                    Component = (x.r.Component ?? "").Trim(),
+                    x.r.PdcPmuId,
+                    x.r.IdName,
+                    x.r.PdcName
+                })
+                .Select(g =>
+                {
+                    var first = g.First();
 
-            return new RowsCacheSeries
-            {
-                SignalId = first.SignalId,
-                PdcPmuId = first.PdcPmuId,
-                IdName = first.IdName,
-                PdcName = first.PdcName,
-
-                Unit = unit,
-                Phase = first.Phase,
-                Quantity = "voltage",
-                Component = first.Component,
-
-                Points = g
-                    .OrderBy(x => x.Ts)
-                    .Select(x => new RowsCachePoint
+                    return new RowsCacheSeries
                     {
-                        Ts = x.Ts.ToUniversalTime(),
-                        Value = x.Value
-                    })
-                    .ToList()
-            };
-        })
-        .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
-        .ThenBy(s => s.Phase, StringComparer.OrdinalIgnoreCase)
-        .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
-        .ToList()
+                        SignalId = first.r.SignalId,
+                        PdcPmuId = first.r.PdcPmuId,
+                        IdName = first.r.IdName,
+                        PdcName = first.r.PdcName,
+
+                        Unit = unit,
+                        Phase = first.r.Phase,
+                        Quantity = "voltage",
+                        Component = first.r.Component,
+
+                        Points = g
+                            .OrderBy(x => x.r.Ts)
+                            .Select(x => new RowsCachePoint
+                            {
+                                Ts = x.r.Ts.ToUniversalTime(),
+                                Value = x.value
+                            })
+                            .ToList()
+                    };
+                })
+                .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(s => s.Phase, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
+                .ToList()
         };
 
         var cacheId = await _cacheRepo.SaveAsync(q.RunId, cachePayload, ct);
 
-        var series = rows
-            .GroupBy(r => r.SignalId)
+        // ===== DOWNSAMPLING DEPOIS (PARA VISUALIZAÇÃO) =====
+        var series = processedData
+            .GroupBy(x => x.r.SignalId)
             .Select(g =>
             {
                 var any = g.First();
 
-                // materializa série
-                var raw = g.Select(x => new Point(x.Ts, x.Value)).ToList();
+                // materializa série (já com valores processados)
+                var raw = g.Select(x => new Point(x.r.Ts, x.value)).ToList();
 
                 // downsample (ou não)
                 var downs = noDownsample ? raw : _down.MinMax(raw, maxPts);
 
-                // converte p/ points (downsample ANTES do pu)
-                List<object[]> points;
-
-                if (unit == "pu")
-                {
-                    var pu = PerUnit.ToVoltagePu(
-                        downs.Select(p => (p.Ts, p.Val)),
-                        any.VoltLevel
-                    );
-
-                    points = pu.Select(p => new object[] { p.ts, p.val }).ToList();
-                }
-                else
-                {
-                    points = downs.Select(p => new object[] { p.Ts, p.Val }).ToList();
-                }
+                // converte p/ points (sem pu conversion adicional)
+                var points = downs.Select(p => new object[] { p.Ts, p.Val }).ToList();
 
                 return new
                 {
-                    pmu = any.IdName,
-                    pdc = any.PdcName,
-                    signal_id = any.SignalId,
-                    pdc_pmu_id = any.PdcPmuId,
+                    pmu = any.r.IdName,
+                    pdc = any.r.PdcName,
+                    signal_id = any.r.SignalId,
+                    pdc_pmu_id = any.r.PdcPmuId,
                     meta = new
                     {
-                        phase = (any.Phase ?? "").Trim().ToUpperInvariant(),
-                        component = (any.Component ?? "").Trim().ToUpperInvariant(),
-                        volt_level_kV = any.VoltLevel is null ? (double?)null : any.VoltLevel.Value / 1000.0
+                        phase = (any.r.Phase ?? "").Trim().ToUpperInvariant(),
+                        component = (any.r.Component ?? "").Trim().ToUpperInvariant(),
+                        volt_level_kV = any.r.VoltLevel is null ? (double?)null : any.r.VoltLevel.Value / 1000.0
                     },
                     points
                 };
@@ -191,26 +184,19 @@ public sealed class VoltageSeriesHandler
 
         var plotMeta = _meta.Build(w, ctx, meas);
 
-        return Results.Ok(new
-        {
-            modes,
-            run_id = q.RunId,
-            data,
-            unit,
-            tri,
-            phase = tri ? "ABC" : uphase,
-
-
-            cache_id = cacheId,
-
-            resolved = new
+        var response = SeriesResponseBuilderExtensions
+            .BuildSeriesResponse(q.RunId, windowFrom, windowTo2, series, plotMeta)
+            .WithModes(modes)
+            .WithCacheId(cacheId)
+            .WithResolved(ctx.PdcName, series.Select(s => s.pmu).Distinct().Count())
+            .WithTypeFields(new Dictionary<string, object?>
             {
-                pdc = ctx.PdcName,
-                pmu_count = series.Select(s => s.pmu).Distinct().Count()
-            },
-            window = new { from = windowFrom, to = windowTo2 },
-            meta = plotMeta,
-            series
-        });
+                ["unit"] = unit,
+                ["tri"] = tri,
+                ["phase"] = tri ? "ABC" : uphase
+            })
+            .Build();
+
+        return Results.Ok(response);
     }
 }

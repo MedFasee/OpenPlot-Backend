@@ -2,8 +2,9 @@
 using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Runs.Calculations;
 using OpenPlot.Features.Runs.Contracts;
+using OpenPlot.Features.Runs.Handlers.Responses;
 using OpenPlot.Features.Runs.Repositories;
-using OpenPlot.Features.Ui; // <-- NOVO (UiCatalog)
+using OpenPlot.Features.Ui;
 
 namespace OpenPlot.Features.Runs.Handlers;
 
@@ -13,12 +14,14 @@ public sealed class UnbalanceSeriesHandler
     private readonly IMeasurementsRepository _meas;
     private readonly IPlotMetaBuilder _meta;
     private readonly ITimeSeriesDownsampler _down = new TimeBucketMinMaxDownsampler();
+    private readonly IAnalysisCacheRepository _cacheRepo;
 
-    public UnbalanceSeriesHandler(IRunContextRepository runs, IMeasurementsRepository meas, IPlotMetaBuilder meta)
+    public UnbalanceSeriesHandler(IRunContextRepository runs, IMeasurementsRepository meas, IPlotMetaBuilder meta, IAnalysisCacheRepository cacheRepo)
     {
         _runs = runs;
         _meas = meas;
         _meta = meta;
+        _cacheRepo = cacheRepo;
     }
 
     // Mantém compatibilidade (chamadas antigas)
@@ -99,6 +102,7 @@ public sealed class UnbalanceSeriesHandler
         }
 
         var series = new List<object>();
+        var cachePoints = new List<(string pmuId, DateTime ts, double value)>();
 
         foreach (var g in rows.GroupBy(r => r.IdName, StringComparer.OrdinalIgnoreCase))
         {
@@ -197,14 +201,19 @@ public sealed class UnbalanceSeriesHandler
                 continue;
             }
 
-            // -------- downsample (padrão current/voltage) --------
+            // Armazena dados processados em porcentagem
+            var ratioPercent = ratio.Select(r => (r.ts, value: r.ratio * 100.0)).ToList();
+            foreach (var point in ratioPercent)
+            {
+                cachePoints.Add((first.IdName, point.ts, point.value));
+            }
+
             var raw = ratio.Select(p => new Point(p.ts, p.ratio)).ToList();
             var downs = noDownsample ? raw : _down.MinMax(raw, maxPts);
 
             var points = downs
-                .Select(p => new object[] { p.Ts, p.Val * 100.0 }) // percent
+                .Select(p => new object[] { p.Ts, p.Val * 100.0 })
                 .ToList();
-            // -----------------------------------------------------
 
             series.Add(new
             {
@@ -223,7 +232,42 @@ public sealed class UnbalanceSeriesHandler
 
         var windowFrom = w.FromUtc ?? rows.Min(r => r.Ts);
         var windowTo = w.ToUtc ?? rows.Max(r => r.Ts);
-        var data = windowFrom.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+
+        // ===== CACHE =====
+        var cachePayload = new RowsCacheV2
+        {
+            From = windowFrom.ToUniversalTime(),
+            To = windowTo.ToUniversalTime(),
+            SelectRate = (int)ctx.SelectRate,
+            Series = cachePoints
+                .GroupBy(x => x.pmuId)
+                .Select(g =>
+                {
+                    return new RowsCacheSeries
+                    {
+                        SignalId = 0,
+                        PdcPmuId = 0,
+                        IdName = g.Key,
+                        PdcName = ctx.PdcName,
+                        Unit = "%",
+                        Phase = null,
+                        Quantity = kind,
+                        Component = "ratio",
+                        Points = g
+                            .OrderBy(x => x.ts)
+                            .Select(x => new RowsCachePoint
+                            {
+                                Ts = x.ts.ToUniversalTime(),
+                                Value = x.value
+                            })
+                            .ToList()
+                    };
+                })
+                .ToList()
+        };
+
+        var cacheId = await _cacheRepo.SaveAsync(q.RunId, cachePayload, ct);
+        // =======================================================
 
         var meas = new MeasurementsQuery(
             Quantity: kind,
@@ -232,17 +276,19 @@ public sealed class UnbalanceSeriesHandler
         );
         var plotMeta = _meta.Build(w, ctx, meas);
 
-        return Results.Ok(new
-        {
-            modes,
-            run_id = q.RunId,
-            data,
-            kind,
-            metric = "unbalance",
-            pmu_count = series.Count,
-            window = new { from = windowFrom, to = windowTo },
-            meta = plotMeta,
-            series
-        });
+        var response = SeriesResponseBuilderExtensions
+            .BuildSeriesResponse(q.RunId, windowFrom, windowTo, series, plotMeta)
+            .WithModes(modes)
+            .WithCacheId(cacheId)
+            .WithResolved(ctx.PdcName, series.Count)
+            .WithTypeFields(new Dictionary<string, object?>
+            {
+                ["unit"] = "percent",
+                ["kind"] = kind,
+                ["metric"] = "unbalance"
+            })
+            .Build();
+
+        return Results.Ok(response);
     }
 }

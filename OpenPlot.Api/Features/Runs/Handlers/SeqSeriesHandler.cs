@@ -2,6 +2,7 @@
 using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Runs.Calculations;
 using OpenPlot.Features.Runs.Contracts;
+using OpenPlot.Features.Runs.Handlers.Responses;
 using OpenPlot.Features.Runs.Repositories;
 using OpenPlot.Features.Ui;
 
@@ -13,12 +14,25 @@ public sealed class SeqSeriesHandler
     private readonly IMeasurementsRepository _meas;
     private readonly IPlotMetaBuilder _meta;
     private readonly ITimeSeriesDownsampler _down = new TimeBucketMinMaxDownsampler();
+    private readonly IAnalysisCacheRepository _cacheRepo;
 
-    public SeqSeriesHandler(IRunContextRepository runs, IMeasurementsRepository meas, IPlotMetaBuilder meta)
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SeqSeriesHandler"/> class.
+    /// </summary>
+    /// <param name="runs">The runs repository.</param>
+    /// <param name="meas">The measurements repository.</param>
+    /// <param name="meta">The metadata builder.</param>
+    /// <param name="cacheRepo">The analysis cache repository.</param>
+    public SeqSeriesHandler(
+        IRunContextRepository runs,
+        IMeasurementsRepository meas,
+        IPlotMetaBuilder meta,
+        IAnalysisCacheRepository cacheRepo)
     {
         _runs = runs;
         _meas = meas;
         _meta = meta;
+        _cacheRepo = cacheRepo;
     }
 
     // Mantém compatibilidade (chamadas antigas)
@@ -70,6 +84,7 @@ public sealed class SeqSeriesHandler
         };
 
         var series = new List<object>();
+        var cachePoints = new List<(string pmuId, DateTime ts, double value)>();
 
         foreach (var g in rows.GroupBy(r => r.IdName, StringComparer.OrdinalIgnoreCase))
         {
@@ -123,12 +138,18 @@ public sealed class SeqSeriesHandler
             }
             else if (unit == "pu" && kind == "current")
             {
-                baseValue = 1.0; // MedPlot
+                baseValue = 1.0;
             }
 
             double Unitize(double m) => unit == "pu" ? (m / baseValue) : m;
 
-            // -------- downsample (padrão current/voltage) --------
+            // Armazena dados processados para cache
+            var processedSeq = seqSeries.Select(p => (p.ts, value: Unitize(p.mag))).ToList();
+            foreach (var point in processedSeq)
+            {
+                cachePoints.Add((first.IdName, point.ts, point.value));
+            }
+
             var raw = seqSeries
                 .Select(p => new Point(p.ts, Unitize(p.mag)))
                 .ToList();
@@ -138,7 +159,6 @@ public sealed class SeqSeriesHandler
             var points = downs
                 .Select(p => new object[] { p.Ts, p.Val })
                 .ToList();
-            // -----------------------------------------------------
 
             series.Add(new
             {
@@ -160,7 +180,42 @@ public sealed class SeqSeriesHandler
 
         var windowFrom = w.FromUtc ?? rows.Min(r => r.Ts);
         var windowTo = w.ToUtc ?? rows.Max(r => r.Ts);
-        var data = windowFrom.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+
+        // ===== CACHE =====
+        var cachePayload = new RowsCacheV2
+        {
+            From = windowFrom.ToUniversalTime(),
+            To = windowTo.ToUniversalTime(),
+            SelectRate = (int)ctx.SelectRate,
+            Series = cachePoints
+                .GroupBy(x => x.pmuId)
+                .Select(g =>
+                {
+                    return new RowsCacheSeries
+                    {
+                        SignalId = 0, // Sequências não têm signal_id
+                        PdcPmuId = 0,
+                        IdName = g.Key,
+                        PdcName = ctx.PdcName,
+                        Unit = unit,
+                        Phase = seqNorm,
+                        Quantity = kind,
+                        Component = "seq",
+                        Points = g
+                            .OrderBy(x => x.ts)
+                            .Select(x => new RowsCachePoint
+                            {
+                                Ts = x.ts.ToUniversalTime(),
+                                Value = x.value
+                            })
+                            .ToList()
+                    };
+                })
+                .ToList()
+        };
+
+        var cacheId = await _cacheRepo.SaveAsync(q.RunId, cachePayload, ct);
+        // =======================================================
 
         var pmusForMeta = pmuList.Count == 0 ? null : pmuList;
 
@@ -181,18 +236,19 @@ public sealed class SeqSeriesHandler
 
         var plotMeta = _meta.Build(w, ctx, meas);
 
-        return Results.Ok(new
-        {
-            modes,
-            run_id = q.RunId,
-            data,
-            kind,
-            seq = seqNorm,
-            unit,
-            pmu_count = series.Count,
-            window = new { from = windowFrom, to = windowTo },
-            meta = plotMeta,
-            series
-        });
+        var response = SeriesResponseBuilderExtensions
+            .BuildSeriesResponse(q.RunId, windowFrom, windowTo, series, plotMeta)
+            .WithModes(modes)
+            .WithCacheId(cacheId)
+            .WithResolved(ctx.PdcName, series.Count)
+            .WithTypeFields(new Dictionary<string, object?>
+            {
+                ["unit"] = unit,
+                ["kind"] = kind,
+                ["seq"] = seqNorm
+            })
+            .Build();
+
+        return Results.Ok(response);
     }
 }

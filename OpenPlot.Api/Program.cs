@@ -113,6 +113,9 @@ builder.Services.AddScoped<VoltageSeriesHandler>();
 builder.Services.AddScoped<CurrentSeriesHandler>();
 builder.Services.AddScoped<SeqSeriesHandler>();
 builder.Services.AddScoped<UnbalanceSeriesHandler>();
+builder.Services.AddScoped<ThdSeriesHandler>();
+builder.Services.AddScoped<PowerSeriesHandler>();
+builder.Services.AddScoped<AngleDiffSeriesHandler>();
 
 // Meta
 builder.Services.AddSingleton<IPlotMetaBuilder, PlotMetaBuilder>();

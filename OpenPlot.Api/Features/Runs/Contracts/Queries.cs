@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using OpenPlot.Features.Runs.Handlers.Abstractions;
 
 namespace OpenPlot.Features.Runs.Contracts;
 
@@ -8,7 +9,7 @@ public sealed record WindowQuery(DateTime? From, DateTime? To)
     public DateTime? ToUtc => To?.ToUniversalTime();
 }
 
-public sealed class SimpleSeriesQuery
+public sealed class SimpleSeriesQuery : ISeriesQuery
 {
     [FromQuery(Name = "run_Id")]
     public Guid RunId { get; init; }
