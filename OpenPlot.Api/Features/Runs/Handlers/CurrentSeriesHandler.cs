@@ -1,5 +1,4 @@
-﻿using System.Globalization;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using OpenPlot.Data.Dtos;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Responses;
@@ -14,6 +13,8 @@ public sealed class CurrentSeriesHandler
     private readonly IRunContextRepository _runs;
     private readonly IMeasurementsRepository _meas;
     private readonly IPlotMetaBuilder _meta;
+    private readonly IPhasorRequestService _phasorRequest;
+    private readonly ISeriesAssemblyService _seriesAssembly;
     private readonly ITimeSeriesDownsampler _down = new TimeBucketMinMaxDownsampler();
     private readonly IAnalysisCacheRepository _cacheRepo;
 
@@ -21,11 +22,15 @@ public sealed class CurrentSeriesHandler
         IRunContextRepository runs,
         IMeasurementsRepository meas,
         IPlotMetaBuilder meta,
+        IPhasorRequestService phasorRequest,
+        ISeriesAssemblyService seriesAssembly,
         IAnalysisCacheRepository cacheRepo)
     {
         _runs = runs;
         _meas = meas;
         _meta = meta;
+        _phasorRequest = phasorRequest;
+        _seriesAssembly = seriesAssembly;
         _cacheRepo = cacheRepo;
     }
 
@@ -48,29 +53,14 @@ public sealed class CurrentSeriesHandler
             return i >= 0 ? s[..i].Trim() : s;
         }
 
-        var tri = q.Tri;
+        var normalized = _phasorRequest.Resolve(q, pmu);
+        if (!normalized.IsValid)
+            return Results.BadRequest(normalized.Error);
 
-        // tri=true: precisa de 1 PMU (usa q.Pmu; se vier via pmu[]=..., usa o primeiro)
-        var pmuName = q.Pmu?.Trim();
-        if (tri && string.IsNullOrWhiteSpace(pmuName) && pmu is { Length: > 0 })
-            pmuName = pmu[0]?.Trim();
-
-        string? uphase = null;
-
-        if (!tri)
-        {
-            if (string.IsNullOrWhiteSpace(q.Phase))
-                return Results.BadRequest("phase é obrigatório (A|B|C) quando tri=false.");
-
-            uphase = q.Phase.Trim().ToUpperInvariant();
-            if (uphase is not ("A" or "B" or "C"))
-                return Results.BadRequest("phase deve ser A, B ou C.");
-        }
-        else
-        {
-            if (string.IsNullOrWhiteSpace(pmuName))
-                return Results.BadRequest("para tri=true é obrigatório informar pmu (id_name da PMU).");
-        }
+        var selection = normalized.Selection!;
+        var tri = selection.Tri;
+        var pmuName = selection.TriPmuName;
+        var uphase = selection.Phase;
 
         var noDownsample = q.MaxPointsIsAll;
         var maxPts = q.ResolveMaxPoints(@default: 5000);
@@ -83,12 +73,7 @@ public sealed class CurrentSeriesHandler
         var ctx = await _runs.ResolveAsync(q.RunId, fromUtc, toUtc, ct);
         if (ctx is null) return Results.NotFound("run_id não encontrado.");
 
-        // tri=false: usa pmu[] do endpoint se vier; senão usa q.Pmus (se existir)
-        var pmuNames = (pmu ?? q.Pmus ?? Array.Empty<string>())
-            .Select(x => x?.Trim())
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var pmuNames = selection.PmuNames;
 
         var meas = new MeasurementsQuery(
             Quantity: "current",
@@ -96,7 +81,7 @@ public sealed class CurrentSeriesHandler
             PhaseMode: tri ? PhaseMode.ThreePhase : PhaseMode.Single,
             Phase: uphase,
             PmuNames: tri
-                ? new[] { pmuName! }
+                ? new[] { pmuName }
                 : (pmuNames.Length > 0 ? pmuNames : null),
             Unit: "A"
         );
@@ -109,54 +94,40 @@ public sealed class CurrentSeriesHandler
         var windowTo2 = toUtc ?? rows.Max(r => r.Ts);
 
         // ===== CACHE =====
-        var cachePayload = new RowsCacheV2
-        {
-            From = windowFrom.ToUniversalTime(),
-            To = windowTo2.ToUniversalTime(),
-            SelectRate = (int)ctx.SelectRate,
+        var cacheSeries = rows
+            .GroupBy(r => new
+            {
+                r.SignalId,
+                Phase = (r.Phase ?? "").Trim(),
+                Component = (r.Component ?? "").Trim(),
+                r.PdcPmuId,
+                r.IdName,
+                r.PdcName
+            })
+            .Select(g =>
+            {
+                var first = g.First();
+                return _seriesAssembly.BuildCacheSeries(
+                    signalId: first.SignalId,
+                    pdcPmuId: first.PdcPmuId,
+                    idName: first.IdName,
+                    pdcName: first.PdcName,
+                    unit: "A",
+                    phase: first.Phase,
+                    quantity: "current",
+                    component: first.Component,
+                    points: g.Select(x => (x.Ts, x.Value)));
+            })
+            .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(s => s.Phase, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-            Series = rows
-                // chave composta: separa A/B/C, MAG/ANG etc.
-                .GroupBy(r => new
-                {
-                    r.SignalId,
-                    Phase = (r.Phase ?? "").Trim(),
-                    Component = (r.Component ?? "").Trim(),
-                    r.PdcPmuId,
-                    r.IdName,
-                    r.PdcName
-                })
-                .Select(g =>
-                {
-                    var first = g.First();
-
-                    return new RowsCacheSeries
-                    {
-                        SignalId = first.SignalId,
-                        PdcPmuId = first.PdcPmuId,
-                        IdName = first.IdName,
-                        PdcName = first.PdcName,
-
-                        Unit = "A",
-                        Phase = first.Phase,
-                        Quantity = "current",
-                        Component = first.Component,
-
-                        Points = g
-                            .OrderBy(x => x.Ts)
-                            .Select(x => new RowsCachePoint
-                            {
-                                Ts = x.Ts.ToUniversalTime(),
-                                Value = x.Value
-                            })
-                            .ToList()
-                    };
-                })
-                .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(s => s.Phase, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
-                .ToList()
-        };
+        var cachePayload = _seriesAssembly.BuildCachePayload(
+            windowFrom,
+            windowTo2,
+            (int)ctx.SelectRate,
+            cacheSeries);
 
         var cacheId = await _cacheRepo.SaveAsync(q.RunId, cachePayload, ct);
         // =======================================================
@@ -167,15 +138,11 @@ public sealed class CurrentSeriesHandler
             {
                 var any = g.First();
 
-                // materializa série
-                var raw = g.Select(x => new Point(x.Ts, x.Value)).ToList();
-
-                // downsample (ou não)
-                var downs = noDownsample ? raw : _down.MinMax(raw, maxPts);
-
-                var points = downs
-                    .Select(p => new object[] { p.Ts, p.Val })
-                    .ToList();
+                var points = _seriesAssembly.BuildPoints(
+                    g.Select(x => (x.Ts, x.Value)),
+                    noDownsample,
+                    maxPts,
+                    _down);
 
                 return new
                 {
@@ -193,7 +160,6 @@ public sealed class CurrentSeriesHandler
             })
             .ToList();
 
-        var data = windowFrom.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
         var plotMeta = _meta.Build(w, ctx, meas);
 
         var response = SeriesResponseBuilderExtensions

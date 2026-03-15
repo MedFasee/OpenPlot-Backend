@@ -411,7 +411,7 @@ public static class RunsEndpoints
         ) =>
         {
             var ui = uiMenus.Build(UiMenuSet.Oscillations);
-            return await handler.HandleAsync(q, w, ui, ct);
+            return await handler.HandleAsync(q, w, pmu, ui, ct);
         });
 
         grp.MapGet("/series/current/by-run", async (
@@ -432,15 +432,12 @@ public static class RunsEndpoints
             [AsParameters] WindowQuery w,
             [FromQuery] string[]? pmu,
             [FromServices] SeqSeriesHandler handler,
+            [FromServices] IPmuQueryHelper pmuHelper,
             [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
         ) =>
         {
-            var pmuList = (pmu ?? Array.Empty<string>())
-                .Select(x => x.Trim())
-                .Where(x => x.Length > 0)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            var pmuList = pmuHelper.Normalize(pmu).ToList();
 
             var req = new SeqRequest(
                 Kind: (q.Kind ?? "").Trim().ToLowerInvariant() == "current" ? SeqKind.Current : SeqKind.Voltage,
@@ -461,15 +458,12 @@ public static class RunsEndpoints
             [AsParameters] WindowQuery w,
             [FromQuery] string[]? pmu,
             [FromServices] UnbalanceSeriesHandler handler,
+            [FromServices] IPmuQueryHelper pmuHelper,
             [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
         ) =>
         {
-            var pmuList = (pmu ?? Array.Empty<string>())
-                .Select(x => x.Trim())
-                .Where(x => x.Length > 0)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            var pmuList = pmuHelper.Normalize(pmu).ToList();
 
             var req = new UnbalanceRequest(
                 Kind: (q.Kind ?? "").Trim().ToLowerInvariant() == "current" ? SeqKind.Current : SeqKind.Voltage
@@ -484,15 +478,12 @@ public static class RunsEndpoints
             [AsParameters] WindowQuery w,
             [FromQuery] string[]? pmu,
             [FromServices] SimpleSeriesHandler handler,
+            [FromServices] IPmuQueryHelper pmuHelper,
             [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
         ) =>
         {
-            var pmuList = (pmu ?? Array.Empty<string>())
-                .Select(x => x.Trim())
-                .Where(x => x.Length > 0)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            var pmuList = pmuHelper.Normalize(pmu);
 
             var meas = new MeasurementsQuery(
                 Quantity: "frequency",
@@ -512,15 +503,12 @@ public static class RunsEndpoints
             [AsParameters] WindowQuery w,
             [FromQuery] string[]? pmu,
             [FromServices] SimpleSeriesHandler handler,
+            [FromServices] IPmuQueryHelper pmuHelper,
             [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
         ) =>
         {
-            var pmuList = (pmu ?? Array.Empty<string>())
-                .Select(x => x.Trim())
-                .Where(x => x.Length > 0)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            var pmuList = pmuHelper.Normalize(pmu);
 
             var meas = new MeasurementsQuery(
                 Quantity: "frequency",
@@ -561,15 +549,12 @@ public static class RunsEndpoints
         [AsParameters] WindowQuery w,
         [FromQuery] string[]? pmu,
         [FromServices] SimpleSeriesHandler handler,
+        [FromServices] IPmuQueryHelper pmuHelper,
         [FromServices] IUiMenuService uiMenus,
         CancellationToken ct
     ) =>
         {
-            var pmuList = (pmu ?? [])
-                .Select(x => x.Trim())
-                .Where(x => x.Length > 0)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            var pmuList = pmuHelper.Normalize(pmu);
 
             var meas = new MeasurementsQuery(
                 Quantity: "digital",

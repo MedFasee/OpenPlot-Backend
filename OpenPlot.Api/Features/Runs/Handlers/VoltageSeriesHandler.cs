@@ -1,5 +1,4 @@
-﻿using System.Globalization;
-using OpenPlot.Core.TimeSeries;
+﻿using OpenPlot.Core.TimeSeries;
 using OpenPlot.Data.Dtos;
 using OpenPlot.Features.Runs.Calculations;
 using OpenPlot.Features.Runs.Contracts;
@@ -14,42 +13,46 @@ public sealed class VoltageSeriesHandler
     private readonly IRunContextRepository _runs;
     private readonly IMeasurementsRepository _meas;
     private readonly IPlotMetaBuilder _meta;
+    private readonly IPhasorRequestService _phasorRequest;
+    private readonly ISeriesAssemblyService _seriesAssembly;
     private readonly ITimeSeriesDownsampler _down = new TimeBucketMinMaxDownsampler();
     private readonly IAnalysisCacheRepository _cacheRepo;
 
-    public VoltageSeriesHandler(IRunContextRepository runs, IMeasurementsRepository meas, IPlotMetaBuilder meta,IAnalysisCacheRepository cacheRepo)
+    public VoltageSeriesHandler(
+        IRunContextRepository runs,
+        IMeasurementsRepository meas,
+        IPlotMetaBuilder meta,
+        IPhasorRequestService phasorRequest,
+        ISeriesAssemblyService seriesAssembly,
+        IAnalysisCacheRepository cacheRepo)
     {
         _runs = runs;
         _meas = meas;
         _meta = meta;
+        _phasorRequest = phasorRequest;
+        _seriesAssembly = seriesAssembly;
         _cacheRepo = cacheRepo;
     }
 
     // Mantém compatibilidade (chamadas antigas)
     public Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, CancellationToken ct)
-        => HandleAsync(q, w, modes: null, ct);
+        => HandleAsync(q, w, pmu: null, modes: null, ct);
+
+    // Mantém compatibilidade (chamadas antigas)
+    public Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, string[]? pmu, CancellationToken ct)
+        => HandleAsync(q, w, pmu, modes: null, ct);
 
     // NOVO: recebe UI (já resolvida no endpoint)
-    public async Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, Dictionary<string, object?>? modes, CancellationToken ct)
+    public async Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, string[]? pmu, Dictionary<string, object?>? modes, CancellationToken ct)
     {
-        var tri = q.Tri;
-        var pmuName = q.Pmu?.Trim();
-        string? uphase = null;
+        var normalized = _phasorRequest.Resolve(q, pmu);
+        if (!normalized.IsValid)
+            return Results.BadRequest(normalized.Error);
 
-        if (!tri)
-        {
-            if (string.IsNullOrWhiteSpace(q.Phase))
-                return Results.BadRequest("phase é obrigatório (A|B|C) quando tri=false.");
-
-            uphase = q.Phase.Trim().ToUpperInvariant();
-            if (uphase is not ("A" or "B" or "C"))
-                return Results.BadRequest("phase deve ser A, B ou C.");
-        }
-        else
-        {
-            if (string.IsNullOrWhiteSpace(pmuName))
-                return Results.BadRequest("para tri=true é obrigatório informar pmu (id_name da PMU).");
-        }
+        var selection = normalized.Selection!;
+        var tri = selection.Tri;
+        var pmuName = selection.TriPmuName;
+        var uphase = selection.Phase;
 
         var unit = (q.Unit ?? "raw").Trim().ToLowerInvariant();
         if (unit is not ("raw" or "pu"))
@@ -66,11 +69,7 @@ public sealed class VoltageSeriesHandler
         var ctx = await _runs.ResolveAsync(q.RunId, fromUtc, toUtc, ct);
         if (ctx is null) return Results.NotFound("run_id não encontrado.");
 
-        var pmuNames = q.Pmus?
-            .Select(x => x?.Trim())
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var pmuNames = selection.PmuNames;
 
         var meas = new MeasurementsQuery(
             Quantity: "voltage",
@@ -78,8 +77,8 @@ public sealed class VoltageSeriesHandler
             PhaseMode: tri ? PhaseMode.ThreePhase : PhaseMode.Single,
             Phase: uphase,
             PmuNames: tri
-                ? (string.IsNullOrWhiteSpace(pmuName) ? null : new[] { pmuName })
-                : (pmuNames is { Length: > 0 } ? pmuNames : null),
+                ? new[] { pmuName }
+                : (pmuNames.Length > 0 ? pmuNames : null),
             Unit: unit
         );
 
@@ -96,53 +95,40 @@ public sealed class VoltageSeriesHandler
             ? rows.Select(r => (r, value: PerUnit.ToVoltagePu(r.Value, r.VoltLevel))).ToList()
             : rows.Select(r => (r, value: r.Value)).ToList();
 
-        var cachePayload = new RowsCacheV2
-        {
-            From = windowFrom.ToUniversalTime(),
-            To = windowTo2.ToUniversalTime(),
-            SelectRate = (int)ctx.SelectRate,
+        var cacheSeries = processedData
+            .GroupBy(x => new
+            {
+                x.r.SignalId,
+                Phase = (x.r.Phase ?? "").Trim(),
+                Component = (x.r.Component ?? "").Trim(),
+                x.r.PdcPmuId,
+                x.r.IdName,
+                x.r.PdcName
+            })
+            .Select(g =>
+            {
+                var first = g.First();
+                return _seriesAssembly.BuildCacheSeries(
+                    signalId: first.r.SignalId,
+                    pdcPmuId: first.r.PdcPmuId,
+                    idName: first.r.IdName,
+                    pdcName: first.r.PdcName,
+                    unit: unit,
+                    phase: first.r.Phase,
+                    quantity: "voltage",
+                    component: first.r.Component,
+                    points: g.Select(x => (x.r.Ts, x.value)));
+            })
+            .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(s => s.Phase, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-            Series = processedData
-                .GroupBy(x => new
-                {
-                    x.r.SignalId,    
-                    Phase = (x.r.Phase ?? "").Trim(),
-                    Component = (x.r.Component ?? "").Trim(),
-                    x.r.PdcPmuId,
-                    x.r.IdName,
-                    x.r.PdcName
-                })
-                .Select(g =>
-                {
-                    var first = g.First();
-
-                    return new RowsCacheSeries
-                    {
-                        SignalId = first.r.SignalId,
-                        PdcPmuId = first.r.PdcPmuId,
-                        IdName = first.r.IdName,
-                        PdcName = first.r.PdcName,
-
-                        Unit = unit,
-                        Phase = first.r.Phase,
-                        Quantity = "voltage",
-                        Component = first.r.Component,
-
-                        Points = g
-                            .OrderBy(x => x.r.Ts)
-                            .Select(x => new RowsCachePoint
-                            {
-                                Ts = x.r.Ts.ToUniversalTime(),
-                                Value = x.value
-                            })
-                            .ToList()
-                    };
-                })
-                .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(s => s.Phase, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
-                .ToList()
-        };
+        var cachePayload = _seriesAssembly.BuildCachePayload(
+            windowFrom,
+            windowTo2,
+            (int)ctx.SelectRate,
+            cacheSeries);
 
         var cacheId = await _cacheRepo.SaveAsync(q.RunId, cachePayload, ct);
 
@@ -153,14 +139,11 @@ public sealed class VoltageSeriesHandler
             {
                 var any = g.First();
 
-                // materializa série (já com valores processados)
-                var raw = g.Select(x => new Point(x.r.Ts, x.value)).ToList();
-
-                // downsample (ou não)
-                var downs = noDownsample ? raw : _down.MinMax(raw, maxPts);
-
-                // converte p/ points (sem pu conversion adicional)
-                var points = downs.Select(p => new object[] { p.Ts, p.Val }).ToList();
+                var points = _seriesAssembly.BuildPoints(
+                    g.Select(x => (x.r.Ts, x.value)),
+                    noDownsample,
+                    maxPts,
+                    _down);
 
                 return new
                 {
@@ -179,8 +162,6 @@ public sealed class VoltageSeriesHandler
             })
             .ToList();
 
-
-        var data = windowFrom.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
         var plotMeta = _meta.Build(w, ctx, meas);
 

@@ -111,6 +111,9 @@ builder.Services.AddScoped<IAnalysisCacheRepository, AnalysisCacheRepository>();
 builder.Services.AddScoped<SimpleSeriesHandler>();
 builder.Services.AddScoped<VoltageSeriesHandler>();
 builder.Services.AddScoped<CurrentSeriesHandler>();
+builder.Services.AddScoped<IPhasorRequestService, PhasorRequestService>();
+builder.Services.AddScoped<IPmuQueryHelper, PmuQueryHelper>();
+builder.Services.AddScoped<ISeriesAssemblyService, SeriesAssemblyService>();
 builder.Services.AddScoped<SeqSeriesHandler>();
 builder.Services.AddScoped<UnbalanceSeriesHandler>();
 builder.Services.AddScoped<ThdSeriesHandler>();
@@ -130,7 +133,7 @@ builder.Services.AddDistributedMemoryCache();
 builder.Services.AddSession(o =>
 {
     o.Cookie.Name = "openplot.sid";
-    o.IdleTimeout = TimeSpan.FromMinutes(60);
+    o.IdleTimeout = TimeSpan.FromHours(24);
     o.Cookie.HttpOnly = true;
     o.Cookie.SameSite = SameSiteMode.None;
     o.Cookie.SecurePolicy = CookieSecurePolicy.Always; 

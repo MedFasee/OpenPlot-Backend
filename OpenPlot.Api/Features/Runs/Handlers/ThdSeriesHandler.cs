@@ -20,19 +20,25 @@ public sealed class ThdSeriesHandler
     private readonly IRunContextRepository _runRepository;
     private readonly IAnalysisCacheRepository _cacheRepository;
     private readonly IPlotMetaBuilder _metaBuilder;
+    private readonly IPmuQueryHelper _pmuHelper;
+    private readonly ISeriesAssemblyService _seriesAssembly;
 
     public ThdSeriesHandler(
         IRunContextRepository runRepository,
         IAnalysisCacheRepository cacheRepository,
         IDbConnectionFactory dbFactory,
         ITimeSeriesDownsampler downsampler,
-        IPlotMetaBuilder metaBuilder)
+        IPlotMetaBuilder metaBuilder,
+        IPmuQueryHelper pmuHelper,
+        ISeriesAssemblyService seriesAssembly)
     {
         _runRepository = runRepository ?? throw new ArgumentNullException(nameof(runRepository));
         _cacheRepository = cacheRepository ?? throw new ArgumentNullException(nameof(cacheRepository));
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
         _downsampler = downsampler ?? throw new ArgumentNullException(nameof(downsampler));
         _metaBuilder = metaBuilder ?? throw new ArgumentNullException(nameof(metaBuilder));
+        _pmuHelper = pmuHelper ?? throw new ArgumentNullException(nameof(pmuHelper));
+        _seriesAssembly = seriesAssembly ?? throw new ArgumentNullException(nameof(seriesAssembly));
     }
 
     public async Task<IResult> HandleAsync(
@@ -49,14 +55,10 @@ public sealed class ThdSeriesHandler
         var k = kind.Trim().ToLowerInvariant();
         var tri = query.Tri;
         var uphase = tri ? null : query.Phase?.Trim().ToUpperInvariant();
-        var pmuName = query.Pmu?.Trim();
         var noDownsample = query.MaxPointsIsAll;
         var maxPts = query.ResolveMaxPoints(@default: 5000);
 
-        // Construir lista de PMUs a filtrar
-        var pmuList = new List<string>();
-        if (!string.IsNullOrWhiteSpace(pmuName))
-            pmuList.Add(pmuName);
+        var pmuList = _pmuHelper.Normalize(new[] { query.Pmu }, query.Pmus);
 
         DateTime? fromUtc = window.FromUtc;
         DateTime? toUtc = window.ToUtc;
@@ -77,9 +79,7 @@ public sealed class ThdSeriesHandler
             ? "LOWER(s.quantity::text) IN ('voltage','v')"
             : "LOWER(s.quantity::text) IN ('current','i')";
 
-        var pmuFilter = pmuList.Count == 0
-            ? "TRUE"
-            : string.Join(" OR ", pmuList.Select((_, i) => $"LOWER(c.id_name) = LOWER(@pmu{i})"));
+        var pmuFilter = _pmuHelper.BuildOrSqlFilter("c.id_name", pmuList);
 
 
         const string sqlTemplate = @"
@@ -197,8 +197,7 @@ ORDER BY s.signal_id, r.ts;";
         dyn.Add("from_utc", fromUtc);
         dyn.Add("to_utc", toUtc);
 
-        for (int i = 0; i < pmuList.Count; i++)
-            dyn.Add($"pmu{i}", pmuList[i]);
+        _pmuHelper.AddSqlParameters(dyn, pmuList);
 
         var rows = (await db.QueryAsync<(
             int Signal_Id, int Pdc_Pmu_Id, string Phase, string Component,
@@ -208,16 +207,45 @@ ORDER BY s.signal_id, r.ts;";
         if (rows.Count == 0)
             return Results.NotFound("Nada encontrado para esse run_id/filtro no intervalo solicitado.");
 
+        var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
+        var windowTo = toUtc ?? rows.Max(r => r.Ts);
+
+        var cacheSeries = rows
+            .GroupBy(r => new { r.Signal_Id, r.Pdc_Pmu_Id, r.Id_Name, r.Pdc_Name, r.Phase, r.Component })
+            .Select(g =>
+            {
+                var first = g.First();
+                return _seriesAssembly.BuildCacheSeries(
+                    signalId: first.Signal_Id,
+                    pdcPmuId: first.Pdc_Pmu_Id,
+                    idName: first.Id_Name,
+                    pdcName: first.Pdc_Name,
+                    unit: "%",
+                    phase: first.Phase,
+                    quantity: k,
+                    component: first.Component,
+                    points: g.Select(x => (x.Ts, x.Value)));
+            })
+            .ToList();
+
+        var cachePayload = _seriesAssembly.BuildCachePayload(
+            windowFrom,
+            windowTo,
+            (int)ctx.SelectRate,
+            cacheSeries);
+
+        var cacheId = await _cacheRepository.SaveAsync(query.RunId, cachePayload, ct);
+
         var series = rows
             .GroupBy(r => r.Signal_Id)
             .Select(g =>
             {
                 var any = g.First();
-                var downs = noDownsample 
-                    ? g.Select(r => new Point(r.Ts, r.Value)).ToList()
-                    : _downsampler.MinMax(
-                        g.Select(r => new Point(r.Ts, r.Value)).ToList(),
-                        maxPts);
+                var points = _seriesAssembly.BuildPoints(
+                    g.Select(r => (r.Ts, r.Value)),
+                    noDownsample,
+                    maxPts,
+                    _downsampler);
 
                 return new
                 {
@@ -231,13 +259,10 @@ ORDER BY s.signal_id, r.ts;";
                         component = any.Component,
                         kind = k
                     },
-                    points = downs.Select(p => new object[] { p.Ts, p.Val }).ToList()
+                    points
                 };
             })
             .ToList();
-
-        var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
-        var windowTo = toUtc ?? rows.Max(r => r.Ts);
 
         var meas = new MeasurementsQuery(
             Quantity: k,
@@ -252,6 +277,7 @@ ORDER BY s.signal_id, r.ts;";
         var response = SeriesResponseBuilderExtensions
             .BuildSeriesResponse(query.RunId, windowFrom, windowTo, series, plotMeta)
             .WithModes(modes)
+            .WithCacheId(cacheId)
             .WithResolved(ctx.PdcName, series.Select(s => s.pmu).Distinct().Count())
             .WithTypeFields(new Dictionary<string, object?>
             {

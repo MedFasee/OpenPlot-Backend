@@ -15,6 +15,7 @@ public sealed class SimpleSeriesHandler : BaseSeriesHandler<SimpleSeriesQuery>
 {
     private readonly IMeasurementsRepository _measRepository;
     private readonly ITimeSeriesDownsampler _downsampler;
+    private readonly ISeriesAssemblyService _seriesAssembly;
     private MeasurementsQuery? _currentMeasurement; // Armazenado durante execução
 
     public SimpleSeriesHandler(
@@ -22,11 +23,13 @@ public sealed class SimpleSeriesHandler : BaseSeriesHandler<SimpleSeriesQuery>
         IMeasurementsRepository measRepository,
         ITimeSeriesDownsampler downsampler,
         IPlotMetaBuilder metaBuilder,
+        ISeriesAssemblyService seriesAssembly,
         IAnalysisCacheRepository cacheRepository)
         : base(runRepository, metaBuilder, ConvertCacheRepo(cacheRepository))
     {
         _measRepository = measRepository ?? throw new ArgumentNullException(nameof(measRepository));
         _downsampler = downsampler ?? throw new ArgumentNullException(nameof(downsampler));
+        _seriesAssembly = seriesAssembly ?? throw new ArgumentNullException(nameof(seriesAssembly));
     }
 
     /// <summary>
@@ -77,10 +80,11 @@ public sealed class SimpleSeriesHandler : BaseSeriesHandler<SimpleSeriesQuery>
             .Select(g =>
             {
                 var first = g.First();
-                var points = g.Select(x => new Point(x.Ts, x.Value)).ToList();
-                var downsampled = noDownsample
-                    ? points
-                    : _downsampler.MinMax(points, maxPoints);
+                var points = _seriesAssembly.BuildPoints(
+                    g.Select(x => (x.Ts, x.Value)),
+                    noDownsample,
+                    maxPoints,
+                    _downsampler);
 
                 return new SeriesDto(
                     Pdc: first.PdcName,
@@ -89,7 +93,7 @@ public sealed class SimpleSeriesHandler : BaseSeriesHandler<SimpleSeriesQuery>
                     PdcPmuId: first.PdcPmuId,
                     Unit: _currentMeasurement?.Unit ?? "raw",
                     Meta: null,
-                    Points: downsampled.Select(p => new object[] { p.Ts, p.Val }).ToList()
+                    Points: points
                 );
             })
             .Cast<object>()
@@ -102,38 +106,30 @@ public sealed class SimpleSeriesHandler : BaseSeriesHandler<SimpleSeriesQuery>
         DateTime windowTo,
         RunContext runContext)
     {
-        return new RowsCacheV2
-        {
-            From = windowFrom.ToUniversalTime(),
-            To = windowTo.ToUniversalTime(),
-            SelectRate = (int)runContext.SelectRate,
-            Series = rows
-                .GroupBy(r => r.SignalId)
-                .Select(g =>
-                {
-                    var first = g.First();
-                    return new RowsCacheSeries
-                    {
-                        SignalId = first.SignalId,
-                        PdcPmuId = first.PdcPmuId,
-                        IdName = first.IdName,
-                        PdcName = first.PdcName,
-                        Unit = _currentMeasurement?.Unit,
-                        Points = g
-                            .OrderBy(x => x.Ts)
-                            .Select(x => new RowsCachePoint
-                            {
-                                Ts = x.Ts.ToUniversalTime(),
-                                Value = x.Value
-                            })
-                            .ToList()
-                    };
-                })
-                .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(s => s.Phase, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
-                .ToList()
-        };
+        var cacheSeries = rows
+            .GroupBy(r => r.SignalId)
+            .Select(g =>
+            {
+                var first = g.First();
+                return _seriesAssembly.BuildCacheSeries(
+                    signalId: first.SignalId,
+                    pdcPmuId: first.PdcPmuId,
+                    idName: first.IdName,
+                    pdcName: first.PdcName,
+                    unit: _currentMeasurement?.Unit,
+                    phase: null,
+                    quantity: _currentMeasurement?.Quantity,
+                    component: _currentMeasurement?.Component,
+                    points: g.Select(x => (x.Ts, x.Value)));
+            })
+            .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return _seriesAssembly.BuildCachePayload(
+            windowFrom,
+            windowTo,
+            (int)runContext.SelectRate,
+            cacheSeries);
     }
 
     protected override PlotMetaDto BuildPlotMeta(

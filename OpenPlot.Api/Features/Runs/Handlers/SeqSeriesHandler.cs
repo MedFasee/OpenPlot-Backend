@@ -13,6 +13,7 @@ public sealed class SeqSeriesHandler
     private readonly IRunContextRepository _runs;
     private readonly IMeasurementsRepository _meas;
     private readonly IPlotMetaBuilder _meta;
+    private readonly ISeriesAssemblyService _seriesAssembly;
     private readonly ITimeSeriesDownsampler _down = new TimeBucketMinMaxDownsampler();
     private readonly IAnalysisCacheRepository _cacheRepo;
 
@@ -27,11 +28,13 @@ public sealed class SeqSeriesHandler
         IRunContextRepository runs,
         IMeasurementsRepository meas,
         IPlotMetaBuilder meta,
+        ISeriesAssemblyService seriesAssembly,
         IAnalysisCacheRepository cacheRepo)
     {
         _runs = runs;
         _meas = meas;
         _meta = meta;
+        _seriesAssembly = seriesAssembly;
         _cacheRepo = cacheRepo;
     }
 
@@ -150,15 +153,11 @@ public sealed class SeqSeriesHandler
                 cachePoints.Add((first.IdName, point.ts, point.value));
             }
 
-            var raw = seqSeries
-                .Select(p => new Point(p.ts, Unitize(p.mag)))
-                .ToList();
-
-            var downs = noDownsample ? raw : _down.MinMax(raw, maxPts);
-
-            var points = downs
-                .Select(p => new object[] { p.Ts, p.Val })
-                .ToList();
+            var points = _seriesAssembly.BuildPoints(
+                seqSeries.Select(p => (p.ts, Unitize(p.mag))),
+                noDownsample,
+                maxPts,
+                _down);
 
             series.Add(new
             {
@@ -182,37 +181,25 @@ public sealed class SeqSeriesHandler
         var windowTo = w.ToUtc ?? rows.Max(r => r.Ts);
 
         // ===== CACHE =====
-        var cachePayload = new RowsCacheV2
-        {
-            From = windowFrom.ToUniversalTime(),
-            To = windowTo.ToUniversalTime(),
-            SelectRate = (int)ctx.SelectRate,
-            Series = cachePoints
-                .GroupBy(x => x.pmuId)
-                .Select(g =>
-                {
-                    return new RowsCacheSeries
-                    {
-                        SignalId = 0, // Sequências não têm signal_id
-                        PdcPmuId = 0,
-                        IdName = g.Key,
-                        PdcName = ctx.PdcName,
-                        Unit = unit,
-                        Phase = seqNorm,
-                        Quantity = kind,
-                        Component = "seq",
-                        Points = g
-                            .OrderBy(x => x.ts)
-                            .Select(x => new RowsCachePoint
-                            {
-                                Ts = x.ts.ToUniversalTime(),
-                                Value = x.value
-                            })
-                            .ToList()
-                    };
-                })
-                .ToList()
-        };
+        var cacheSeries = cachePoints
+            .GroupBy(x => x.pmuId)
+            .Select(g => _seriesAssembly.BuildCacheSeries(
+                signalId: 0,
+                pdcPmuId: 0,
+                idName: g.Key,
+                pdcName: ctx.PdcName,
+                unit: unit,
+                phase: seqNorm,
+                quantity: kind,
+                component: "seq",
+                points: g.Select(x => (x.ts, x.value))))
+            .ToList();
+
+        var cachePayload = _seriesAssembly.BuildCachePayload(
+            windowFrom,
+            windowTo,
+            (int)ctx.SelectRate,
+            cacheSeries);
 
         var cacheId = await _cacheRepo.SaveAsync(q.RunId, cachePayload, ct);
         // =======================================================

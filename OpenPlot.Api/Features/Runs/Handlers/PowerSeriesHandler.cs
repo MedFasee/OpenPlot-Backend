@@ -21,17 +21,23 @@ public sealed class PowerSeriesHandler
     private readonly IRunContextRepository _runRepository;
     private readonly IAnalysisCacheRepository _cacheRepo;
     private readonly IPlotMetaBuilder _metaBuilder;
+    private readonly IPmuQueryHelper _pmuHelper;
+    private readonly ISeriesAssemblyService _seriesAssembly;
 
     public PowerSeriesHandler(
         IRunContextRepository runRepository,
         IDbConnectionFactory dbFactory,
         IAnalysisCacheRepository cacheRepo,
-        IPlotMetaBuilder metaBuilder)
+        IPlotMetaBuilder metaBuilder,
+        IPmuQueryHelper pmuHelper,
+        ISeriesAssemblyService seriesAssembly)
     {
         _runRepository = runRepository ?? throw new ArgumentNullException(nameof(runRepository));
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
         _cacheRepo = cacheRepo ?? throw new ArgumentNullException(nameof(cacheRepo));
         _metaBuilder = metaBuilder ?? throw new ArgumentNullException(nameof(metaBuilder));
+        _pmuHelper = pmuHelper ?? throw new ArgumentNullException(nameof(pmuHelper));
+        _seriesAssembly = seriesAssembly ?? throw new ArgumentNullException(nameof(seriesAssembly));
     }
 
     /// <summary>
@@ -63,11 +69,7 @@ public sealed class PowerSeriesHandler
         if (ctx is null)
             return Results.NotFound("run_id não encontrado.");
 
-        var pmuList = (query.Pmu ?? Array.Empty<string>())
-            .Select(s => s?.Trim())
-            .Where(s => !string.IsNullOrWhiteSpace(s))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var pmuList = _pmuHelper.Normalize(query.Pmu).ToList();
 
         var tri = query.Tri ?? false;
         var total = query.Total ?? false;
@@ -78,9 +80,7 @@ public sealed class PowerSeriesHandler
         // =============================
         using var db = _dbFactory.Create();
 
-        string pmuFilter = pmuList.Count == 0
-            ? "TRUE"
-            : string.Join(" OR ", pmuList.Select((_, i) => $"LOWER(c.id_name) = LOWER(@pmu{i})"));
+        var pmuFilter = _pmuHelper.BuildOrSqlFilter("c.id_name", pmuList);
 
         string phaseClause = (tri || total)
             ? "UPPER(s.phase::text) IN ('A','B','C')"
@@ -200,8 +200,7 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
         dyn.Add("to_utc", toUtc);
         dyn.Add("phase", phase);
 
-        for (int i = 0; i < pmuList.Count; i++)
-            dyn.Add($"pmu{i}", pmuList[i]);
+        _pmuHelper.AddSqlParameters(dyn, pmuList);
 
         var rows = (await db.QueryAsync<PowerRow>(sql, dyn)).ToList();
         if (rows.Count == 0)
@@ -336,37 +335,25 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
         var unitDisplay = (u == "mw") ? (which == "active" ? "MW" : "MVAr") : "raw";
 
         // ===== CACHE =====
-        var cachePayload = new RowsCacheV2
-        {
-            From = windowFrom.ToUniversalTime(),
-            To = windowTo.ToUniversalTime(),
-            SelectRate = (int)ctx.SelectRate,
-            Series = cachePoints
-                .GroupBy(x => x.pmuId)
-                .Select(g =>
-                {
-                    return new RowsCacheSeries
-                    {
-                        SignalId = 0,
-                        PdcPmuId = 0,
-                        IdName = g.Key,
-                        PdcName = ctx.PdcName,
-                        Unit = unitDisplay,
-                        Phase = null,
-                        Quantity = which,
-                        Component = "power",
-                        Points = g
-                            .OrderBy(x => x.ts)
-                            .Select(x => new RowsCachePoint
-                            {
-                                Ts = x.ts.ToUniversalTime(),
-                                Value = x.value
-                            })
-                            .ToList()
-                    };
-                })
-                .ToList()
-        };
+        var cacheSeries = cachePoints
+            .GroupBy(x => x.pmuId)
+            .Select(g => _seriesAssembly.BuildCacheSeries(
+                signalId: 0,
+                pdcPmuId: 0,
+                idName: g.Key,
+                pdcName: ctx.PdcName,
+                unit: unitDisplay,
+                phase: null,
+                quantity: which,
+                component: "power",
+                points: g.Select(x => (x.ts, x.value))))
+            .ToList();
+
+        var cachePayload = _seriesAssembly.BuildCachePayload(
+            windowFrom,
+            windowTo,
+            (int)ctx.SelectRate,
+            cacheSeries);
 
         var cacheId = await _cacheRepo.SaveAsync(query.RunId, cachePayload, ct);
         // =======================================================

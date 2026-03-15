@@ -1,6 +1,6 @@
 # openPlot – Backend (branch `feature/backend_medplot`)
 
-Este documento apresenta o estado atual do backend do projeto **openPlot** na ramificação `feature/backend_medplot`.  
+Este documento apresenta o estado atual do backend do projeto **openPlot-backend**.  
 O foco desta branch consiste na integração do backend .NET ao ecossistema **MedPlot**, disponibilizando uma API REST destinada a:
 
 - consultar dados e metadados de medidas provenientes de historizadores (openHistorian/GSF etc.);
@@ -133,7 +133,7 @@ Operar a ingestão de dados provenientes do stack GSF/openHistorian.
 ## 5. Projeto `OpenPlot.XmlImporter`
 
 ### 5.1. Propósito
-Permitir a importação do legado MedPlot.
+Permitir a importação de XML usado pelo MedPlot.
 
 ### 5.2. Responsabilidades
 Incluem:
@@ -145,20 +145,9 @@ Incluem:
 
 ---
 
-## 6. Projeto `Config`
+## 6. Integração com o MedPlot
 
-### 6.1. Função
-Centralizar:
-
-- classes de configuração (opções de ambiente);
-- utilitários e constantes;
-- recursos utilizados por mais de um módulo.
-
----
-
-## 7. Integração com o MedPlot
-
-A branch `feature/backend_medplot` possibilita:
+A branch atual possibilita:
 
 - exposição de funcionalidades antes restritas ao MedPlot Desktop;
 - consumo dos dados por frontends como openPlot Web;
@@ -171,3 +160,7 @@ A branch `feature/backend_medplot` possibilita:
 3. A API recupera dados ingeridos e metadados importados.  
 4. Todos os dados necessários são retornados no formato esperado pelo frontend.
 
+---
+
+## 7. DevOps
+A implementar

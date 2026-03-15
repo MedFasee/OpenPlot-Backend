@@ -47,16 +47,25 @@ public sealed class AngleDiffSeriesHandler
 {
     private readonly IDbConnectionFactory _dbFactory;
     private readonly IRunContextRepository _runRepository;
+    private readonly IAnalysisCacheRepository _cacheRepo;
     private readonly ITimeSeriesDownsampler _downsampler;
+    private readonly IPmuQueryHelper _pmuHelper;
+    private readonly ISeriesAssemblyService _seriesAssembly;
 
     public AngleDiffSeriesHandler(
         IRunContextRepository runRepository,
+        IAnalysisCacheRepository cacheRepo,
         IDbConnectionFactory dbFactory,
-        ITimeSeriesDownsampler downsampler)
+        ITimeSeriesDownsampler downsampler,
+        IPmuQueryHelper pmuHelper,
+        ISeriesAssemblyService seriesAssembly)
     {
         _runRepository = runRepository ?? throw new ArgumentNullException(nameof(runRepository));
+        _cacheRepo = cacheRepo ?? throw new ArgumentNullException(nameof(cacheRepo));
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
         _downsampler = downsampler ?? throw new ArgumentNullException(nameof(downsampler));
+        _pmuHelper = pmuHelper ?? throw new ArgumentNullException(nameof(pmuHelper));
+        _seriesAssembly = seriesAssembly ?? throw new ArgumentNullException(nameof(seriesAssembly));
     }
 
     /// <summary>
@@ -82,16 +91,15 @@ public sealed class AngleDiffSeriesHandler
             var hasSeq = !string.IsNullOrWhiteSpace(query.Sequence);
 
             // Process PMU list
-            var pmuList = (pmuArray ?? Array.Empty<string>())
-                .Select(p => p.Trim())
-                .Where(p => p.Length > 0)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Where(p => !p.Equals(refPmu, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            var pmuList = _pmuHelper.NormalizeExcluding(refPmu, pmuArray).ToList();
 
             var maxPts = query.ResolveMaxPoints(@default: 5000);
             var fromUtc = window.FromUtc;
             var toUtc = window.ToUtc;
+
+            var ctx = await _runRepository.ResolveAsync(query.RunId, fromUtc, toUtc, ct);
+            if (ctx is null)
+                return Results.NotFound("run_id não encontrado.");
 
             // Query data
             var rows = await QueryDataAsync(query, window, pmuList, ct);
@@ -131,6 +139,7 @@ public sealed class AngleDiffSeriesHandler
             }
 
             var series = new List<object>();
+            var cachePoints = new List<(string pmuId, DateTime ts, double value)>();
             var tol = TimeSpan.FromMilliseconds(3);
 
             foreach (var g in targetGroups)
@@ -151,9 +160,14 @@ public sealed class AngleDiffSeriesHandler
                 var dif = ComputeAngleDifference(measAngSeries, refAngSeries, tol);
                 if (dif.Count == 0) continue;
 
-                var downs = _downsampler.MinMax(
-                    dif.Select(x => new Point(x.ts, x.difDeg)).ToList(),
-                    maxPts);
+                foreach (var p in dif)
+                    cachePoints.Add((pmuName, p.ts, p.difDeg));
+
+                var points = _seriesAssembly.BuildPoints(
+                    dif.Select(x => (x.ts, x.difDeg)),
+                    noDownsample: query.MaxPointsIsAll,
+                    maxPoints: maxPts,
+                    downsampler: _downsampler);
 
                 series.Add(new
                 {
@@ -165,7 +179,7 @@ public sealed class AngleDiffSeriesHandler
                     phase = hasPhase ? query.Phase!.ToUpperInvariant() : null,
                     seq = hasSeq ? NormalizeSeq(query.Sequence!) : null,
                     unit = "deg",
-                    points = downs.Select(p => new object[] { p.Ts, p.Val }).ToList()
+                    points
                 });
             }
 
@@ -176,16 +190,42 @@ public sealed class AngleDiffSeriesHandler
             var windowTo = toUtc ?? rows.Max(r => r.Ts);
             var dataStr = windowFrom.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
+            var modeLabel = hasPhase ? "phase" : "sequence";
+            var componentLabel = hasPhase ? "angle_diff_phase" : "angle_diff_sequence";
+
+            var cacheSeries = cachePoints
+                .GroupBy(x => x.pmuId)
+                .Select(g => _seriesAssembly.BuildCacheSeries(
+                    signalId: 0,
+                    pdcPmuId: 0,
+                    idName: g.Key,
+                    pdcName: ctx.PdcName,
+                    unit: "deg",
+                    phase: hasPhase ? query.Phase?.ToUpperInvariant() : NormalizeSeq(query.Sequence!),
+                    quantity: kind,
+                    component: componentLabel,
+                    points: g.Select(x => (x.ts, x.value))))
+                .ToList();
+
+            var cachePayload = _seriesAssembly.BuildCachePayload(
+                windowFrom,
+                windowTo,
+                (int)ctx.SelectRate,
+                cacheSeries);
+
+            var cacheId = await _cacheRepo.SaveAsync(query.RunId, cachePayload, ct);
+
             return Results.Ok(new
             {
                 run_id = query.RunId,
                 data = dataStr,
                 kind = kind,
                 reference = refPmu,
-                mode = hasPhase ? "phase" : "sequence",
+                mode = modeLabel,
                 phase = hasPhase ? query.Phase!.ToUpperInvariant() : null,
                 seq = hasSeq ? NormalizeSeq(query.Sequence!) : null,
                 unit = "deg",
+                cache_id = cacheId.ToString(),
                 pmu_count = series.Count,
                 window = new { from = windowFrom, to = windowTo },
                 modes = modes,
@@ -260,9 +300,7 @@ public sealed class AngleDiffSeriesHandler
             ? "UPPER(s.phase::text) IN ('A','B','C')"
             : "UPPER(s.phase::text) = UPPER(@phase)";
 
-        var pmuFilter = pmuList.Count == 0
-            ? "TRUE"
-            : string.Join(" OR ", pmuList.Select((_, i) => $"LOWER(c.id_name) = LOWER(@pmu{i})"));
+        var pmuFilter = _pmuHelper.BuildOrSqlFilter("c.id_name", pmuList);
 
         const string sqlTemplate = @"
 WITH run AS (
@@ -385,8 +423,7 @@ ORDER BY s.id_name, s.signal_id, r.ts;
         dyn.Add("to_utc", window.ToUtc);
         dyn.Add("phase", query.Phase?.ToUpperInvariant());
 
-        for (int i = 0; i < pmuList.Count; i++)
-            dyn.Add($"pmu{i}", pmuList[i]);
+        _pmuHelper.AddSqlParameters(dyn, pmuList);
 
         using var db = _dbFactory.Create();
         var dynamicRows = await db.QueryAsync(sql, dyn, commandTimeout: 300);

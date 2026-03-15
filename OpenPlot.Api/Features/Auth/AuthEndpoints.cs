@@ -19,7 +19,7 @@ public static class AuthEndpoints
         public string Issuer { get; init; } = default!;
         public string Audience { get; init; } = default!;
         public string SigningKey { get; init; } = default!;
-        public int ExpirationHours { get; init; } = 8;
+        public int ExpirationHours { get; init; } = 24;
         public string? CookieName { get; set; } = "AuthToken";
     }
 
