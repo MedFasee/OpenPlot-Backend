@@ -32,5 +32,9 @@
   <ItemGroup>
     <ProjectReference Include="..\OpenPlot.Ingestor.Gsf\OpenPlot.Ingestor.Gsf.csproj" />
   </ItemGroup>
+	
+  <ItemGroup>
+    <Folder Include="Features\Runs\Handlers\Validators\" />
+  </ItemGroup>
 
 </Project>

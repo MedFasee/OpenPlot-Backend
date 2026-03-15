@@ -38,16 +38,7 @@ public sealed class SeqSeriesHandler
         _cacheRepo = cacheRepo;
     }
 
-    // Mantém compatibilidade (chamadas antigas)
-    public Task<IResult> HandleAsync(
-        SeqRunQuery q,
-        SeqRequest req,
-        WindowQuery w,
-        IReadOnlyList<string> pmuList,
-        CancellationToken ct)
-        => HandleAsync(q, req, w, pmuList, modes: null, ct);
-
-    // NOVO: recebe UI (já resolvida no endpoint)
+    // Recebe UI já resolvida no endpoint
     public async Task<IResult> HandleAsync(
         SeqRunQuery q,
         SeqRequest req,
@@ -188,6 +179,7 @@ public sealed class SeqSeriesHandler
                 pdcPmuId: 0,
                 idName: g.Key,
                 pdcName: ctx.PdcName,
+                referenceTerminal: null,
                 unit: unit,
                 phase: seqNorm,
                 quantity: kind,

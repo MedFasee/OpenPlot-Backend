@@ -84,7 +84,7 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
             var series = TransformData(rows, maxPts, noDownsample);
 
             // Passo 7: Construir metadados
-            var plotMeta = BuildPlotMeta(runContext, query);
+            var plotMeta = BuildPlotMeta(runContext, query, window);
 
             // Passo 8: Montar resposta final
             var response = SeriesResponseBuilderExtensions
@@ -165,7 +165,8 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
     /// </summary>
     protected virtual PlotMetaDto BuildPlotMeta(
         RunContext runContext,
-        TQuery query)
+        TQuery query,
+        WindowQuery window)
     {
         return new PlotMetaDto(
             Title: "Série Temporal",

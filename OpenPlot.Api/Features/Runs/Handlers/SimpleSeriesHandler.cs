@@ -33,16 +33,6 @@ public sealed class SimpleSeriesHandler : BaseSeriesHandler<SimpleSeriesQuery>
     }
 
     /// <summary>
-    /// Sobrecarga para compatibilidade com código antigo.
-    /// </summary>
-    public Task<IResult> HandleAsync(
-        SimpleSeriesQuery q,
-        WindowQuery w,
-        MeasurementsQuery meas,
-        CancellationToken ct)
-        => HandleAsync(q, w, meas, modes: null, ct);
-
-    /// <summary>
     /// Sobrecarga que permite especificar MeasurementsQuery customizada.
     /// </summary>
     public async Task<IResult> HandleAsync(
@@ -116,6 +106,7 @@ public sealed class SimpleSeriesHandler : BaseSeriesHandler<SimpleSeriesQuery>
                     pdcPmuId: first.PdcPmuId,
                     idName: first.IdName,
                     pdcName: first.PdcName,
+                    referenceTerminal: null,
                     unit: _currentMeasurement?.Unit,
                     phase: null,
                     quantity: _currentMeasurement?.Quantity,
@@ -134,21 +125,15 @@ public sealed class SimpleSeriesHandler : BaseSeriesHandler<SimpleSeriesQuery>
 
     protected override PlotMetaDto BuildPlotMeta(
         RunContext runContext,
-        SimpleSeriesQuery query)
+        SimpleSeriesQuery query,
+        WindowQuery window)
     {
         if (_currentMeasurement is null)
         {
-            return base.BuildPlotMeta(runContext, query);
+            return base.BuildPlotMeta(runContext, query, window);
         }
 
-        var yLabel = _currentMeasurement.Unit ?? "raw";
-        var title = $"{_currentMeasurement.Quantity?.ToUpperInvariant()} - {_currentMeasurement.Component?.ToUpperInvariant()}";
-
-        return new PlotMetaDto(
-            Title: title,
-            XLabel: "Tempo",
-            YLabel: yLabel
-        );
+        return _metaBuilder.Build(window, runContext, _currentMeasurement);
     }
 
     protected override string GetEmptyDataMessage() =>

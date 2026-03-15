@@ -200,6 +200,7 @@ public sealed class AngleDiffSeriesHandler
                     pdcPmuId: 0,
                     idName: g.Key,
                     pdcName: ctx.PdcName,
+                    referenceTerminal: refPmu,
                     unit: "deg",
                     phase: hasPhase ? query.Phase?.ToUpperInvariant() : NormalizeSeq(query.Sequence!),
                     quantity: kind,

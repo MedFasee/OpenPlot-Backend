@@ -16,6 +16,7 @@ using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Auth;
 // ==== OpenPlot usings ====
 using OpenPlot.Features.Import;
+using OpenPlot.Features.PostProcessing.Handlers;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers;
 using OpenPlot.Features.Runs.Repositories;
@@ -91,6 +92,7 @@ builder.Services.AddScoped<VoltageSeriesHandler>();
 builder.Services.AddScoped<CurrentSeriesHandler>();
 builder.Services.AddScoped<SeqSeriesHandler>();
 builder.Services.AddScoped<UnbalanceSeriesHandler>();
+builder.Services.AddScoped<IDftMetaBuilder, DftMetaBuilder>();
 
 // UI Analise
 builder.Services.AddSingleton(new FeatureFlags(

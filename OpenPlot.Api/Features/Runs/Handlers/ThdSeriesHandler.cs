@@ -220,6 +220,7 @@ ORDER BY s.signal_id, r.ts;";
                     pdcPmuId: first.Pdc_Pmu_Id,
                     idName: first.Id_Name,
                     pdcName: first.Pdc_Name,
+                    referenceTerminal: null,
                     unit: "%",
                     phase: first.Phase,
                     quantity: k,

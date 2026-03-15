@@ -35,6 +35,7 @@ public sealed class RowsCacheSeries
     public int PdcPmuId { get; init; }
     public string IdName { get; init; } = default!;
     public string PdcName { get; init; } = default!;
+    public string? ReferenceTerminal { get; init; }
     public string? Phase { get; init; }
     public string? Component { get; init; }
     public string? Quantity { get; init; }

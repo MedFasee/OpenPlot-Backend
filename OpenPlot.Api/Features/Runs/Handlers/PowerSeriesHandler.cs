@@ -57,6 +57,7 @@ public sealed class PowerSeriesHandler
             return Results.BadRequest(validation.errorMessage);
 
         var which = (query.Which ?? "active").Trim().ToLowerInvariant();
+        var quantityKey = which == "active" ? "p_active" : "p_reactive";
         var u = (query.Unit ?? "raw").Trim().ToLowerInvariant();
         var maxPts = Math.Max(query.ResolveMaxPoints(@default: 100), 100);
 
@@ -342,6 +343,7 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
                 pdcPmuId: 0,
                 idName: g.Key,
                 pdcName: ctx.PdcName,
+                referenceTerminal: null,
                 unit: unitDisplay,
                 phase: null,
                 quantity: which,
@@ -359,7 +361,7 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
         // =======================================================
 
         var meas = new MeasurementsQuery(
-            Quantity: which,
+            Quantity: quantityKey,
             Component: "power",
             PhaseMode: PhaseMode.Any,
             Unit: unitDisplay

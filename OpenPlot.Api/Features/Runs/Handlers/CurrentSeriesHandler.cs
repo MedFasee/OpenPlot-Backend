@@ -33,10 +33,7 @@ public sealed class CurrentSeriesHandler
         _cacheRepo = cacheRepo;
     }
 
-    public Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, string[]? pmu, CancellationToken ct)
-        => HandleAsync(q, w, pmu, modes: null, ct);
-
-    // NOVO: recebe modes (já resolvido no endpoint)
+    // Recebe modes já resolvidos no endpoint
     public async Task<IResult> HandleAsync(
         ByRunQuery q,
         WindowQuery w,
@@ -111,6 +108,7 @@ public sealed class CurrentSeriesHandler
                     pdcPmuId: first.PdcPmuId,
                     idName: first.IdName,
                     pdcName: first.PdcName,
+                    referenceTerminal: null,
                     unit: "A",
                     phase: first.Phase,
                     quantity: "current",

@@ -34,15 +34,7 @@ public sealed class VoltageSeriesHandler
         _cacheRepo = cacheRepo;
     }
 
-    // Mantém compatibilidade (chamadas antigas)
-    public Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, CancellationToken ct)
-        => HandleAsync(q, w, pmu: null, modes: null, ct);
-
-    // Mantém compatibilidade (chamadas antigas)
-    public Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, string[]? pmu, CancellationToken ct)
-        => HandleAsync(q, w, pmu, modes: null, ct);
-
-    // NOVO: recebe UI (já resolvida no endpoint)
+    // Recebe UI já resolvida no endpoint
     public async Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, string[]? pmu, Dictionary<string, object?>? modes, CancellationToken ct)
     {
         var normalized = _phasorRequest.Resolve(q, pmu);
@@ -113,6 +105,7 @@ public sealed class VoltageSeriesHandler
                     pdcPmuId: first.r.PdcPmuId,
                     idName: first.r.IdName,
                     pdcName: first.r.PdcName,
+                    referenceTerminal: null,
                     unit: unit,
                     phase: first.r.Phase,
                     quantity: "voltage",

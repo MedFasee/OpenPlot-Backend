@@ -15,6 +15,7 @@ public static class PostProcessingEndpoints
         grp.MapGet("/dft", async (
             [FromQuery] Guid cache_id,
             [FromServices] IAnalysisCacheRepository cacheRepo,
+            [FromServices] IDftMetaBuilder metaBuilder,
             CancellationToken ct
         ) =>
         {
@@ -23,6 +24,7 @@ public static class PostProcessingEndpoints
                 return Results.NotFound("cache_id não encontrado.");
 
             var dft = Dft.Compute(payload);
+            var plotMeta = metaBuilder.Build(payload);
 
             var series = dft.Specs.Select(kv => new
             {
@@ -30,8 +32,8 @@ public static class PostProcessingEndpoints
                 component = kv.Value.Component,
                 quantity = kv.Value.Quantity,
                 phase = kv.Value.Phase,
-                unit= kv.Value.Unit,
-                meta = new {serie= "Nome da série"},
+                unit = kv.Value.Unit,
+                meta = new { serie = kv.Key },
 
                 sr = kv.Value.Sr,
                 n = kv.Value.N,
@@ -44,9 +46,7 @@ public static class PostProcessingEndpoints
             return Results.Ok(new
             {
                 cache_id,
-                meta = new {title= "Espectro de Freq. do ... - ... - FPS",
-                            xLabel= "Frequência (Hz)",
-                            yLabel= "Magnitude"},
+                meta = plotMeta,
                 selectRate = payload.SelectRate,
                 window = new { from = payload.From, to = payload.To },
                 series
