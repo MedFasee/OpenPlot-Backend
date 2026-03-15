@@ -4,7 +4,7 @@ using OpenPlot.Features.Runs.Calculations;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Responses;
 using OpenPlot.Features.Runs.Repositories;
-using OpenPlot.Features.Ui;
+using OpenPlot.Services.UI;
 
 namespace OpenPlot.Features.Runs.Handlers;
 

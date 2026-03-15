@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace OpenPlot.Features.Ui;
+namespace OpenPlot.Services.UI;
 
 [Flags]
 public enum UiMenuSet

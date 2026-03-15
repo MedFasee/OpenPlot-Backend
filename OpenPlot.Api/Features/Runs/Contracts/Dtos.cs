@@ -3,8 +3,6 @@ using System.Text.Json.Serialization;
 
 namespace OpenPlot.Features.Runs.Contracts;
 
-public sealed record SeriesPoint(DateTime Ts, double Val);
-
 
 public sealed record PlotMetaDto(
     string Title,

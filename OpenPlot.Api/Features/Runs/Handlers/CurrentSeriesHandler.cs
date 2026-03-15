@@ -4,7 +4,6 @@ using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Responses;
 using OpenPlot.Features.Runs.Repositories;
 using OpenPlot.Core.TimeSeries;
-using OpenPlot.Features.Ui;
 
 namespace OpenPlot.Features.Runs.Handlers;
 
