@@ -168,17 +168,97 @@ namespace OpenPlot.Data.Dtos
 
 
 
-    public sealed class PowerRow
-    {
-        public int Signal_Id { get; set; }
-        public int Pdc_Pmu_Id { get; set; }
-        public string? Phase { get; set; }        // A/B/C
-        public string? Component { get; set; }    // MAG/ANG
-        public string? Quantity { get; set; }     // voltage/current
-        public string Id_Name { get; set; } = "";
-        public string Pdc_Name { get; set; } = "";
-        public DateTime Ts { get; set; }
-        public double Value { get; set; }
-    }
+        public sealed class PowerRow
+        {
+            public int Signal_Id { get; set; }
+            public int Pdc_Pmu_Id { get; set; }
+            public string? Phase { get; set; }        // A/B/C
+            public string? Component { get; set; }    // MAG/ANG
+            public string? Quantity { get; set; }     // voltage/current
+            public string Id_Name { get; set; } = "";
+            public string Pdc_Name { get; set; } = "";
+            public DateTime Ts { get; set; }
+            public double Value { get; set; }
+        }
 
-}
+        // ===== POST Request DTOs para Series by-run =====
+
+        /// <summary>
+        /// Request body para endpoints de séries (voltage, current, frequency, dfreq, digital, thd).
+        /// </summary>
+        public sealed class SeriesByRunRequest
+        {
+            public Guid RunId { get; set; }
+            public string? MaxPoints { get; set; } = "5000";
+            public string? Unit { get; set; } = "raw";
+            public bool? Tri { get; set; } = false;
+            public string? Phase { get; set; }
+            public string[]? Pmu { get; set; } = Array.Empty<string>();
+            public DateTime? From { get; set; }
+            public DateTime? To { get; set; }
+        }
+
+        /// <summary>
+        /// Request body para endpoint de sequências (seq/by-run).
+        /// </summary>
+        public sealed class SeqSeriesByRunRequest
+        {
+            public Guid RunId { get; set; }
+            public string? MaxPoints { get; set; } = "5000";
+            public string? Unit { get; set; } = "raw";
+            public double? VoltLevel { get; set; }
+            public string? Kind { get; set; } // voltage|current
+            public string? Seq { get; set; } // pos|neg|zero
+            public string[]? Pmu { get; set; } = Array.Empty<string>();
+            public DateTime? From { get; set; }
+            public DateTime? To { get; set; }
+        }
+
+        /// <summary>
+        /// Request body para endpoint de desequilíbrio (unbalance/by-run).
+        /// </summary>
+        public sealed class UnbalanceSeriesByRunRequest
+        {
+            public Guid RunId { get; set; }
+            public string? MaxPoints { get; set; } = "5000";
+            public double? VoltLevel { get; set; }
+            public string? Kind { get; set; } // voltage|current
+            public string[]? Pmu { get; set; } = Array.Empty<string>();
+            public DateTime? From { get; set; }
+            public DateTime? To { get; set; }
+        }
+
+        /// <summary>
+        /// Request body para endpoint de potência (power/by-run).
+        /// </summary>
+        public sealed class PowerSeriesByRunRequest
+        {
+            public Guid RunId { get; set; }
+            public string? MaxPoints { get; set; } = "5000";
+            public string? Which { get; set; } // active|reactive
+            public string? Unit { get; set; } = "raw";
+            public bool? Tri { get; set; } = false;
+            public bool? Total { get; set; } = false;
+            public string? Phase { get; set; }
+            public string[]? Pmu { get; set; } = Array.Empty<string>();
+            public DateTime? From { get; set; }
+            public DateTime? To { get; set; }
+        }
+
+        /// <summary>
+        /// Request body para endpoint de diferença angular (angle-diff/by-run).
+        /// </summary>
+        public sealed class AngleDiffSeriesByRunRequest
+        {
+            public Guid RunId { get; set; }
+            public string? MaxPoints { get; set; } = "5000";
+            public string? Kind { get; set; } // voltage|current
+            public string? Reference { get; set; } // PMU reference name (required)
+            public string? Phase { get; set; } // A|B|C
+            public string? Sequence { get; set; } // pos|neg|zero
+            public string[]? Pmu { get; set; } = Array.Empty<string>();
+            public DateTime? From { get; set; }
+            public DateTime? To { get; set; }
+        }
+
+    }

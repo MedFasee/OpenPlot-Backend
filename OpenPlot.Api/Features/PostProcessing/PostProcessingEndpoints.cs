@@ -14,6 +14,8 @@ public static class PostProcessingEndpoints
 
         grp.MapGet("/dft", async (
             [FromQuery] Guid cache_id,
+            [FromQuery] DateTime? from,
+            [FromQuery] DateTime? to,
             [FromServices] IAnalysisCacheRepository cacheRepo,
             [FromServices] IDftMetaBuilder metaBuilder,
             CancellationToken ct
@@ -23,7 +25,7 @@ public static class PostProcessingEndpoints
             if (payload is null)
                 return Results.NotFound("cache_id não encontrado.");
 
-            var dft = Dft.Compute(payload);
+            var dft = Dft.Compute(payload, from?.ToUniversalTime(), to?.ToUniversalTime());
             var plotMeta = metaBuilder.Build(payload);
 
             var series = dft.Specs.Select(kv => new

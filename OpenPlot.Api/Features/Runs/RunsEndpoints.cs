@@ -4,7 +4,7 @@ using System.Numerics;
 using System.Text;
 using Dapper;
 using Data.Sql;
-using Microsoft.AspNetCore.Mvc;             // <- [FromServices], [FromQuery]
+using Microsoft.AspNetCore.Mvc;             // <- [FromServices], [FromQuery], [FromBody]
 using OpenPlot.Data.Dtos;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers;
@@ -400,45 +400,68 @@ public static class RunsEndpoints
 
 
 
-        grp.MapGet("/series/voltage/by-run", async (
-            [AsParameters] ByRunQuery q,
-            [AsParameters] WindowQuery w,
-            [FromQuery] string[]? pmu,
+        grp.MapPost("/series/voltage/by-run", async (
+            [FromBody] SeriesByRunRequest req,
             [FromServices] VoltageSeriesHandler handler,
             [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
         ) =>
         {
+            var q = new ByRunQuery
+            {
+                RunId = req.RunId,
+                Tri = req.Tri ?? false,
+                Phase = req.Phase,
+                Unit = req.Unit,
+                Pmus = req.Pmu,
+                MaxPoints = req.MaxPoints
+            };
+            var w = new WindowQuery(req.From, req.To);
             var ui = uiMenus.Build(UiMenuSet.Oscillations);
-            return await handler.HandleAsync(q, w, pmu, ui, ct);
+            return await handler.HandleAsync(q, w, req.Pmu, ui, ct);
         });
 
-        grp.MapGet("/series/current/by-run", async (
-            [AsParameters] ByRunQuery q,
-            [AsParameters] WindowQuery w,
-            [FromQuery] string[]? pmu,
+        grp.MapPost("/series/current/by-run", async (
+            [FromBody] SeriesByRunRequest req,
             [FromServices] CurrentSeriesHandler handler,
             [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
         ) =>
         {
+            var q = new ByRunQuery
+            {
+                RunId = req.RunId,
+                Tri = req.Tri ?? false,
+                Phase = req.Phase,
+                Unit = req.Unit,
+                Pmus = req.Pmu,
+                MaxPoints = req.MaxPoints
+            };
+            var w = new WindowQuery(req.From, req.To);
             var modes = uiMenus.Build(UiMenuSet.Oscillations);
-            return await handler.HandleAsync(q, w, pmu, modes, ct);
+            return await handler.HandleAsync(q, w, req.Pmu, modes, ct);
         });
 
-        grp.MapGet("/series/seq/by-run", async (
-            [AsParameters] SeqRunQuery q,
-            [AsParameters] WindowQuery w,
-            [FromQuery] string[]? pmu,
+        grp.MapPost("/series/seq/by-run", async (
+            [FromBody] SeqSeriesByRunRequest req,
             [FromServices] SeqSeriesHandler handler,
             [FromServices] IPmuQueryHelper pmuHelper,
             [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
         ) =>
         {
-            var pmuList = pmuHelper.Normalize(pmu).ToList();
+            var q = new SeqRunQuery(
+                RunId: req.RunId,
+                MaxPoints: req.MaxPoints,
+                Unit: req.Unit,
+                VoltLevel: req.VoltLevel,
+                Seq: req.Seq,
+                Kind: req.Kind
+            );
+            var w = new WindowQuery(req.From, req.To);
+            var pmuList = pmuHelper.Normalize(req.Pmu).ToList();
 
-            var req = new SeqRequest(
+            var seqReq = new SeqRequest(
                 Kind: (q.Kind ?? "").Trim().ToLowerInvariant() == "current" ? SeqKind.Current : SeqKind.Voltage,
                 Seq: (q.Seq ?? "").Trim().ToLowerInvariant() switch
                 {
@@ -449,40 +472,49 @@ public static class RunsEndpoints
                 });
 
             var ui = uiMenus.Build(UiMenuSet.Oscillations);
-            return await handler.HandleAsync(q, req, w, pmuList, ui, ct);
+            return await handler.HandleAsync(q, seqReq, w, pmuList, ui, ct);
         });
 
-        grp.MapGet("/series/unbalance/by-run", async (
-            [AsParameters] UnbalanceRunQuery q,
-            [AsParameters] WindowQuery w,
-            [FromQuery] string[]? pmu,
+        grp.MapPost("/series/unbalance/by-run", async (
+            [FromBody] UnbalanceSeriesByRunRequest req,
             [FromServices] UnbalanceSeriesHandler handler,
             [FromServices] IPmuQueryHelper pmuHelper,
             [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
         ) =>
         {
-            var pmuList = pmuHelper.Normalize(pmu).ToList();
+            var q = new UnbalanceRunQuery(
+                RunId: req.RunId,
+                MaxPoints: req.MaxPoints,
+                VoltLevel: req.VoltLevel,
+                Kind: req.Kind
+            );
+            var w = new WindowQuery(req.From, req.To);
+            var pmuList = pmuHelper.Normalize(req.Pmu).ToList();
 
-            var req = new UnbalanceRequest(
+            var unbalReq = new UnbalanceRequest(
                 Kind: (q.Kind ?? "").Trim().ToLowerInvariant() == "current" ? SeqKind.Current : SeqKind.Voltage
             );
 
             var ui = uiMenus.Build(UiMenuSet.Oscillations);
-            return await handler.HandleAsync(q, req, w, pmuList, ui, ct);
+            return await handler.HandleAsync(q, unbalReq, w, pmuList, ui, ct);
         });
 
-        grp.MapGet("/series/frequency/by-run", async (
-            [AsParameters] SimpleSeriesQuery q,
-            [AsParameters] WindowQuery w,
-            [FromQuery] string[]? pmu,
+        grp.MapPost("/series/frequency/by-run", async (
+            [FromBody] SeriesByRunRequest req,
             [FromServices] SimpleSeriesHandler handler,
             [FromServices] IPmuQueryHelper pmuHelper,
             [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
         ) =>
         {
-            var pmuList = pmuHelper.Normalize(pmu);
+            var q = new SimpleSeriesQuery
+            {
+                RunId = req.RunId,
+                MaxPoints = req.MaxPoints
+            };
+            var w = new WindowQuery(req.From, req.To);
+            var pmuList = pmuHelper.Normalize(req.Pmu);
 
             var meas = new MeasurementsQuery(
                 Quantity: "frequency",
@@ -497,17 +529,21 @@ public static class RunsEndpoints
             return await handler.HandleAsync(q, w, meas, ui, ct);
         });
 
-        grp.MapGet("/series/dfreq/by-run", async (
-            [AsParameters] SimpleSeriesQuery q,
-            [AsParameters] WindowQuery w,
-            [FromQuery] string[]? pmu,
+        grp.MapPost("/series/dfreq/by-run", async (
+            [FromBody] SeriesByRunRequest req,
             [FromServices] SimpleSeriesHandler handler,
             [FromServices] IPmuQueryHelper pmuHelper,
             [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
         ) =>
         {
-            var pmuList = pmuHelper.Normalize(pmu);
+            var q = new SimpleSeriesQuery
+            {
+                RunId = req.RunId,
+                MaxPoints = req.MaxPoints
+            };
+            var w = new WindowQuery(req.From, req.To);
+            var pmuList = pmuHelper.Normalize(req.Pmu);
 
             var meas = new MeasurementsQuery(
                 Quantity: "frequency",
@@ -523,102 +559,118 @@ public static class RunsEndpoints
         });
 
         // -----------------------------------------------
-        // /series/thd/by-run  (THD de tensão ou corrente)
+        // POST /series/thd/by-run  (THD de tensão ou corrente)
         // -----------------------------------------------
-        grp.MapGet("/series/thd/by-run",
+        grp.MapPost("/series/thd/by-run",
         async (
-            [AsParameters] ByRunQuery q,
-            [AsParameters] WindowQuery w,
-            [FromQuery] string kind,
+            [FromBody] SeriesByRunRequest req,
             [FromServices] ThdSeriesHandler handler,
             [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
         ) =>
         {
+            var q = new ByRunQuery
+            {
+                RunId = req.RunId,
+                Tri = req.Tri ?? false,
+                Phase = req.Phase,
+                Unit = req.Unit,
+                Pmus = req.Pmu,
+                MaxPoints = req.MaxPoints
+            };
+            var w = new WindowQuery(req.From, req.To);
             var modes = uiMenus.Build(UiMenuSet.Oscillations);
-            return await handler.HandleAsync(q, w, kind, modes, ct);
+            return await handler.HandleAsync(q, w, req.Unit ?? "raw", modes, ct);
         });
 
+            // -----------------------------------------
+            // POST /series/digital/by-run  (Digital)
+            // -----------------------------------------
+            grp.MapPost("/series/digital/by-run",
+            async (
+            [FromBody] SeriesByRunRequest req,
+            [FromServices] SimpleSeriesHandler handler,
+            [FromServices] IPmuQueryHelper pmuHelper,
+            [FromServices] IUiMenuService uiMenus,
+            CancellationToken ct
+        ) =>
+            {
+                var q = new SimpleSeriesQuery
+                {
+                    RunId = req.RunId,
+                    MaxPoints = req.MaxPoints
+                };
+                var w = new WindowQuery(req.From, req.To);
+                var pmuList = pmuHelper.Normalize(req.Pmu);
+
+                var meas = new MeasurementsQuery(
+                    Quantity: "digital",
+                    Component: "dig",
+                    PhaseMode: PhaseMode.Any,
+                    Phase: null,
+                    PmuNames: pmuList
+                );
+
+                var modes = uiMenus.Build(UiMenuSet.Oscillations);
+                return await handler.HandleAsync(q, w, meas, modes, ct);
+            });
+
+
+
         // -----------------------------------------
-        // X) /series/digital/by-run  (Digital)
+        // POST /series/power/by-run  (P ou Q)
         // -----------------------------------------
-        grp.MapGet("/series/digital/by-run",
+        grp.MapPost("/series/power/by-run",
         async (
-        [AsParameters] SimpleSeriesQuery q,
-        [AsParameters] WindowQuery w,
-        [FromQuery] string[]? pmu,
-        [FromServices] SimpleSeriesHandler handler,
-        [FromServices] IPmuQueryHelper pmuHelper,
-        [FromServices] IUiMenuService uiMenus,
-        CancellationToken ct
-    ) =>
-        {
-            var pmuList = pmuHelper.Normalize(pmu);
-
-            var meas = new MeasurementsQuery(
-                Quantity: "digital",
-                Component: "dig",
-                PhaseMode: PhaseMode.Any,
-                Phase: null,
-                PmuNames: pmuList
-            );
-
-            var modes = uiMenus.Build(UiMenuSet.Oscillations);
-            return await handler.HandleAsync(q, w, meas, modes, ct);
-        });
-
-
-
-        // -----------------------------------------
-        // /series/power/by-run  (P ou Q)
-        // -----------------------------------------
-        grp.MapGet("/series/power/by-run",
-        async (
-            [AsParameters] PowerPlotQuery q,
-            [AsParameters] WindowQuery w,
+            [FromBody] PowerSeriesByRunRequest req,
             [FromServices] PowerSeriesHandler handler,
             [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
         ) =>
         {
+            var q = new PowerPlotQuery
+            {
+                RunId = req.RunId,
+                Pmu = req.Pmu,
+                Which = req.Which,
+                Unit = req.Unit,
+                MaxPoints = req.MaxPoints,
+                Tri = req.Tri,
+                Total = req.Total,
+                Phase = req.Phase
+            };
+            var w = new WindowQuery(req.From, req.To);
             var modes = uiMenus.Build(UiMenuSet.Oscillations);
             return await handler.HandleAsync(q, w, modes, ct);
         });
 
         // -----------------------------------------------
-        // /series/angle-diff/by-run  (Δângulo: PMU - referência)
+        // POST /series/angle-diff/by-run  (Δângulo: PMU - referência)
         // -----------------------------------------------
         // Calcula diferença de fase angular entre PMU de referência e PMUs de medição
         // Modos: phase (A|B|C) ou sequence (pos|neg|zero com cálculo de sequências)
-        grp.MapGet("/series/angle-diff/by-run",
+        grp.MapPost("/series/angle-diff/by-run",
         async (
-            [AsParameters] ByRunQuery q,
-            [FromQuery] string kind,
-            [FromQuery] string @ref,
-            [FromQuery] string? phase,
-            [FromQuery] string? seq,
-            [FromQuery] string[]? pmu,
+            [FromBody] AngleDiffSeriesByRunRequest req,
             [FromServices] AngleDiffSeriesHandler handler,
             [FromServices] IUiMenuService uiMenus,
-            [FromQuery] DateTime? from,
-            [FromQuery] DateTime? to,
             CancellationToken ct
         ) =>
         {
             var query = new AngleDiffQuery
             {
-                RunId = q.RunId,
-                MaxPoints = q.MaxPoints,
-                Kind = kind,
-                Reference = @ref,
-                Phase = phase,
-                Sequence = seq
+                RunId = req.RunId,
+                MaxPoints = req.MaxPoints,
+                Kind = req.Kind,
+                Reference = req.Reference,
+                Phase = req.Phase,
+                Sequence = req.Sequence
             };
 
-            var window = new WindowQuery(From: from, To: to);
+            var window = new WindowQuery(req.From, req.To);
             var modes = uiMenus.Build(UiMenuSet.Oscillations);
 
-            return await handler.HandleAsync(query, window, pmu, modes, ct);
+            return await handler.HandleAsync(query, window, req.Pmu, modes, ct);
         });
 
 // -----------------------------------------------

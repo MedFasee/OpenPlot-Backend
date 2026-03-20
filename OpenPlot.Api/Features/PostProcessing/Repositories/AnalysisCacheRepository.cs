@@ -20,6 +20,7 @@ public sealed class AnalysisCacheRepository : IAnalysisCacheRepository
         const string sql = """
         INSERT INTO openplot.analysis_cache (cache_id, job_id, payload, last_accessed_at)
         VALUES (@cache_id, @job_id, CAST(@payload AS jsonb), now());
+        DELETE FROM openplot.analysis_cache WHERE last_accessed_at < now() - INTERVAL '24 hours';
         """;
 
         var cacheId = Guid.NewGuid();

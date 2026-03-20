@@ -90,7 +90,7 @@ public static class Dft
         return y;
     }
 
-    public static DftComputeResult Compute(RowsCacheV2 payload)
+    public static DftComputeResult Compute(RowsCacheV2 payload, DateTime? fromUtc = null, DateTime? toUtc = null)
     {
         if (payload is null)
             throw new ArgumentNullException(nameof(payload));
@@ -115,6 +115,7 @@ public static class Dft
         foreach (var serie in orderedSeries)
         {
             var raw = serie.Points
+                .Where(p => (fromUtc is null || p.Ts >= fromUtc) && (toUtc is null || p.Ts <= toUtc))
                 .Select(p => new Point(p.Ts, p.Value))
                 .ToList();
 
