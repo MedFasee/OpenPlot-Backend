@@ -18,7 +18,7 @@ public static class PostProcessingEndpoints
             [FromQuery] DateTime? to,
             [FromServices] IAnalysisCacheRepository cacheRepo,
             [FromServices] IDftMetaBuilder metaBuilder,
-            CancellationToken ct
+            CancellationToken ct = default
         ) =>
         {
             var payload = await cacheRepo.GetAsync<RowsCacheV2>(cache_id, ct);
@@ -51,8 +51,13 @@ public static class PostProcessingEndpoints
                 meta = plotMeta,
                 selectRate = payload.SelectRate,
                 window = new { from = payload.From, to = payload.To },
+                zoom = new
+                {
+                    fMin = dft.Zoom?.Position,
+                    fMax = dft.Zoom?.Size
+                },
                 series
-                
+
             });
         });
 

@@ -11,6 +11,8 @@ public static class Dft
 {
     public sealed record SpecPoint(double Hz, double Mag);
 
+    public sealed record ZoomBounds(double Position, double Size);
+
     // Spec agora carrega metadados da série (pmu/phase/component/quantity)
     public sealed record Spec(double Sr, int N, double FMin, IReadOnlyList<SpecPoint> Points)
     {
@@ -23,6 +25,40 @@ public static class Dft
 
     // Igual MedPlot: fMin = 2*sr/N
     public static double FMin(double sr, int n) => (2.0 * sr) / n;
+
+    /// <summary>
+    /// Calculates zoom bounds (Position and Size) based on sampling rate (sr) and number of data points (Ndat).
+    /// Formula: fMin = 2 / (Ndat / sr)
+    /// </summary>
+    /// <param name="ndat">Number of data points (samples)</param>
+    /// <param name="sr">Sampling rate in Hz</param>
+    /// <returns>ZoomBounds with Position and Size for chart initial view</returns>
+    public static ZoomBounds CalculateZoomBounds(int ndat, double sr)
+    {
+        if (ndat <= 0)
+            throw new ArgumentException("Ndat deve ser maior que 0", nameof(ndat));
+        if (sr <= 0)
+            throw new ArgumentException("Sr deve ser maior que 0", nameof(sr));
+
+        var fMin = 2.0 / ((double)ndat / sr);
+
+        if (sr != 1)
+        {
+            const double threshold = 1.6;
+
+            return new ZoomBounds(0, threshold);
+
+
+        }
+        else
+        {
+            const double threshold = 0.5;
+
+
+            return new ZoomBounds(fMin, threshold);
+
+        }
+    }
 
     // FFT single-sided (Magnitudes)
     public static Spec ForwardSingleSided(double[] y, double sr)
@@ -111,6 +147,7 @@ public static class Dft
 
         // chave única (pmu|quantity|component|phase|unit) para não sobrescrever fases/componentes
         var specs = new Dictionary<string, Spec>(StringComparer.OrdinalIgnoreCase);
+        int? ndatForZoom = null;
 
         foreach (var serie in orderedSeries)
         {
@@ -123,6 +160,9 @@ public static class Dft
                 continue;
 
             var y = ResampleHoldLast(raw, sr);
+
+            // Capture Ndat from the first computed series for zoom calculation
+            ndatForZoom ??= y.Length;
 
             var spec = ForwardSingleSided(y, sr) with
             {
@@ -139,9 +179,17 @@ public static class Dft
         if (specs.Count == 0)
             throw new InvalidOperationException("Nenhuma série válida para DFT.");
 
+        // Calculate zoom bounds based on Ndat and sr
+        ZoomBounds? zoom = null;
+        if (ndatForZoom.HasValue)
+        {
+            zoom = CalculateZoomBounds(ndatForZoom.Value, sr);
+        }
+
         return new DftComputeResult
         {
-            Specs = specs
+            Specs = specs,
+            Zoom = zoom
         };
     }
 
@@ -191,4 +239,5 @@ public static class Dft
 public sealed class DftComputeResult
 {
     public Dictionary<string, Dft.Spec> Specs { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dft.ZoomBounds? Zoom { get; init; }
 }

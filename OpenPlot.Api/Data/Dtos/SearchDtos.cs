@@ -1,8 +1,54 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using OpenPlot.Features.Runs.Handlers.Abstractions;
+using System.Text.Json.Serialization;
+using System.Text.Json;
 
 namespace OpenPlot.Data.Dtos
 {
+    /// <summary>
+    /// Conversor customizado para aceitar maxPoints como número ou string.
+    /// </summary>
+    public class MaxPointsConverter : JsonConverter<string?>
+    {
+        public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return reader.TokenType switch
+            {
+                JsonTokenType.String => reader.GetString(),
+                JsonTokenType.Number => reader.GetInt64().ToString(),
+                JsonTokenType.Null => null,
+                _ => throw new JsonException($"Unexpected token {reader.TokenType} when parsing maxPoints")
+            };
+        }
+
+        public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options)
+        {
+            if (value is null)
+                writer.WriteNullValue();
+            else
+                writer.WriteStringValue(value);
+        }
+    }
+
+    /// <summary>
+    /// Conversor customizado para aceitar Guid com múltiplos nomes de propriedade (runId, run_Id, run_id).
+    /// </summary>
+    public class FlexibleRunIdConverter : JsonConverter<Guid>
+    {
+        public override Guid Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return reader.TokenType switch
+            {
+                JsonTokenType.String => Guid.Parse(reader.GetString() ?? ""),
+                _ => throw new JsonException($"Unexpected token {reader.TokenType} when parsing RunId")
+            };
+        }
+
+        public override void Write(Utf8JsonWriter writer, Guid value, JsonSerializerOptions options)
+        {
+            writer.WriteStringValue(value);
+        }
+    }
     public sealed class SearchRunRow
     {
         public Guid id { get; set; }
@@ -108,7 +154,7 @@ namespace OpenPlot.Data.Dtos
 
     public sealed class ByRunQuery : ISeriesQuery
     {
-        [FromQuery(Name = "run_Id")]
+        [FromQuery(Name = "run_id")]
         public Guid RunId { get; init; }
 
         public bool Tri { get; init; }
@@ -188,13 +234,22 @@ namespace OpenPlot.Data.Dtos
         /// </summary>
         public sealed class SeriesByRunRequest
         {
+            [JsonPropertyName("run_id")]
             public Guid RunId { get; set; }
+            [JsonConverter(typeof(MaxPointsConverter))]
+            [JsonPropertyName("maxPoints")]
             public string? MaxPoints { get; set; } = "5000";
+            [JsonPropertyName("unit")]
             public string? Unit { get; set; } = "raw";
+            [JsonPropertyName("tri")]
             public bool? Tri { get; set; } = false;
+            [JsonPropertyName("phase")]
             public string? Phase { get; set; }
+            [JsonPropertyName("pmu")]
             public string[]? Pmu { get; set; } = Array.Empty<string>();
+            [JsonPropertyName("from")]
             public DateTime? From { get; set; }
+            [JsonPropertyName("to")]
             public DateTime? To { get; set; }
         }
 
@@ -203,14 +258,24 @@ namespace OpenPlot.Data.Dtos
         /// </summary>
         public sealed class SeqSeriesByRunRequest
         {
+            [JsonPropertyName("run_id")]
             public Guid RunId { get; set; }
+            [JsonConverter(typeof(MaxPointsConverter))]
+            [JsonPropertyName("maxPoints")]
             public string? MaxPoints { get; set; } = "5000";
+            [JsonPropertyName("unit")]
             public string? Unit { get; set; } = "raw";
+            [JsonPropertyName("voltLevel")]
             public double? VoltLevel { get; set; }
+            [JsonPropertyName("kind")]
             public string? Kind { get; set; } // voltage|current
+            [JsonPropertyName("seq")]
             public string? Seq { get; set; } // pos|neg|zero
+            [JsonPropertyName("pmu")]
             public string[]? Pmu { get; set; } = Array.Empty<string>();
+            [JsonPropertyName("from")]
             public DateTime? From { get; set; }
+            [JsonPropertyName("to")]
             public DateTime? To { get; set; }
         }
 
@@ -219,12 +284,20 @@ namespace OpenPlot.Data.Dtos
         /// </summary>
         public sealed class UnbalanceSeriesByRunRequest
         {
+            [JsonPropertyName("run_id")]
             public Guid RunId { get; set; }
+            [JsonConverter(typeof(MaxPointsConverter))]
+            [JsonPropertyName("maxPoints")]
             public string? MaxPoints { get; set; } = "5000";
+            [JsonPropertyName("voltLevel")]
             public double? VoltLevel { get; set; }
+            [JsonPropertyName("kind")]
             public string? Kind { get; set; } // voltage|current
+            [JsonPropertyName("pmu")]
             public string[]? Pmu { get; set; } = Array.Empty<string>();
+            [JsonPropertyName("from")]
             public DateTime? From { get; set; }
+            [JsonPropertyName("to")]
             public DateTime? To { get; set; }
         }
 
@@ -233,15 +306,26 @@ namespace OpenPlot.Data.Dtos
         /// </summary>
         public sealed class PowerSeriesByRunRequest
         {
+            [JsonPropertyName("run_id")]
             public Guid RunId { get; set; }
+            [JsonConverter(typeof(MaxPointsConverter))]
+            [JsonPropertyName("maxPoints")]
             public string? MaxPoints { get; set; } = "5000";
+            [JsonPropertyName("which")]
             public string? Which { get; set; } // active|reactive
+            [JsonPropertyName("unit")]
             public string? Unit { get; set; } = "raw";
+            [JsonPropertyName("tri")]
             public bool? Tri { get; set; } = false;
+            [JsonPropertyName("total")]
             public bool? Total { get; set; } = false;
+            [JsonPropertyName("phase")]
             public string? Phase { get; set; }
+            [JsonPropertyName("pmu")]
             public string[]? Pmu { get; set; } = Array.Empty<string>();
+            [JsonPropertyName("from")]
             public DateTime? From { get; set; }
+            [JsonPropertyName("to")]
             public DateTime? To { get; set; }
         }
 
@@ -250,14 +334,24 @@ namespace OpenPlot.Data.Dtos
         /// </summary>
         public sealed class AngleDiffSeriesByRunRequest
         {
+            [JsonPropertyName("run_id")]
             public Guid RunId { get; set; }
+            [JsonConverter(typeof(MaxPointsConverter))]
+            [JsonPropertyName("maxPoints")]
             public string? MaxPoints { get; set; } = "5000";
+            [JsonPropertyName("kind")]
             public string? Kind { get; set; } // voltage|current
+            [JsonPropertyName("reference")]
             public string? Reference { get; set; } // PMU reference name (required)
+            [JsonPropertyName("phase")]
             public string? Phase { get; set; } // A|B|C
+            [JsonPropertyName("sequence")]
             public string? Sequence { get; set; } // pos|neg|zero
+            [JsonPropertyName("pmu")]
             public string[]? Pmu { get; set; } = Array.Empty<string>();
+            [JsonPropertyName("from")]
             public DateTime? From { get; set; }
+            [JsonPropertyName("to")]
             public DateTime? To { get; set; }
         }
 

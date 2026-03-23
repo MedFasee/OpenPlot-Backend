@@ -1,5 +1,6 @@
 using System.Data;
 using System.Text;
+using System.Text.Json;
 // Evitar starvation
 using System.Threading;
 using MathNet.Numerics;
@@ -210,6 +211,15 @@ builder.Services
     });
 
 builder.Services.AddAuthorization();
+
+// ======================================================================
+// JSON Serialization Configuration
+// ======================================================================
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.PropertyNameCaseInsensitive = true;
+    options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+});
 
 // ======================================================================
 // Swagger
