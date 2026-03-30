@@ -135,7 +135,21 @@ public sealed class PlotMetaBuilder : IPlotMetaBuilder
         // THD (igual ao front)
         // -------------------------
         if (component == "thd")
-            return $"Distorção de {labelGrandeza} Harmônica Total" + resSuffix;
+        {
+            var baseThd = $"Distorção de {labelGrandeza} Harmônica Total";
+
+            // Se for trifásico (ABC), adiciona o nome da PMU
+            if (meas.PhaseMode == PhaseMode.ABC && !string.IsNullOrWhiteSpace(pmu0))
+                return $"{baseThd} - {pmu0}{resSuffix}";
+
+            // Se for monofásico (Single), adiciona a fase (A, B ou C)
+            if (meas.PhaseMode == PhaseMode.Single)
+                return $"{baseThd} - {labelDom}{resSuffix}";
+
+            return baseThd + resSuffix;
+        }
+
+    
 
         // -------------------------
         // Desequilíbrio (igual ao front)
@@ -210,9 +224,6 @@ public sealed class PlotMetaBuilder : IPlotMetaBuilder
         return meas.PhaseMode switch
         {
             PhaseMode.Single when ph is "A" or "B" or "C" => $"Fase {ph}",
-            PhaseMode.SeqPos => "Sequência Positiva",
-            PhaseMode.SeqNeg => "Sequência Negativa",
-            PhaseMode.SeqZero => "Sequência Zero",
             _ => ""
         };
     }

@@ -51,6 +51,7 @@ public sealed class AngleDiffSeriesHandler
     private readonly ITimeSeriesDownsampler _downsampler;
     private readonly IPmuQueryHelper _pmuHelper;
     private readonly ISeriesAssemblyService _seriesAssembly;
+    private readonly IPlotMetaBuilder _metaBuilder;
 
     public AngleDiffSeriesHandler(
         IRunContextRepository runRepository,
@@ -58,7 +59,8 @@ public sealed class AngleDiffSeriesHandler
         IDbConnectionFactory dbFactory,
         ITimeSeriesDownsampler downsampler,
         IPmuQueryHelper pmuHelper,
-        ISeriesAssemblyService seriesAssembly)
+        ISeriesAssemblyService seriesAssembly,
+        IPlotMetaBuilder metaBuilder)
     {
         _runRepository = runRepository ?? throw new ArgumentNullException(nameof(runRepository));
         _cacheRepo = cacheRepo ?? throw new ArgumentNullException(nameof(cacheRepo));
@@ -66,6 +68,7 @@ public sealed class AngleDiffSeriesHandler
         _downsampler = downsampler ?? throw new ArgumentNullException(nameof(downsampler));
         _pmuHelper = pmuHelper ?? throw new ArgumentNullException(nameof(pmuHelper));
         _seriesAssembly = seriesAssembly ?? throw new ArgumentNullException(nameof(seriesAssembly));
+        _metaBuilder = metaBuilder ?? throw new ArgumentNullException(nameof(metaBuilder));
     }
 
     /// <summary>
@@ -92,6 +95,9 @@ public sealed class AngleDiffSeriesHandler
 
             // Process PMU list
             var pmuList = _pmuHelper.NormalizeExcluding(refPmu, pmuArray).ToList();
+            var queryPmuList = pmuList.Count > 0
+                ? _pmuHelper.Normalize(pmuList, new[] { refPmu }).ToList()
+                : pmuList;
 
             var maxPts = query.ResolveMaxPoints(@default: 5000);
             var fromUtc = window.FromUtc;
@@ -102,7 +108,7 @@ public sealed class AngleDiffSeriesHandler
                 return Results.NotFound("run_id não encontrado.");
 
             // Query data
-            var rows = await QueryDataAsync(query, window, pmuList, ct);
+            var rows = await QueryDataAsync(query, window, queryPmuList, ct);
             if (rows.Count == 0)
                 return Results.NotFound("Nenhuma série encontrada para este run/filtros.");
 
@@ -216,6 +222,18 @@ public sealed class AngleDiffSeriesHandler
 
             var cacheId = await _cacheRepo.SaveAsync(query.RunId, cachePayload, ct);
 
+            // Build plot metadata with reference terminal
+            var measQuery = new MeasurementsQuery(
+                Quantity: kind,
+                Component: componentLabel,
+                PhaseMode: hasPhase ? PhaseMode.Single : PhaseMode.Any,
+                Phase: hasPhase ? query.Phase : null,
+                PmuNames: pmuList.Count > 0 ? pmuList : null,
+                Unit: "deg",
+                ReferenceTerminal: refPmu
+            );
+            var plotMeta = _metaBuilder.Build(new WindowQuery(fromUtc, toUtc), ctx, measQuery);
+
             return Results.Ok(new
             {
                 run_id = query.RunId,
@@ -230,6 +248,7 @@ public sealed class AngleDiffSeriesHandler
                 pmu_count = series.Count,
                 window = new { from = windowFrom, to = windowTo },
                 modes = modes,
+                plot_meta = new { title = plotMeta.Title, x_label = plotMeta.XLabel, y_label = plotMeta.YLabel },
                 series
             });
         }

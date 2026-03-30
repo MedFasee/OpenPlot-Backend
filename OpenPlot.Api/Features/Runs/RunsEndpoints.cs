@@ -574,13 +574,14 @@ public static class RunsEndpoints
                 RunId = req.RunId,
                 Tri = req.Tri ?? false,
                 Phase = req.Phase,
-                Unit = req.Unit,
-                Pmus = req.Pmu,
+                Unit = "%",
+                Pmu = req.Tri == true ? req.Pmu?[0] : null,
+                Pmus = req.Tri == false ? req.Pmu : null,
                 MaxPoints = req.MaxPoints
             };
             var w = new WindowQuery(req.From, req.To);
             var modes = uiMenus.Build(UiMenuSet.Oscillations);
-            return await handler.HandleAsync(q, w, req.Unit ?? "raw", modes, ct);
+            return await handler.HandleAsync(q, w, req.Kind ?? "voltage", modes, ct);
         });
 
             // -----------------------------------------
@@ -653,6 +654,7 @@ public static class RunsEndpoints
         async (
             [FromBody] AngleDiffSeriesByRunRequest req,
             [FromServices] AngleDiffSeriesHandler handler,
+            [FromServices] IPmuQueryHelper pmuHelper,
             [FromServices] IUiMenuService uiMenus,
             CancellationToken ct
         ) =>

@@ -140,7 +140,19 @@
         "roles": [ "reader" ],
         "claims": {
             "organization": "ONS",
-            "tenant": "ONS_tester"
+            "tenant": "ONS_tester_1"
+        }
+    },
+	{
+        "sub": "e6aa57c1-0e1c-4e5e-8c50-u1e2f0d9fad92",
+        "username": "suelaine",
+        "password": "suelaine_2026",
+        "preferred_username": "Suelaine",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "ONS",
+            "tenant": "ONS_tester_2"
         }
     }
 ]

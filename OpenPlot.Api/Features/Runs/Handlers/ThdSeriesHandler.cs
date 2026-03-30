@@ -1,40 +1,37 @@
-using System.Data;
-using System.Globalization;
-using Dapper;
 using OpenPlot.Core.TimeSeries;
+using OpenPlot.Data.Dtos;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Responses;
 using OpenPlot.Features.Runs.Repositories;
-using OpenPlot.Data.Dtos;
 
 namespace OpenPlot.Features.Runs.Handlers;
 
 /// <summary>
 /// Handler para Distorção Harmônica Total (THD) de tensão ou corrente.
-/// Reusa ByRunQuery com parâmetro kind adicional.
+/// Utiliza IMeasurementsRepository para filtragem consistente com outros handlers.
 /// </summary>
 public sealed class ThdSeriesHandler
 {
-    private readonly IDbConnectionFactory _dbFactory;
-    private readonly ITimeSeriesDownsampler _downsampler;
     private readonly IRunContextRepository _runRepository;
+    private readonly IMeasurementsRepository _measRepository;
     private readonly IAnalysisCacheRepository _cacheRepository;
+    private readonly ITimeSeriesDownsampler _downsampler;
     private readonly IPlotMetaBuilder _metaBuilder;
     private readonly IPmuQueryHelper _pmuHelper;
     private readonly ISeriesAssemblyService _seriesAssembly;
 
     public ThdSeriesHandler(
         IRunContextRepository runRepository,
+        IMeasurementsRepository measRepository,
         IAnalysisCacheRepository cacheRepository,
-        IDbConnectionFactory dbFactory,
         ITimeSeriesDownsampler downsampler,
         IPlotMetaBuilder metaBuilder,
         IPmuQueryHelper pmuHelper,
         ISeriesAssemblyService seriesAssembly)
     {
         _runRepository = runRepository ?? throw new ArgumentNullException(nameof(runRepository));
+        _measRepository = measRepository ?? throw new ArgumentNullException(nameof(measRepository));
         _cacheRepository = cacheRepository ?? throw new ArgumentNullException(nameof(cacheRepository));
-        _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
         _downsampler = downsampler ?? throw new ArgumentNullException(nameof(downsampler));
         _metaBuilder = metaBuilder ?? throw new ArgumentNullException(nameof(metaBuilder));
         _pmuHelper = pmuHelper ?? throw new ArgumentNullException(nameof(pmuHelper));
@@ -58,7 +55,11 @@ public sealed class ThdSeriesHandler
         var noDownsample = query.MaxPointsIsAll;
         var maxPts = query.ResolveMaxPoints(@default: 5000);
 
-        var pmuList = _pmuHelper.Normalize(new[] { query.Pmu }, query.Pmus);
+        // Quando tri=true, usa apenas query.Pmu (validado como obrigatório)
+        // Quando tri=false, usa múltiplas PMUs de query.Pmus
+        var pmuList = tri
+            ? new[] { query.Pmu! }
+            : _pmuHelper.Normalize(new[] { query.Pmu }, query.Pmus);
 
         DateTime? fromUtc = window.FromUtc;
         DateTime? toUtc = window.ToUtc;
@@ -69,157 +70,37 @@ public sealed class ThdSeriesHandler
         if (ctx is null)
             return Results.NotFound("run_id não encontrado.");
 
-        using var db = _dbFactory.Create();
+        // Constrói a query de medições com filtros apropriados
+        var phaseMode = tri ? PhaseMode.ABC : PhaseMode.Single;
+        var measQuery = new MeasurementsQuery(
+            Quantity: k == "voltage" ? "voltage" : "current",
+            Component: "thd",
+            PhaseMode: phaseMode,
+            Phase: uphase,
+            PmuNames: pmuList.Length == 0 ? null : pmuList,
+            Unit: "%"
+        );
 
-        var phaseClause = tri
-            ? "UPPER(s.phase::text) IN ('A','B','C')"
-            : "UPPER(s.phase::text) = UPPER(@phase)";
-
-        var qtyClause = k == "voltage"
-            ? "LOWER(s.quantity::text) IN ('voltage','v')"
-            : "LOWER(s.quantity::text) IN ('current','i')";
-
-        var pmuFilter = _pmuHelper.BuildOrSqlFilter("c.id_name", pmuList);
-
-
-        const string sqlTemplate = @"
-WITH run AS (
-  SELECT id, source AS pdc_name, from_ts, to_ts, COALESCE(pmus_ok, pmus) AS pmus, signals
-  FROM openplot.search_runs
-  WHERE id = @run_id::uuid
-),
-run_window AS (
-  SELECT
-    CASE WHEN pg_typeof(r.from_ts)::text = 'timestamp without time zone'
-         THEN r.from_ts::timestamptz ELSE r.from_ts END AS from_utc,
-    CASE WHEN pg_typeof(r.to_ts)::text = 'timestamp without time zone'
-         THEN r.to_ts::timestamptz ELSE r.to_ts   END AS to_utc,
-    r.pdc_name, r.signals, r.pmus
-  FROM run r
-),
-win AS (
-  SELECT
-    COALESCE(@from_utc, rw.from_utc) AS from_utc,
-    COALESCE(@to_utc,   rw.to_utc)   AS to_utc,
-    rw.pdc_name, rw.signals, rw.pmus
-  FROM run_window rw
-),
-src AS (
-  SELECT w.pdc_name,
-         w.from_utc AS from_ts,
-         w.to_utc   AS to_ts,
-         CASE
-           WHEN jsonb_typeof(w.signals) = 'array' AND jsonb_array_length(w.signals) > 0 THEN w.signals
-           WHEN jsonb_typeof(w.pmus)    = 'array' AND jsonb_array_length(w.pmus)    > 0 THEN w.pmus
-           ELSE '[]'::jsonb
-         END AS arr
-  FROM win w
-),
-elems AS (
-  SELECT pdc_name, from_ts, to_ts, jsonb_array_elements(arr) AS elem
-  FROM src
-),
-pmu_ids AS (
-  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
-  FROM elems r
-  JOIN openplot.pmu p ON p.id_name = btrim(r.elem::text, '""')
-  WHERE jsonb_typeof(r.elem) = 'string'
-  UNION ALL
-  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
-  FROM elems r
-  JOIN LATERAL (
-    SELECT NULLIF(TRIM(r.elem->>'pmu'), '')     AS key_pmu,
-           NULLIF(TRIM(r.elem->>'id_name'), '') AS key_idname
-  ) k ON TRUE
-  JOIN openplot.pmu p ON p.id_name = COALESCE(k.key_pmu, k.key_idname)
-  WHERE jsonb_typeof(r.elem) = 'object'
-    AND COALESCE(k.key_pmu, k.key_idname) IS NOT NULL
-  UNION ALL
-  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
-  FROM elems r
-  JOIN LATERAL (SELECT NULLIF(r.elem->>'pdc_pmu_id','')::int AS key_pdc_pmu_id) k ON TRUE
-  JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = k.key_pdc_pmu_id
-  JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
-  WHERE jsonb_typeof(r.elem) = 'object'
-  UNION ALL
-  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
-  FROM elems r
-  JOIN LATERAL (SELECT NULLIF(r.elem->>'signal_id','')::int AS key_signal_id) k ON TRUE
-  JOIN openplot.signal s ON s.signal_id = k.key_signal_id
-  JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = s.pdc_pmu_id
-  JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
-  WHERE jsonb_typeof(r.elem) = 'object'
-),
-pdc_ctx AS (
-  SELECT w.pdc_name, w.from_ts, w.to_ts, pdc.pdc_id
-  FROM src w
-  JOIN openplot.pdc pdc ON LOWER(pdc.name) = LOWER(w.pdc_name)
-),
-ctx AS (
-  SELECT pc.pdc_name, pc.from_ts, pc.to_ts, pid.id_name, pid.pmu_id, pc.pdc_id
-  FROM pdc_ctx pc
-  JOIN pmu_ids pid ON pid.pdc_name = pc.pdc_name
-),
-sig AS (
-  SELECT s.signal_id, s.pdc_pmu_id, s.phase, s.component,
-         c.id_name, c.pdc_name
-  FROM ctx c
-  JOIN openplot.pdc_pmu pp ON pp.pdc_id = c.pdc_id AND pp.pmu_id = c.pmu_id
-  JOIN openplot.signal s   ON s.pdc_pmu_id = pp.pdc_pmu_id
-  JOIN openplot.pmu pmu    ON pmu.pmu_id   = c.pmu_id
-  WHERE {PHASE_CLAUSE}
-    AND {QTY_CLAUSE}
-    AND LOWER(s.component::text) IN ('thd')
-    AND {PMU_FILTER}
-),
-raw AS (
-  SELECT m.signal_id, m.ts, m.value
-  FROM openplot.measurements m
-  WHERE m.ts >= (SELECT from_utc FROM win)
-    AND m.ts <= (SELECT to_utc   FROM win)
-)
-SELECT
-  s.signal_id, s.pdc_pmu_id, s.phase, s.component,
-  s.id_name, s.pdc_name,
-  r.ts, r.value
-FROM sig s
-JOIN raw r USING (signal_id)
-ORDER BY s.signal_id, r.ts;";
-
-        var sql = sqlTemplate
-            .Replace("{PHASE_CLAUSE}", phaseClause)
-            .Replace("{QTY_CLAUSE}", qtyClause)
-            .Replace("{PMU_FILTER}", pmuFilter);
-
-        var dyn = new DynamicParameters();
-        dyn.Add("run_id", query.RunId);
-        dyn.Add("phase", uphase);
-        dyn.Add("from_utc", fromUtc);
-        dyn.Add("to_utc", toUtc);
-
-        _pmuHelper.AddSqlParameters(dyn, pmuList);
-
-        var rows = (await db.QueryAsync<(
-            int Signal_Id, int Pdc_Pmu_Id, string Phase, string Component,
-            string Id_Name, string Pdc_Name, DateTime Ts, double Value
-        )>(sql, dyn)).ToList();
+        // Executa a query de medições (usa QueryPhasorAsync porque THD precisa da fase)
+        var rows = await _measRepository.QueryPhasorAsync(ctx, measQuery, ct);
 
         if (rows.Count == 0)
             return Results.NotFound("Nada encontrado para esse run_id/filtro no intervalo solicitado.");
 
-        var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
-        var windowTo = toUtc ?? rows.Max(r => r.Ts);
+        var windowFrom = rows.Min(r => r.Ts);
+        var windowTo = rows.Max(r => r.Ts);
 
+        // Constrói as séries para cache
         var cacheSeries = rows
-            .GroupBy(r => new { r.Signal_Id, r.Pdc_Pmu_Id, r.Id_Name, r.Pdc_Name, r.Phase, r.Component })
+            .GroupBy(r => r.SignalId)
             .Select(g =>
             {
                 var first = g.First();
                 return _seriesAssembly.BuildCacheSeries(
-                    signalId: first.Signal_Id,
-                    pdcPmuId: first.Pdc_Pmu_Id,
-                    idName: first.Id_Name,
-                    pdcName: first.Pdc_Name,
+                    signalId: first.SignalId,
+                    pdcPmuId: first.PdcPmuId,
+                    idName: first.IdName,
+                    pdcName: first.PdcName,
                     referenceTerminal: null,
                     unit: "%",
                     phase: first.Phase,
@@ -237,11 +118,12 @@ ORDER BY s.signal_id, r.ts;";
 
         var cacheId = await _cacheRepository.SaveAsync(query.RunId, cachePayload, ct);
 
+        // Constrói as séries para resposta
         var series = rows
-            .GroupBy(r => r.Signal_Id)
+            .GroupBy(r => r.SignalId)
             .Select(g =>
             {
-                var any = g.First();
+                var first = g.First();
                 var points = _seriesAssembly.BuildPoints(
                     g.Select(r => (r.Ts, r.Value)),
                     noDownsample,
@@ -250,14 +132,14 @@ ORDER BY s.signal_id, r.ts;";
 
                 return new
                 {
-                    pmu = any.Id_Name,
-                    pdc = any.Pdc_Name,
-                    signal_id = any.Signal_Id,
-                    pdc_pmu_id = any.Pdc_Pmu_Id,
+                    pmu = first.IdName,
+                    pdc = first.PdcName,
+                    signal_id = first.SignalId,
+                    pdc_pmu_id = first.PdcPmuId,
                     meta = new
                     {
-                        phase = any.Phase,
-                        component = any.Component,
+                        phase = first.Phase,
+                        component = first.Component,
                         kind = k
                     },
                     points
@@ -268,8 +150,9 @@ ORDER BY s.signal_id, r.ts;";
         var meas = new MeasurementsQuery(
             Quantity: k,
             Component: "thd",
-            PhaseMode: tri ? PhaseMode.ThreePhase : PhaseMode.Single,
+            PhaseMode: phaseMode,
             Phase: uphase,
+            PmuNames: pmuList.Length == 0 ? null : pmuList,
             Unit: "%"
         );
 

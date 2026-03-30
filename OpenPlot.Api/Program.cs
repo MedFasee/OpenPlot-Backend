@@ -51,6 +51,17 @@ builder.Host.UseSerilog(); // substitui o logger padrão pelo Serilog
 builder.WebHost.UseUrls("http://0.0.0.0:7011");
 
 // ======================================================================
+// Kestrel - Increase timeout for long-running queries (especially for series endpoints)
+// ======================================================================
+builder.WebHost.ConfigureKestrel(options =>
+{
+    // Request timeout for heavy operations like sequences, unbalance, etc.
+    // Default is 2 minutes, but series queries can take longer
+    options.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(5);
+    options.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(5);
+});
+
+// ======================================================================
 // CORS — versão que funciona na LAN (dev-friendly)
 // Aceita QUALQUER origem, mas sem wildcard '*' (compatível com cookies)
 // ======================================================================

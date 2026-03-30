@@ -160,6 +160,7 @@ namespace OpenPlot.Data.Dtos
         public bool Tri { get; init; }
         public string? Phase { get; init; }
         public string? Unit { get; init; }
+        public string? Kind { get; init; }
 
         public string? Pmu { get; init; }
 
@@ -241,6 +242,7 @@ namespace OpenPlot.Data.Dtos
             public string? MaxPoints { get; set; } = "5000";
             [JsonPropertyName("unit")]
             public string? Unit { get; set; } = "raw";
+            public string? Kind { get; set; } = "raw";
             [JsonPropertyName("tri")]
             public bool? Tri { get; set; } = false;
             [JsonPropertyName("phase")]
@@ -341,12 +343,18 @@ namespace OpenPlot.Data.Dtos
             public string? MaxPoints { get; set; } = "5000";
             [JsonPropertyName("kind")]
             public string? Kind { get; set; } // voltage|current
-            [JsonPropertyName("reference")]
+            [JsonPropertyName("ref")]
             public string? Reference { get; set; } // PMU reference name (required)
             [JsonPropertyName("phase")]
             public string? Phase { get; set; } // A|B|C
-            [JsonPropertyName("sequence")]
+            [JsonPropertyName("seq")]
             public string? Sequence { get; set; } // pos|neg|zero
+            [JsonPropertyName("sequence")]
+            public string? SequenceAlias
+            {
+                get => Sequence;
+                set => Sequence = value;
+            }
             [JsonPropertyName("pmu")]
             public string[]? Pmu { get; set; } = Array.Empty<string>();
             [JsonPropertyName("from")]
