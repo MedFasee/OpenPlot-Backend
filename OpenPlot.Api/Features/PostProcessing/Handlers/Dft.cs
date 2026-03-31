@@ -137,6 +137,15 @@ public static class Dft
         if (payload.SelectRate <= 0)
             throw new InvalidOperationException("SelectRate inválido.");
 
+        var effectiveFrom = fromUtc ?? payload.From;
+        var effectiveTo = toUtc ?? payload.To;
+
+        if (effectiveFrom < payload.From) effectiveFrom = payload.From;
+        if (effectiveTo > payload.To) effectiveTo = payload.To;
+
+        if (effectiveFrom > effectiveTo)
+            throw new InvalidOperationException("Janela inválida para DFT.");
+
         var sr = (double)payload.SelectRate;
 
         var orderedSeries = payload.Series
@@ -152,7 +161,7 @@ public static class Dft
         foreach (var serie in orderedSeries)
         {
             var raw = serie.Points
-                .Where(p => (fromUtc is null || p.Ts >= fromUtc) && (toUtc is null || p.Ts <= toUtc))
+                .Where(p => p.Ts >= effectiveFrom && p.Ts <= effectiveTo)
                 .Select(p => new Point(p.Ts, p.Value))
                 .ToList();
 
@@ -189,7 +198,9 @@ public static class Dft
         return new DftComputeResult
         {
             Specs = specs,
-            Zoom = zoom
+            Zoom = zoom,
+            FromUtc = effectiveFrom,
+            ToUtc = effectiveTo
         };
     }
 
@@ -240,4 +251,6 @@ public sealed class DftComputeResult
 {
     public Dictionary<string, Dft.Spec> Specs { get; init; } = new(StringComparer.OrdinalIgnoreCase);
     public Dft.ZoomBounds? Zoom { get; init; }
+    public DateTime FromUtc { get; init; }
+    public DateTime ToUtc { get; init; }
 }

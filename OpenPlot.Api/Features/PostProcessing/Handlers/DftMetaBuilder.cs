@@ -5,7 +5,7 @@ namespace OpenPlot.Features.PostProcessing.Handlers;
 
 public interface IDftMetaBuilder
 {
-    PlotMetaDto Build(RowsCacheV2 payload);
+    PlotMetaDto Build(RowsCacheV2 payload, DateTime? fromUtc = null, DateTime? toUtc = null);
 }
 
 public sealed class DftMetaBuilder : IDftMetaBuilder
@@ -17,7 +17,7 @@ public sealed class DftMetaBuilder : IDftMetaBuilder
         _plotMetaBuilder = plotMetaBuilder;
     }
 
-    public PlotMetaDto Build(RowsCacheV2 payload)
+    public PlotMetaDto Build(RowsCacheV2 payload, DateTime? fromUtc = null, DateTime? toUtc = null)
     {
         if (payload.Series is null || payload.Series.Count == 0)
             return new PlotMetaDto("Espectro de Freq.", "Tempo (UTC)", "Frequência (Hz)");
@@ -33,13 +33,13 @@ public sealed class DftMetaBuilder : IDftMetaBuilder
         var ctx = new RunContext(
             RunId: Guid.Empty,
             PdcName: first.PdcName,
-            FromUtc: payload.From,
-            ToUtc: payload.To,
+            FromUtc: fromUtc ?? payload.From,
+            ToUtc: toUtc ?? payload.To,
             PdcId: 0,
             PmuNames: pmuNames,
             SelectRate: payload.SelectRate);
 
-        var window = new WindowQuery(From: payload.From, To: payload.To);
+        var window = new WindowQuery(From: fromUtc ?? payload.From, To: toUtc ?? payload.To);
         var baseMeta = _plotMetaBuilder.Build(window, ctx, meas);
 
         return new PlotMetaDto(

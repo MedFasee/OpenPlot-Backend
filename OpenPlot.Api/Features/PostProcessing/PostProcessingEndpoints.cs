@@ -25,8 +25,11 @@ public static class PostProcessingEndpoints
             if (payload is null)
                 return Results.NotFound("cache_id não encontrado.");
 
-            var dft = Dft.Compute(payload, from?.ToUniversalTime(), to?.ToUniversalTime());
-            var plotMeta = metaBuilder.Build(payload);
+            var fromUtc = from?.ToUniversalTime();
+            var toUtc = to?.ToUniversalTime();
+
+            var dft = Dft.Compute(payload, fromUtc, toUtc);
+            var plotMeta = metaBuilder.Build(payload, dft.FromUtc, dft.ToUtc);
 
             var series = dft.Specs.Select(kv => new
             {
@@ -50,7 +53,7 @@ public static class PostProcessingEndpoints
                 cache_id,
                 meta = plotMeta,
                 selectRate = payload.SelectRate,
-                window = new { from = payload.From, to = payload.To },
+                window = new { from = dft.FromUtc, to = dft.ToUtc },
                 zoom = new
                 {
                     fMin = dft.Zoom?.Position,
