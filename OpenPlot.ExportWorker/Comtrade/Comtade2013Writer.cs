@@ -21,7 +21,6 @@ public sealed class Comtrade2013Writer
     {
         using var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true);
 
-        // evitar colisões de nomes dentro do zip
         var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var pmu in pmus)
@@ -29,49 +28,74 @@ public sealed class Comtrade2013Writer
             if (pmu.Analogs.Count == 0 && pmu.Digitals.Count == 0) continue;
 
             var baseName = MakeUnique(used, pmu.PmuFileSafeName);
-            var cfgName = baseName + ".cfg";
-            var datName = baseName + ".dat";
+            var pmuZipName = baseName + ".zip";
 
-            // Calcula A/B por canal analógico
-            var analogs = pmu.Analogs
-                .OrderBy(c => c.Index)
-                .Select(c =>
-                {
-                    var (a, b) = ComputeAB(c.Values);
-                    return (c, a, b);
-                })
-                .ToList();
-
-            var digitals = pmu.Digitals.OrderBy(d => d.Index).ToList();
-
-            int nSamples =
-                analogs.Count > 0 ? analogs[0].c.Values.Length :
-                digitals.Count > 0 ? digitals[0].Values.Length :
-                0;
-
-            WriteCfg2013(
-                zip.CreateEntry(cfgName, CompressionLevel.Optimal).Open(),
-                stationName: pmu.PmuDisplayName,
-                nominalFrequency: nominalFrequency,
-                sampleRate: pmu.SampleRate,
-                nSamples: nSamples,
-                startUtc: pmu.StartUtc,
-                analogs: analogs,
-                digitals: digitals,
-                timeCodeMode: timeCodeMode,
-                tmqCode: tmqCode,
-                leapSec: leapSec,
-                fileType: fileType
-            );
-
-            WriteDatAscii(
-                zip.CreateEntry(datName, CompressionLevel.Optimal).Open(),
-                sampleRate: pmu.SampleRate,
-                nSamples: nSamples,
-                analogs: analogs,
-                digitals: digitals
-            );
+            using var pmuZipStream = zip.CreateEntry(pmuZipName, CompressionLevel.Optimal).Open();
+            WritePmuZipToStream(
+                pmuZipStream,
+                pmu,
+                baseName,
+                nominalFrequency,
+                timeCodeMode,
+                tmqCode,
+                leapSec,
+                fileType);
         }
+    }
+
+    private void WritePmuZipToStream(
+        Stream stream,
+        PmuComtrade pmu,
+        string baseName,
+        int nominalFrequency,
+        string timeCodeMode,
+        string tmqCode,
+        string leapSec,
+        string fileType)
+    {
+        using var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true);
+
+        var cfgName = baseName + ".cfg";
+        var datName = baseName + ".dat";
+
+        var analogs = pmu.Analogs
+            .OrderBy(c => c.Index)
+            .Select(c =>
+            {
+                var (a, b) = ComputeAB(c.Values);
+                return (c, a, b);
+            })
+            .ToList();
+
+        var digitals = pmu.Digitals.OrderBy(d => d.Index).ToList();
+
+        int nSamples =
+            analogs.Count > 0 ? analogs[0].c.Values.Length :
+            digitals.Count > 0 ? digitals[0].Values.Length :
+            0;
+
+        WriteCfg2013(
+            zip.CreateEntry(cfgName, CompressionLevel.Optimal).Open(),
+            stationName: pmu.PmuDisplayName,
+            nominalFrequency: nominalFrequency,
+            sampleRate: pmu.SampleRate,
+            nSamples: nSamples,
+            startUtc: pmu.StartUtc,
+            analogs: analogs,
+            digitals: digitals,
+            timeCodeMode: timeCodeMode,
+            tmqCode: tmqCode,
+            leapSec: leapSec,
+            fileType: fileType
+        );
+
+        WriteDatAscii(
+            zip.CreateEntry(datName, CompressionLevel.Optimal).Open(),
+            sampleRate: pmu.SampleRate,
+            nSamples: nSamples,
+            analogs: analogs,
+            digitals: digitals
+        );
     }
 
     private static void WriteCfg2013(
@@ -95,15 +119,11 @@ public sealed class Comtrade2013Writer
         int nd = digitals.Count;
         int tt = na + nd;
 
-        // COMTRADE “2014” => rev_year=2013
         sw.WriteLine($"{stationName},openplot,2013");
         sw.WriteLine($"{tt},{na}A,{nd}D");
 
-        // ANALÓGICOS
         foreach (var (c, a, b) in analogs)
         {
-            // An, ch_id, ph, ccbm, uu, a, b, skew, min, max, primary, secondary, PS
-            // Observação: estamos deixando ph/ccbm vazios (,,,)
             sw.WriteLine(
                 $"{c.Index}," +
                 $"{PadRightCsv(c.Name, 40)}" +
@@ -113,13 +133,8 @@ public sealed class Comtrade2013Writer
                 $"0.0,{-ScaleMax},{ScaleMax},1.0,1.0,P");
         }
 
-        // DIGITAIS
-        // Dn, ch_id, ph, ccbm, y
         foreach (var d in digitals)
-        {
-            // mantendo bem simples: "{idx},{name},,,0"
             sw.WriteLine($"{d.Index},{PadRightCsv(d.Name, 30)},,,0");
-        }
 
         sw.WriteLine($"{nominalFrequency}.0");
         sw.WriteLine("1");
@@ -130,12 +145,11 @@ public sealed class Comtrade2013Writer
         sw.WriteLine(dt);
 
         sw.WriteLine(string.Equals(fileType, "ASCII", StringComparison.OrdinalIgnoreCase) ? "ASCII" : "ASCII");
-        sw.WriteLine("1.0"); // timemult
+        sw.WriteLine("1.0");
 
-        // linhas extra do 2013
         var tc = ResolveTimeCode(startUtc, timeCodeMode);
-        sw.WriteLine($"{tc},{tc}"); // time_code, local_code
-        sw.WriteLine($"{Fix1(tmqCode)},{Fix1(leapSec)}"); // tmq_code, leapsec
+        sw.WriteLine($"{tc},{tc}");
+        sw.WriteLine($"{Fix1(tmqCode)},{Fix1(leapSec)}");
 
         sw.Flush();
     }
@@ -158,7 +172,6 @@ public sealed class Comtrade2013Writer
             sw.Write(",");
             sw.Write(tUs.ToString(CultureInfo.InvariantCulture));
 
-            // analógicos: escreve int16 quantizado
             foreach (var (c, a, b) in analogs)
             {
                 short s = Encode(c.Values[i], a, b);
@@ -166,7 +179,6 @@ public sealed class Comtrade2013Writer
                 sw.Write(s.ToString(CultureInfo.InvariantCulture));
             }
 
-            // digitais: 0/1
             foreach (var d in digitals)
             {
                 sw.Write(",");
@@ -235,7 +247,6 @@ public sealed class Comtrade2013Writer
 
     private static string PadRightCsv(string s, int width)
     {
-        // COMTRADE aceita espaços no ch_id; isso deixa o arquivo visualmente parecido com exemplos
         if (string.IsNullOrEmpty(s)) return s;
         return s.Length >= width ? s : s.PadRight(width);
     }

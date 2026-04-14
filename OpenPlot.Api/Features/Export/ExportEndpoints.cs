@@ -43,13 +43,14 @@ public static class ExportEndpoints
 
             using var db = dbf.Create();
 
-            var ownedRunId = await db.QuerySingleOrDefaultAsync<Guid?>(
+            /*var ownedRunId = await db.QuerySingleOrDefaultAsync<Guid?>(
                 ExportSql.OwnedSearchRunExists,
                 new { run_id = runId, username }
             );
 
             if (ownedRunId is null)
                 return Results.NotFound("run não encontrado (ou não pertence ao usuário).");
+            */
 
             await db.ExecuteAsync(ExportSql.QueueExportRun, new { run_id = runId });
 

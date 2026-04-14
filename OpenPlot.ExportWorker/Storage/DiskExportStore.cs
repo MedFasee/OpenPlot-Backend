@@ -16,7 +16,7 @@ public sealed class DiskExportStore
 
         // nome do zip: label + runid (file-safe)
         var safeLabel = Naming.SafeFileBase(string.IsNullOrWhiteSpace(label) ? "run" : label, 60);
-        var file = $"comtrade__{safeLabel}__{runId:N}.zip";
+        var file = $"{safeLabel}.zip";
 
         return new ResolvedPath(dir, file);
     }

@@ -39,7 +39,6 @@ FROM openplot.comtrade_runs AS c
 JOIN openplot.search_runs AS s
   ON s.id = c.run_id
 WHERE c.run_id = @run_id
-  AND LOWER(s.username) = LOWER(@username)
 LIMIT 1;";
     }
 }
