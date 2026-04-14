@@ -20,6 +20,21 @@ namespace OpenPlot.Ingestor.Gsf
         private static int PollIntervalSeconds;
         private static int ChunkMinutes;
         private static int MaxParallelChunks;
+        private static int MaxParallelJobs;
+        private static int GlobalMaxParallelChunks;
+        private static SemaphoreSlim GlobalChunkLimiter;
+
+        private sealed class SearchRunJob
+        {
+            public Guid Id { get; init; }
+            public string Source { get; init; }
+            public string TerminalId { get; init; }
+            public string SignalsJson { get; init; }
+            public string PmusJson { get; init; }
+            public DateTime From { get; init; }
+            public DateTime To { get; init; }
+            public int SelectRate { get; init; }
+        }
 
         // ----------------- TIMING HELPERS -----------------
         private static string FmtMs(long ms)
@@ -121,6 +136,7 @@ namespace OpenPlot.Ingestor.Gsf
             private readonly string _connString;
             private readonly Guid _jobId;
             private readonly int _total;
+            private readonly object _sync = new object();
 
             private readonly int _minStepPercent;
             private readonly TimeSpan _minInterval;
@@ -145,20 +161,23 @@ namespace OpenPlot.Ingestor.Gsf
             public void Tick(string msg = null)
             {
                 var done = Interlocked.Increment(ref _done);
-                var pct = (int)Math.Floor(100.0 * done / _total);
+                int pct;
 
-                // Reserva 100% para o encerramento (done/no_data). Aqui fica no máximo 99%.
-                if (pct > 99) pct = 99;
+                lock (_sync)
+                {
+                    pct = (int)Math.Floor(100.0 * done / _total);
 
-                var now = Stopwatch.GetTimestamp();
-                var elapsed = TimeSpan.FromSeconds((now - _lastTick) / (double)Stopwatch.Frequency);
+                    if (pct > 99) pct = 99;
 
-                // throttle por passo (%) ou tempo
-                if ((pct - _lastPct) < _minStepPercent && elapsed < _minInterval)
-                    return;
+                    var now = Stopwatch.GetTimestamp();
+                    var elapsed = TimeSpan.FromSeconds((now - _lastTick) / (double)Stopwatch.Frequency);
 
-                _lastPct = pct;
-                _lastTick = now;
+                    if ((pct - _lastPct) < _minStepPercent && elapsed < _minInterval)
+                        return;
+
+                    _lastPct = pct;
+                    _lastTick = now;
+                }
 
                 try
                 {
@@ -167,8 +186,6 @@ namespace OpenPlot.Ingestor.Gsf
                         c.Open();
                         using (var tx = c.BeginTransaction())
                         {
-                            // Mantém status 'running' e atualiza progress.
-                            // msg curta para O&M / UI (opcional)
                             DbOps.UpdateStatus(c, tx, _jobId, "running", pct, msg ?? $"Processando ({done}/{_total})");
                             tx.Commit();
                         }
@@ -176,7 +193,6 @@ namespace OpenPlot.Ingestor.Gsf
                 }
                 catch
                 {
-                    // noop (não quebra o job por falha de update de progresso)
                 }
             }
         }
@@ -202,219 +218,23 @@ namespace OpenPlot.Ingestor.Gsf
             {
                 LoadConfig();
 
+                using (var conn = new NpgsqlConnection(PgConnString))
+                {
+                    conn.Open();
+                    DbOps.EnsureSchema(conn);
+                }
+
+                GlobalChunkLimiter = new SemaphoreSlim(GlobalMaxParallelChunks, GlobalMaxParallelChunks);
+
                 Console.WriteLine("[ingestor] iniciado. Ctrl+C para sair.");
                 Console.WriteLine("[ingestor] DB:  " + PgConnString);
+                Console.WriteLine("[ingestor] workers=" + MaxParallelJobs + ", chunks/job=" + MaxParallelChunks + ", chunks globais=" + GlobalMaxParallelChunks);
 
-                while (true)
-                {
-                    bool found;
+                var workers = Enumerable.Range(1, MaxParallelJobs)
+                    .Select(workerId => Task.Run(() => WorkerLoop(workerId)))
+                    .ToArray();
 
-                    using (var conn = new NpgsqlConnection(PgConnString))
-                    {
-                        conn.Open();
-                        DbOps.EnsureSchema(conn);
-
-                        using (var tx = conn.BeginTransaction())
-                        {
-                            // Acrescenta pmus::text no SELECT (fica a última coluna)
-                            const string pickSql = @"
-                        SELECT id, source, terminal_id, signals::text, from_ts, to_ts, select_rate, pmus::text
-                          FROM openplot.search_runs
-                         WHERE status = 'queued'
-                         ORDER BY created_at
-                         FOR UPDATE SKIP LOCKED
-                         LIMIT 1;";
-
-                            Guid id = Guid.Empty;
-                            string source = null, terminalId = null, signalsJson = null, pmusJson = null;
-                            DateTime from = default(DateTime), to = default(DateTime);
-                            int selectRate = 0;
-
-                            using (var cmd = new NpgsqlCommand(pickSql, conn, tx))
-                            using (var rdr = cmd.ExecuteReader())
-                            {
-                                if (!rdr.Read())
-                                {
-                                    found = false;
-                                }
-                                else
-                                {
-                                    found = true;
-                                    id = rdr.GetGuid(0);
-                                    source = rdr.GetString(1);
-                                    terminalId = rdr.IsDBNull(2) ? null : rdr.GetString(2);
-                                    signalsJson = rdr.GetString(3);
-                                    from = rdr.GetDateTime(4);
-                                    to = rdr.GetDateTime(5);
-                                    selectRate = rdr.IsDBNull(6) ? 0 : rdr.GetInt32(6);
-                                    pmusJson = rdr.IsDBNull(7) ? null : rdr.GetString(7);
-                                }
-                            }
-
-                            if (!found)
-                            {
-                                tx.Commit();
-                            }
-                            else
-                            {
-                                // Marca running e libera o lock o quanto antes
-                                DbOps.UpdateStatus(conn, tx, id, "running", 1, "Iniciando");
-                                tx.Commit();
-
-                                try
-                                {
-                                    using (TimeBlock($"JOB {id} (source={source}) from={from:O} to={to:O}"))
-                                    using (var wd = StartWatchdog(TimeSpan.FromMinutes(2), $"JOB {id}"))
-                                    {
-                                        var fromUtc = from.Kind == DateTimeKind.Utc ? from : from.ToUniversalTime();
-                                        var toUtc = to.Kind == DateTimeKind.Utc ? to : to.ToUniversalTime();
-
-                                        // 1) Monta SystemData a partir do BD (usa cache interno por pdc_id)
-                                        var sysCfg = DbSystemDataFactory.BuildByPdcName(
-                                            PgConnString,
-                                            source,
-                                            TimeSpan.FromMinutes(10)
-                                        );
-
-                                        // Lista de PMUs pedidas nesse job
-                                        var pmuList = TryParsePmus(pmusJson);
-
-                                        // Progresso do job (PMU x chunk)
-                                        // - Se pmuList não vier, assume 1 (caminho legado desabilitado no momento)
-                                        var nPmus = (pmuList != null && pmuList.Count > 0) ? pmuList.Count : 1;
-                                        var nIntervals = CountIntervals(fromUtc, toUtc);
-                                        var progress = new ProgressReporter(PgConnString, id, nPmus * nIntervals);
-
-                                        // Vamos acumular só as PMUs que efetivamente tiveram dados
-                                        List<string> pmusComDados = null;
-
-                                        if (pmuList != null && pmuList.Count > 0)
-                                        {
-                                            pmusComDados = new List<string>();
-
-                                            foreach (var pmuIdName in pmuList)
-                                            {
-                                                // Terminal vem do SystemData montado pelo DB
-                                                var term = TerminalResolver.Resolve(sysCfg, pmuIdName);
-
-                                                // Canais vindos do DB (Id = historian_point)
-                                                var channels = LoadChannelsFromDb(conn, source, pmuIdName);
-
-                                                if (channels == null || channels.Count == 0)
-                                                    throw new Exception("Nenhum canal encontrado no DB para a PMU '" + pmuIdName + "'.");
-
-                                                // FetchAndInsert pode lançar InvalidConnectionException (bad_connection)
-                                                var teveDados = FetchAndInsert(
-                                                    conn,
-                                                    id,
-                                                    source ?? sysCfg.Name,
-                                                    sysCfg,
-                                                    term,
-                                                    channels,
-                                                    fromUtc,
-                                                    toUtc,
-                                                    selectRate,
-                                                    progress
-                                                );
-
-                                                if (teveDados)
-                                                    pmusComDados.Add(pmuIdName);
-                                            }
-                                        }
-                                        else
-                                        {
-                                            // Caminho legado (sem pmus em search_runs)
-                                            /*
-                                            var term = TerminalResolver.Resolve(sysCfg, terminalId);
-                                            var signals = ParseSignals(signalsJson);
-                                            var channels = TerminalResolver.MapChannels(term, signals);
-                                            if (channels == null || channels.Count == 0)
-                                                throw new Exception("Nenhum canal mapeado para os sinais requisitados.");
-
-                                            var teveDados = FetchAndInsert(
-                                                conn,
-                                                id,
-                                                source ?? sysCfg.Name,
-                                                sysCfg,
-                                                term,
-                                                channels,
-                                                fromUtc,
-                                                toUtc,
-                                                selectRate,
-                                                progress
-                                            );
-
-                                            if (teveDados)
-                                                pmusComDados = new List<string> { term.Id };
-                                            */
-                                        }
-
-                                        // Ao final do job, marcamos DONE/NO_DATA e salvamos pmus_ok
-                                        using (var tx2 = conn.BeginTransaction())
-                                        {
-                                            // 1) salva pmus_ok SEMPRE (mesmo vazio => "[]")
-                                            SavePmusOk(conn, tx2, id, pmusComDados);
-
-                                            // 2) status final
-                                            if (pmusComDados == null || pmusComDados.Count == 0)
-                                            {
-                                                DbOps.UpdateStatus(
-                                                    conn,
-                                                    tx2,
-                                                    id,
-                                                    "no_data",
-                                                    100,
-                                                    "Consulta executada com sucesso, porém sem dados no intervalo solicitado"
-                                                );
-                                            }
-                                            else
-                                            {
-                                                DbOps.UpdateStatus(
-                                                    conn,
-                                                    tx2,
-                                                    id,
-                                                    "done",
-                                                    100,
-                                                    "Concluído"
-                                                );
-                                            }
-
-                                            // Importante: commit da transação final (status done/no_data + pmus_ok)
-                                            tx2.Commit();
-                                        }
-
-                                        wd.Cancel();
-                                    }
-                                }
-                                catch (InvalidConnectionException ex)
-                                {
-                                    // >>> COMPORTAMENTO 1: bad_connection + progress=0 + encerra tentativa
-                                    Console.WriteLine("[bad_connection] job " + id + ": " + ex.Message);
-                                    MarkBadConnection(conn, id, ex.Message);
-                                }
-                                catch (Exception ex)
-                                {
-                                    Console.WriteLine("[erro] job " + id + ": " + ex.Message);
-                                    try
-                                    {
-                                        using (var tx2 = conn.BeginTransaction())
-                                        {
-                                            DbOps.UpdateStatus(conn, tx2, id, "failed", 0, ex.Message);
-                                            tx2.Commit();
-                                        }
-                                    }
-                                    catch
-                                    {
-                                        // noop
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (!found)
-                        Thread.Sleep(PollIntervalSeconds * 1000);
-                }
+                Task.WaitAll(workers);
             }
             catch (Exception exTop)
             {
@@ -422,34 +242,213 @@ namespace OpenPlot.Ingestor.Gsf
             }
         }
 
+        private static void WorkerLoop(int workerId)
+        {
+            while (true)
+            {
+                try
+                {
+                    var job = TryPickQueuedJob();
+
+                    if (job == null)
+                    {
+                        Thread.Sleep(PollIntervalSeconds * 1000);
+                        continue;
+                    }
+
+                    ProcessJob(job, workerId);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("[worker " + workerId + "] " + ex.Message);
+                    Thread.Sleep(PollIntervalSeconds * 1000);
+                }
+            }
+        }
+
+        private static SearchRunJob TryPickQueuedJob()
+        {
+            using (var conn = new NpgsqlConnection(PgConnString))
+            {
+                conn.Open();
+
+                using (var tx = conn.BeginTransaction())
+                {
+                    const string pickSql = @"
+                        SELECT id, source, terminal_id, signals::text, from_ts, to_ts, select_rate, pmus::text
+                          FROM openplot.search_runs
+                         WHERE status = 'queued'
+                         ORDER BY created_at
+                         FOR UPDATE SKIP LOCKED
+                         LIMIT 1;";
+
+                    using (var cmd = new NpgsqlCommand(pickSql, conn, tx))
+                    using (var rdr = cmd.ExecuteReader())
+                    {
+                        if (!rdr.Read())
+                        {
+                            tx.Commit();
+                            return null;
+                        }
+
+                        var job = new SearchRunJob
+                        {
+                            Id = rdr.GetGuid(0),
+                            Source = rdr.GetString(1),
+                            TerminalId = rdr.IsDBNull(2) ? null : rdr.GetString(2),
+                            SignalsJson = rdr.GetString(3),
+                            From = rdr.GetDateTime(4),
+                            To = rdr.GetDateTime(5),
+                            SelectRate = rdr.IsDBNull(6) ? 0 : rdr.GetInt32(6),
+                            PmusJson = rdr.IsDBNull(7) ? null : rdr.GetString(7)
+                        };
+
+                        rdr.Close();
+                        DbOps.UpdateStatus(conn, tx, job.Id, "running", 1, "Iniciando");
+                        tx.Commit();
+                        return job;
+                    }
+                }
+            }
+        }
+
+        private static void ProcessJob(SearchRunJob job, int workerId)
+        {
+            using (var conn = new NpgsqlConnection(PgConnString))
+            {
+                conn.Open();
+
+                try
+                {
+                    using (TimeBlock($"JOB {job.Id} (worker={workerId}, source={job.Source}) from={job.From:O} to={job.To:O}"))
+                    using (var wd = StartWatchdog(TimeSpan.FromMinutes(2), $"JOB {job.Id}"))
+                    {
+                        var fromUtc = job.From.Kind == DateTimeKind.Utc ? job.From : job.From.ToUniversalTime();
+                        var toUtc = job.To.Kind == DateTimeKind.Utc ? job.To : job.To.ToUniversalTime();
+
+                        var sysCfg = DbSystemDataFactory.BuildByPdcName(
+                            PgConnString,
+                            job.Source,
+                            TimeSpan.FromMinutes(10)
+                        );
+
+                        var pmuList = TryParsePmus(job.PmusJson);
+                        var nPmus = (pmuList != null && pmuList.Count > 0) ? pmuList.Count : 1;
+                        var nIntervals = CountIntervals(fromUtc, toUtc);
+                        var progress = new ProgressReporter(PgConnString, job.Id, nPmus * nIntervals);
+
+                        List<string> pmusComDados = null;
+
+                        if (pmuList != null && pmuList.Count > 0)
+                        {
+                            pmusComDados = new List<string>();
+
+                            foreach (var pmuIdName in pmuList)
+                            {
+                                var term = TerminalResolver.Resolve(sysCfg, pmuIdName);
+                                var channels = LoadChannelsFromDb(conn, job.Source, pmuIdName);
+
+                                if (channels == null || channels.Count == 0)
+                                    throw new Exception("Nenhum canal encontrado no DB para a PMU '" + pmuIdName + "'.");
+
+                                var teveDados = FetchAndInsert(
+                                    conn,
+                                    job.Id,
+                                    job.Source ?? sysCfg.Name,
+                                    sysCfg,
+                                    term,
+                                    channels,
+                                    fromUtc,
+                                    toUtc,
+                                    job.SelectRate,
+                                    progress
+                                );
+
+                                if (teveDados)
+                                    pmusComDados.Add(pmuIdName);
+                            }
+                        }
+
+                        using (var tx2 = conn.BeginTransaction())
+                        {
+                            SavePmusOk(conn, tx2, job.Id, pmusComDados);
+
+                            if (pmusComDados == null || pmusComDados.Count == 0)
+                            {
+                                DbOps.UpdateStatus(
+                                    conn,
+                                    tx2,
+                                    job.Id,
+                                    "no_data",
+                                    100,
+                                    "Consulta executada com sucesso, porém sem dados no intervalo solicitado"
+                                );
+                            }
+                            else
+                            {
+                                DbOps.UpdateStatus(
+                                    conn,
+                                    tx2,
+                                    job.Id,
+                                    "done",
+                                    100,
+                                    "Concluído"
+                                );
+                            }
+
+                            tx2.Commit();
+                        }
+
+                        wd.Cancel();
+                    }
+                }
+                catch (InvalidConnectionException ex)
+                {
+                    Console.WriteLine("[bad_connection] job " + job.Id + ": " + ex.Message);
+                    MarkBadConnection(conn, job.Id, ex.Message);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("[erro] job " + job.Id + ": " + ex.Message);
+                    try
+                    {
+                        using (var tx2 = conn.BeginTransaction())
+                        {
+                            DbOps.UpdateStatus(conn, tx2, job.Id, "failed", 0, ex.Message);
+                            tx2.Commit();
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+        }
+
         // ----------------- PIPELINE -----------------
         private static bool FetchAndInsert(
             NpgsqlConnection conn,
             Guid jobId,
-            string jobSource,            // nome do PDC vindo do job
+            string jobSource,
             SystemData systemCfg,
             Terminal term,
             List<Channel> channels,
             DateTime fromUtc,
             DateTime toUtc,
             int selectRate,
-            ProgressReporter progress)   // <<< progresso do job
+            ProgressReporter progress)
         {
-            // Flag: 0 = não teve dado, 1 = teve dado (novo ou já existente)
             int hasData = 0;
 
-            // 1) contexto no catálogo (pdc / pmu / pdc_pmu)
-            var ctx = GetPdcContext(conn, jobSource, term.Id);  // term.Id == pmu.id_name
+            var ctx = GetPdcContext(conn, jobSource, term.Id);
             int pdcPmuId = ctx.pdcPmuId;
 
-            // 2) mapa historian_point -> signal_id dentro do pdc_pmu
             var signalMap = LoadSignalMap(conn, pdcPmuId, channels);
             if (signalMap.Count == 0)
                 throw new Exception("Nenhum signal mapeado para os Channel.Id informados (verifique o catálogo).");
 
             var allSignalIds = signalMap.Values.Distinct().ToArray();
 
-            // 3) fatiamento meia-aberta [cs, ce)
             var totalSpan = toUtc - fromUtc;
             var chunkSize = TimeSpan.FromMinutes(Math.Max(1, ChunkMinutes));
             if (chunkSize > totalSpan) chunkSize = totalSpan;
@@ -462,13 +461,12 @@ namespace OpenPlot.Ingestor.Gsf
                 intervals.Add((cs, ce));
             }
 
-            // >>> Para abortar todos os chunks se houver bad_connection
             using var cts = new CancellationTokenSource();
             InvalidConnectionException badConn = null;
 
             var po = new ParallelOptions
             {
-                MaxDegreeOfParallelism = Math.Max(1, MaxParallelChunks),
+                MaxDegreeOfParallelism = Math.Max(1, Math.Min(MaxParallelChunks, GlobalMaxParallelChunks)),
                 CancellationToken = cts.Token
             };
 
@@ -481,25 +479,26 @@ namespace OpenPlot.Ingestor.Gsf
 
                     var cs = interval.cs;
                     var ce = interval.ce;
+                    var slotAcquired = false;
 
                     try
                     {
-                        // 4) dedupe (meia-aberta no SQL também)
+                        GlobalChunkLimiter?.Wait(po.CancellationToken);
+                        slotAcquired = true;
+
+                        if (po.CancellationToken.IsCancellationRequested)
+                            return;
+
                         if (ChunkAlreadyPresentDb(PgConnString, pdcPmuId, allSignalIds, cs, ce))
                         {
                             Console.WriteLine("[skip] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " (já existente)");
                             Interlocked.Exchange(ref hasData, 1);
-
-                            // Progresso: este chunk foi "concluído"
                             progress?.Tick($"Processando: {term.Id}");
-
                             return;
                         }
 
-                        // 5) consulta historian
                         var repo = RepositoryFactory.Create(systemCfg);
 
-                        // Escolhe o “código da PMU” conforme o tipo de banco
                         string terminalCode;
                         if (systemCfg.Type == DatabaseType.Medfasee)
                             terminalCode = term.IdNumber.ToString();
@@ -517,14 +516,10 @@ namespace OpenPlot.Ingestor.Gsf
                         if (dict == null || dict.Count == 0)
                         {
                             Console.WriteLine("[info] " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + " sem dados");
-
-                            // Progresso: este chunk foi "concluído"
                             progress?.Tick($"Processando: {term.Id}");
-
                             return;
                         }
 
-                        // 6) staging + upsert (1 conexão por thread)
                         using (var connCopy = new NpgsqlConnection(PgConnString))
                         {
                             connCopy.Open();
@@ -594,32 +589,33 @@ namespace OpenPlot.Ingestor.Gsf
                             }
                         }
 
-                        // Progresso: este chunk foi "concluído"
                         progress?.Tick($"Processando: {term.Id}");
                     }
                     catch (InvalidConnectionException ex)
                     {
-                        // >>> bad_connection: aborta todos os chunks e propaga para o Main marcar status
-                        badConn = ex;
-                        cts.Cancel();
-                        state.Stop();
+                        if (Interlocked.CompareExchange(ref badConn, ex, null) == null)
+                        {
+                            cts.Cancel();
+                            state.Stop();
+                        }
                     }
                     catch (OperationCanceledException)
                     {
-                        // cancelado por bad_connection
                     }
                     catch (Exception ex)
                     {
                         Console.WriteLine("[erro-chunk] " + term.Id + " " + cs.ToString("yyyy-MM-dd HH:mm") + "-" + ce.ToString("HH:mm") + ": " + ex.Message);
-
-                        // Progresso: mesmo com erro de chunk, este chunk foi "concluído"
                         progress?.Tick($"Processando: {term.Id}");
+                    }
+                    finally
+                    {
+                        if (slotAcquired)
+                            GlobalChunkLimiter?.Release();
                     }
                 });
             }
             catch (OperationCanceledException)
             {
-                // cancelado por bad_connection
             }
 
             if (badConn != null)
@@ -885,7 +881,11 @@ namespace OpenPlot.Ingestor.Gsf
             PgConnString = ConfigurationManager.AppSettings["Db"];
             PollIntervalSeconds = ReadInt("PollIntervalSeconds", 2);
             ChunkMinutes = ReadInt("ChunkMinutes", 5);
-            MaxParallelChunks = ReadInt("MaxParallelChunks", 10);
+
+            var cpuCount = Math.Max(1, Environment.ProcessorCount);
+            GlobalMaxParallelChunks = Math.Max(1, Math.Min(ReadInt("GlobalMaxParallelChunks", cpuCount), cpuCount));
+            MaxParallelChunks = Math.Max(1, Math.Min(ReadInt("MaxParallelChunks", 4), GlobalMaxParallelChunks));
+            MaxParallelJobs = Math.Max(1, Math.Min(ReadInt("MaxParallelJobs", Math.Min(2, GlobalMaxParallelChunks)), GlobalMaxParallelChunks));
 
             if (string.IsNullOrWhiteSpace(PgConnString))
                 throw new Exception("App.config: defina AppSettings key=Db.");
