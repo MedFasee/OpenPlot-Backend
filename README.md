@@ -51,6 +51,25 @@ Arquivos relevantes:
 - `OpenPlot.ExportWorker/Comtrade/*`: naming e writer do padrão COMTRADE.
 - `OpenPlot.ExportWorker/Storage/DiskExportStore.cs`: escrita atômica e organização em disco.
 
+### `tests/OpenPlot.UnitTests`
+Projeto de testes unitários para regras puras e componentes sem dependência externa.
+
+Cobertura atual:
+
+- `Dft`;
+- `PlotMetaBuilder`;
+- `DftMetaBuilder`;
+- `DiskExportStore`.
+
+### `tests/OpenPlot.Api.IntegrationTests`
+Projeto de testes de integração HTTP baseado em `WebApplicationFactory<Program>`.
+
+Cobertura atual:
+
+- `POST /api/v1/auth/login`;
+- `POST /api/v1/auth/logout`;
+- `GET /api/v1/dft`.
+
 ---
 
 ## 2. Arquitetura lógica (alto nível)
@@ -68,6 +87,7 @@ Arquivos relevantes:
 
 - Documentação de features: `docs/Features/README.md`
 - Endpoints de runs/séries: `docs/runsEndpoints.md`
+- Testes automatizados: `docs/testing.md`
 
 ---
 
@@ -79,3 +99,9 @@ Arquivos relevantes:
 - Worker de exportação: projeto `OpenPlot.ExportWorker`
 - Ingestor: projeto `OpenPlot.Ingestor.Gsf`
 - Importador: projeto `OpenPlot.XmlImporter`
+
+## 5. Execução dos testes
+
+```powershell
+dotnet test tests/OpenPlot.UnitTests/OpenPlot.UnitTests.csproj
+dotnet test tests/OpenPlot.Api.IntegrationTests/OpenPlot.Api.IntegrationTests.csproj

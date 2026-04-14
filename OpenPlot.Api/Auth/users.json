@@ -154,5 +154,17 @@
             "organization": "ONS",
             "tenant": "ONS_tester_2"
         }
+    },
+	{
+        "sub": "e5aa57c1-0e1c-4e5e-8c50-u1e2f0d9fad92",
+        "username": "lucasZ",
+        "password": "lucas_2026",
+        "preferred_username": "Lucas Zanella",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "UFSC",
+            "tenant": "ONS_tester_2"
+        }
     }
 ]

@@ -35,3 +35,16 @@ C:\Users\tatia\openPlot_V0-feature-backend_medplot\OpenPlot.XmlImporter\obj\Debu
 C:\Users\tatia\openPlot_V0-feature-backend_medplot\OpenPlot.XmlImporter\obj\Debug\net8.0\refint\OpenPlot.XmlImporter.dll
 C:\Users\tatia\openPlot_V0-feature-backend_medplot\OpenPlot.XmlImporter\obj\Debug\net8.0\OpenPlot.XmlImporter.pdb
 C:\Users\tatia\openPlot_V0-feature-backend_medplot\OpenPlot.XmlImporter\obj\Debug\net8.0\ref\OpenPlot.XmlImporter.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\bin\Debug\net8.0\OpenPlot.XmlImporter.deps.json
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\bin\Debug\net8.0\OpenPlot.XmlImporter.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\bin\Debug\net8.0\OpenPlot.XmlImporter.pdb
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\OpenPlot.XmlImporter.csproj.AssemblyReference.cache
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\OpenPlot.XmlImporter.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\OpenPlot.XmlImporter.AssemblyInfoInputs.cache
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\OpenPlot.XmlImporter.AssemblyInfo.cs
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\OpenPlot.XmlImporter.csproj.CoreCompileInputs.cache
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\OpenPlot.XmlImporter.sourcelink.json
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\OpenPlot.XmlImporter.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\refint\OpenPlot.XmlImporter.dll
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\OpenPlot.XmlImporter.pdb
+C:\Users\Win 10\OneDrive\Documentos\OpenPlot\openplot.api\OpenPlot.XmlImporter\obj\Debug\net8.0\ref\OpenPlot.XmlImporter.dll

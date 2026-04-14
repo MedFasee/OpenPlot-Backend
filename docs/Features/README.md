@@ -8,6 +8,7 @@ Esta pasta reúne a documentação técnica das features expostas pelo projeto `Open
 
 - [`runsEndpoints.md`](runsEndpoints.md) — feature de consultas de runs, terminais e séries temporais.
 - [`authEndpoints.md`](authEndpoints.md) — autenticação e encerramento de sessão.
+- [`exportEndpoints.md`](exportEndpoints.md) — enfileiramento e consulta de status de exportações COMTRADE.
 - [`searchEndpoints.md`](searchEndpoints.md) — criação, compartilhamento, exclusão lógica e consulta de buscas.
 - [`configEndpoints.md`](configEndpoints.md) — catálogo de PDCs e terminais/PMUs.
 - [`importEndpoints.md`](importEndpoints.md) — importação de arquivos XML para carga de metadados.

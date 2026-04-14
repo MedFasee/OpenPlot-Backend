@@ -289,9 +289,14 @@ var apiV1 = app.MapGroup("/api/v1");
 
 apiV1.MapAuth();
 apiV1.MapConfig();
+apiV1.MapExport();
 apiV1.MapSearch();
 apiV1.MapRuns();
 apiV1.MapPostProcessing();
 apiV1.MapImport();
 
 app.Run();
+
+public partial class Program
+{
+}
