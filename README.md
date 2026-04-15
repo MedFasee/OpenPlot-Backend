@@ -51,6 +51,10 @@ Arquivos relevantes:
 - `OpenPlot.ExportWorker/Comtrade/*`: naming e writer do padrão COMTRADE.
 - `OpenPlot.ExportWorker/Storage/DiskExportStore.cs`: escrita atômica e organização em disco.
 
+## 2. Projetos de teste
+
+Além dos projetos carregados na solution principal, o repositório também possui os seguintes projetos de teste:
+
 ### `tests/OpenPlot.UnitTests`
 Projeto de testes unitários para regras puras e componentes sem dependência externa.
 
@@ -75,14 +79,18 @@ Projeto de testes unitários focado em contratos e composição de resposta da A
 
 Cobertura atual:
 
-- `RunsEndpointsTests.CreateSearchRunItem_ShouldPreserveConvComtrade`
-- `RunsEndpointsTests.SearchRunRow_ShouldDefaultConvComtradeToAbsent`
-- `RunsEndpointsTests.SearchRunItem_ShouldDefaultConvComtradeToAbsent`
-- `RunsEndpointsTests.ListRunsSql_ShouldProjectConvComtradeFromComtradeRuns`
+- `RunsEndpointsTests.CreateSearchRunItem_ShouldPreserveConvComtrade`;
+- `RunsEndpointsTests.SearchRunRow_ShouldDefaultConvComtradeToAbsent`;
+- `RunsEndpointsTests.SearchRunItem_ShouldDefaultConvComtradeToAbsent`;
+- `RunsEndpointsTests.ListRunsSql_ShouldProjectConvComtradeFromComtradeRuns`.
+
+A documentação detalhada de testes está em `docs/testes/README.md`.
 
 ---
 
-## 5. Execução dos testes
+## 3. Execução dos testes
+
+Na raiz do repositório:
 
 ```powershell
 dotnet test tests/OpenPlot.UnitTests/OpenPlot.UnitTests.csproj
