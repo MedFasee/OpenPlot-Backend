@@ -15,9 +15,10 @@ public sealed class DiskExportStoreTests
         var result = sut.ResolveRunZipPath("exports", runId, "PMU: Norte/01");
 
         Assert.EndsWith(Path.Combine("comtrade", DateTimeOffset.Now.ToString("yyyy-MM-dd")), result.DirPath);
-        Assert.StartsWith("comtrade__", result.FileName);
-        Assert.EndsWith($"__{runId:N}.zip", result.FileName);
+        Assert.Equal("PMU_ Norte_01.zip", result.FileName);
+        Assert.EndsWith(".zip", result.FileName);
         Assert.DoesNotContain(':', result.FileName);
+        Assert.DoesNotContain('/', result.FileName);
     }
 
     [Fact]

@@ -1,10 +1,9 @@
 using Data.Sql;
 using OpenPlot.Data.Dtos;
-using Xunit;
 
-namespace OpenPlot.Api.Tests;
+namespace OpenPlot.UnitTests.Features.Runs;
 
-public class RunsEndpointsTests
+public sealed class RunsEndpointsTests
 {
     [Theory]
     [InlineData("queued")]
@@ -12,7 +11,7 @@ public class RunsEndpointsTests
     [InlineData("absent")]
     [InlineData("failed")]
     [InlineData("done")]
-    public void CreateSearchRunItem_ShouldPreserveConvComtrade(string convComtrade)
+    public void CreateSearchRunItem_WhenConvComtradeIsProvided_PreservesValue(string convComtrade)
     {
         var runId = Guid.NewGuid();
         var row = new SearchRunRow
@@ -35,7 +34,7 @@ public class RunsEndpointsTests
     }
 
     [Fact]
-    public void SearchRunRow_ShouldDefaultConvComtradeToAbsent()
+    public void SearchRunRow_WhenCreated_UsesAbsentAsDefaultConvComtrade()
     {
         var row = new SearchRunRow();
 
@@ -43,7 +42,7 @@ public class RunsEndpointsTests
     }
 
     [Fact]
-    public void SearchRunItem_ShouldDefaultConvComtradeToAbsent()
+    public void SearchRunItem_WhenCreated_UsesAbsentAsDefaultConvComtrade()
     {
         var item = new ConfigEndpoints.SearchRunItem();
 
@@ -51,7 +50,7 @@ public class RunsEndpointsTests
     }
 
     [Fact]
-    public void ListRunsSql_ShouldProjectConvComtradeFromComtradeRuns()
+    public void ListRunsSql_WhenProjected_ContainsConvComtradeJoinAndAlias()
     {
         Assert.Contains("LEFT JOIN openplot.comtrade_runs AS c", SearchSql.ListRuns, StringComparison.Ordinal);
         Assert.Contains("WHEN c.run_id IS NULL THEN 'absent'", SearchSql.ListRuns, StringComparison.Ordinal);

@@ -53,17 +53,25 @@ Arquivos relevantes:
 
 ## 2. Projetos de teste
 
-Além dos projetos carregados na solution principal, o repositório também possui os seguintes projetos de teste:
+Todos os testes automatizados ficam centralizados no diretório `tests/`.
 
 ### `tests/OpenPlot.UnitTests`
-Projeto de testes unitários para regras puras e componentes sem dependência externa.
+Projeto de testes unitários para regras puras, contratos de resposta e handlers sem dependência externa.
 
 Cobertura atual:
 
 - `Dft`;
 - `PlotMetaBuilder`;
 - `DftMetaBuilder`;
-- `DiskExportStore`.
+- `DiskExportStore`;
+- `RunsEndpoints`;
+- `BaseSeriesHandler`;
+- `SimpleSeriesHandler`;
+- `PmuQueryHelper`;
+- `SeriesResponseBuilder`;
+- contratos de queries de séries.
+
+No caso de `DiskExportStore`, a suíte valida a resolução do diretório diário, a sanitização do nome final do `.zip`, a escrita atômica e o cálculo de `sha256`.
 
 ### `tests/OpenPlot.Api.IntegrationTests`
 Projeto de testes de integração HTTP baseado em `WebApplicationFactory<Program>`.
@@ -73,16 +81,6 @@ Cobertura atual:
 - `POST /api/v1/auth/login`;
 - `POST /api/v1/auth/logout`;
 - `GET /api/v1/dft`.
-
-### `OpenPlot.Api.Tests`
-Projeto de testes unitários focado em contratos e composição de resposta da API.
-
-Cobertura atual:
-
-- `RunsEndpointsTests.CreateSearchRunItem_ShouldPreserveConvComtrade`;
-- `RunsEndpointsTests.SearchRunRow_ShouldDefaultConvComtradeToAbsent`;
-- `RunsEndpointsTests.SearchRunItem_ShouldDefaultConvComtradeToAbsent`;
-- `RunsEndpointsTests.ListRunsSql_ShouldProjectConvComtradeFromComtradeRuns`.
 
 A documentação detalhada de testes está em `docs/testes/README.md`.
 
@@ -95,4 +93,3 @@ Na raiz do repositório:
 ```powershell
 dotnet test tests/OpenPlot.UnitTests/OpenPlot.UnitTests.csproj
 dotnet test tests/OpenPlot.Api.IntegrationTests/OpenPlot.Api.IntegrationTests.csproj
-dotnet test OpenPlot.Api.Tests/OpenPlot.Api.Tests.csproj
