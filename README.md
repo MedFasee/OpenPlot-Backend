@@ -70,38 +70,21 @@ Cobertura atual:
 - `POST /api/v1/auth/logout`;
 - `GET /api/v1/dft`.
 
----
+### `OpenPlot.Api.Tests`
+Projeto de testes unitários focado em contratos e composição de resposta da API.
 
-## 2. Arquitetura lógica (alto nível)
+Cobertura atual:
 
-1. **Catálogo / Metadados**: carregados via `OpenPlot.XmlImporter`.
-2. **Ingestão**: medições brutas chegam via `OpenPlot.Ingestor.Gsf` e são persistidas em `openplot.measurements`.
-3. **Consulta/Visualização**: o frontend consome a `OpenPlot.Api` para listar runs e obter séries temporais.
-4. **Cache analítico**: alguns endpoints de séries persistem payloads (`RowsCacheV2`) e retornam `cache_id`.
-5. **Pós-processamento**: endpoints como `/dft` operam em cima do `cache_id`.
-6. **Exportação**: `OpenPlot.ExportWorker` processa jobs e gera COMTRADE.
-
----
-
-## 3. Documentação técnica
-
-- Documentação de features: `docs/Features/README.md`
-- Endpoints de runs/séries: `docs/runsEndpoints.md`
-- Testes automatizados: `docs/testing.md`
+- `RunsEndpointsTests.CreateSearchRunItem_ShouldPreserveConvComtrade`
+- `RunsEndpointsTests.SearchRunRow_ShouldDefaultConvComtradeToAbsent`
+- `RunsEndpointsTests.SearchRunItem_ShouldDefaultConvComtradeToAbsent`
+- `RunsEndpointsTests.ListRunsSql_ShouldProjectConvComtradeFromComtradeRuns`
 
 ---
-
-## 4. Execução (desenvolvimento)
-
-> Observação: PENDING DOCKER
-
-- API: projeto `OpenPlot.Api`
-- Worker de exportação: projeto `OpenPlot.ExportWorker`
-- Ingestor: projeto `OpenPlot.Ingestor.Gsf`
-- Importador: projeto `OpenPlot.XmlImporter`
 
 ## 5. Execução dos testes
 
 ```powershell
 dotnet test tests/OpenPlot.UnitTests/OpenPlot.UnitTests.csproj
 dotnet test tests/OpenPlot.Api.IntegrationTests/OpenPlot.Api.IntegrationTests.csproj
+dotnet test OpenPlot.Api.Tests/OpenPlot.Api.Tests.csproj

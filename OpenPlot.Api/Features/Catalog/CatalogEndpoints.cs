@@ -175,6 +175,7 @@ ORDER BY m.area, m.state, m.volt_level, m.station, m.id_name;";
         public bool shared { get; set; } = default!;
 
         public bool owner { get; set; }
+        public string conv_comtrade { get; set; } = "absent";
     }
 
 

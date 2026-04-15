@@ -64,6 +64,7 @@ namespace OpenPlot.Data.Dtos
         public string username { get; set; } = default!;
 
         public bool owner { get; set; }
+        public string conv_comtrade { get; set; } = "absent";
     }
     public sealed record SoftDeleteRun(Guid id, bool is_visible);
 

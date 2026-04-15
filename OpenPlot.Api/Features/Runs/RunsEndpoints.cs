@@ -21,6 +21,16 @@ public class RunIngestaTest
 
 public static class RunsEndpoints
 {
+    internal static SearchRunItem CreateSearchRunItem(SearchRunRow r, string label) => new()
+    {
+        label = label,
+        status = r.status,
+        id = r.id.ToString(),
+        shared = r.shared,
+        owner = r.owner,
+        conv_comtrade = r.conv_comtrade
+    };
+
     public static IEndpointRouteBuilder MapRuns(this IEndpointRouteBuilder app)
     {
         var grp = app.MapGroup("")
@@ -74,15 +84,7 @@ public static class RunsEndpoints
                 if (!days.TryGetValue(d, out var items))
                     days[d] = items = new();
 
-                    items.Add(new SearchRunItem
-                    {
-                        label = label,
-                        status = r.status,
-                        id = r.id.ToString(),
-
-                        shared = r.shared,
-                        owner = r.owner
-                    });
+                    items.Add(CreateSearchRunItem(r, label));
                 }
 
             // agora data é só o calendário (sem lookup)

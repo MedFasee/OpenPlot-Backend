@@ -34,27 +34,35 @@ RETURNING id, is_visible, deleted_at;";
 
         public const string ListRuns =  @"
 SELECT
-  id,
-  source,
-  terminal_id,
-  from_ts,
-  to_ts,
-  select_rate,
-  status,
-  created_at,
-  shared,
-  username,
+  s.id,
+  s.source,
+  s.terminal_id,
+  s.from_ts,
+  s.to_ts,
+  s.select_rate,
+  s.status,
+  s.created_at,
+  s.shared,
+  s.username,
 
-  (LOWER(username) = LOWER(@username)) AS owner
+  (LOWER(s.username) = LOWER(@username)) AS owner,
 
-FROM openplot.search_runs
+  CASE
+    WHEN c.run_id IS NULL THEN 'absent'
+    WHEN LOWER(c.status) IN ('queued', 'running', 'failed', 'done') THEN LOWER(c.status)
+    ELSE 'absent'
+  END AS conv_comtrade
+
+FROM openplot.search_runs AS s
+LEFT JOIN openplot.comtrade_runs AS c
+  ON c.run_id = s.id
 WHERE
-  ( @status IS NULL OR status = @status )
+  ( @status IS NULL OR s.status = @status )
   AND
-  ( shared = TRUE OR LOWER(username) = LOWER(@username) )
+  ( s.shared = TRUE OR LOWER(s.username) = LOWER(@username) )
   AND
-  ( is_visible = TRUE )
-ORDER BY created_at DESC
+  ( s.is_visible = TRUE )
+ORDER BY s.created_at DESC
 LIMIT 5000;";
 
 
