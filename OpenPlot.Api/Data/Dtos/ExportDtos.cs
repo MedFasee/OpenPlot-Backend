@@ -32,4 +32,10 @@ namespace OpenPlot.Data.Dtos
         public DateTime? started_at { get; set; }
         public DateTime? finished_at { get; set; }
     }
+
+    internal sealed class ExpiredExportFileRow
+    {
+        public string? dir_path { get; set; }
+        public string? file_name { get; set; }
+    }
 }

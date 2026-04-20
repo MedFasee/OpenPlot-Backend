@@ -20,6 +20,12 @@ WHERE NOT EXISTS (
   WHERE run_id = @run_id
 );";
 
+        public const string DeleteExpiredExportRuns = @"
+DELETE FROM openplot.comtrade_runs
+WHERE finished_at IS NOT NULL
+  AND finished_at < now() - INTERVAL '7 days'
+RETURNING dir_path, file_name;";
+
         public const string GetExportRunStatus = @"
 SELECT
   c.run_id,

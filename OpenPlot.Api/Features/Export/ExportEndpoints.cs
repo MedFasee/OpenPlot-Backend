@@ -1,3 +1,4 @@
+using System.Data;
 using Dapper;
 using Data.Sql;
 using Microsoft.AspNetCore.Builder;
@@ -16,6 +17,41 @@ public static class ExportEndpoints
         status = runStatus
     };
 
+    internal static bool IsExpiredExport(DateTime? finishedAt, DateTimeOffset nowUtc) =>
+        finishedAt is not null && finishedAt.Value <= nowUtc.UtcDateTime.AddDays(-7);
+
+    internal static async Task PurgeExpiredExportsAsync(IDbConnection db, CancellationToken ct)
+    {
+        var expiredRows = await db.QueryAsync<ExpiredExportFileRow>(
+            new CommandDefinition(ExportSql.DeleteExpiredExportRuns, cancellationToken: ct)
+        );
+
+        foreach (var row in expiredRows)
+            DeleteExpiredExportFile(row.dir_path, row.file_name);
+    }
+
+    internal static void DeleteExpiredExportFile(string? dirPath, string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(dirPath) || string.IsNullOrWhiteSpace(fileName))
+            return;
+
+        var fullPath = Path.Combine(dirPath, fileName);
+
+        try
+        {
+            File.Delete(fullPath);
+
+            if (Directory.Exists(dirPath) && !Directory.EnumerateFileSystemEntries(dirPath).Any())
+                Directory.Delete(dirPath);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
     public static IEndpointRouteBuilder MapExport(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/export")
@@ -28,7 +64,8 @@ public static class ExportEndpoints
         group.MapPost("", async (
             HttpContext http,
             [FromServices] IDbConnectionFactory dbf,
-            [FromBody] QueueExportRequest req
+            [FromBody] QueueExportRequest req,
+            CancellationToken ct
         ) =>
         {
             var username =
@@ -51,6 +88,7 @@ public static class ExportEndpoints
                 return Results.BadRequest(new { error = "Formato de exportação ainda não suportado", format });
 
             using var db = dbf.Create();
+            await PurgeExpiredExportsAsync(db, ct);
 
             var runStatus = await db.QuerySingleOrDefaultAsync<string?>(@"
 SELECT status
@@ -85,7 +123,8 @@ LIMIT 1;", new { run_id = runId });
             string format,
             Guid id,
             HttpContext http,
-            [FromServices] IDbConnectionFactory dbf
+            [FromServices] IDbConnectionFactory dbf,
+            CancellationToken ct
         ) =>
         {
             var username =
@@ -100,6 +139,7 @@ LIMIT 1;", new { run_id = runId });
                 return Results.BadRequest(new { error = "Formato de exportação ainda não suportado", format });
 
             using var db = dbf.Create();
+            await PurgeExpiredExportsAsync(db, ct);
 
             var row = await db.QuerySingleOrDefaultAsync<ExportRunStatusRow>(
                 ExportSql.GetExportRunStatus,
@@ -119,7 +159,8 @@ LIMIT 1;", new { run_id = runId });
             string format,
             Guid id,
             HttpContext http,
-            [FromServices] IDbConnectionFactory dbf
+            [FromServices] IDbConnectionFactory dbf,
+            CancellationToken ct
         ) =>
         {
             var username =
@@ -134,6 +175,7 @@ LIMIT 1;", new { run_id = runId });
                 return Results.BadRequest(new { error = "Formato de exportação ainda não suportado", format });
 
             using var db = dbf.Create();
+            await PurgeExpiredExportsAsync(db, ct);
 
             var row = await db.QuerySingleOrDefaultAsync<ExportRunStatusRow>(
                 ExportSql.GetExportRunStatus,
