@@ -43,14 +43,21 @@ public static class ExportEndpoints
 
             using var db = dbf.Create();
 
-            /*var ownedRunId = await db.QuerySingleOrDefaultAsync<Guid?>(
-                ExportSql.OwnedSearchRunExists,
-                new { run_id = runId, username }
-            );
+            var runStatus = await db.QuerySingleOrDefaultAsync<string?>(@"
+SELECT status
+FROM openplot.search_runs
+WHERE id = @run_id
+LIMIT 1;", new { run_id = runId });
 
-            if (ownedRunId is null)
-                return Results.NotFound("run não encontrado (ou não pertence ao usuário).");
-            */
+            if (runStatus is null)
+                return Results.NotFound("run não encontrada.");
+
+            if (!string.Equals(runStatus, "done", StringComparison.OrdinalIgnoreCase))
+                return Results.BadRequest(new
+                {
+                    error = "A consulta não está concluída. Só é possível converter consultas completas/íntegras.",
+                    status = runStatus
+                });
 
             await db.ExecuteAsync(ExportSql.QueueExportRun, new { run_id = runId });
 
