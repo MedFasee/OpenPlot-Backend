@@ -228,7 +228,7 @@ VALUES
         {
             using var db = dbf.Create();
             const string sql = @"
-SELECT id, status, terminal_id, progress, message, source, signals, from_ts, to_ts, created_at
+SELECT id, status, terminal_id, progress, message, source, signals, from_ts, to_ts, created_at, started_at, finished_at
 FROM openplot.search_runs WHERE id = @id";
 
             var row = await db.QuerySingleOrDefaultAsync(sql, new { id });

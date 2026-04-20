@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS openplot.search_runs (
 );
 
 ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS started_at timestamptz NULL;
-ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS ended_at timestamptz NULL;
+ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS finished_at timestamptz NULL;
 
 CREATE TABLE IF NOT EXISTS openplot.ingest_chunks (
   id          bigserial      PRIMARY KEY,
