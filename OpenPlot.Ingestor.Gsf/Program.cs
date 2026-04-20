@@ -90,7 +90,7 @@ namespace OpenPlot.Ingestor.Gsf
             {
                 using (var tx = conn.BeginTransaction())
                 {
-                    DbOps.UpdateStatus(conn, tx, id, "bad_connection", 0, msg);
+                    DbOps.MarkFinished(conn, tx, id, "bad_connection", 0, msg);
                     tx.Commit();
                 }
             }
@@ -304,7 +304,7 @@ namespace OpenPlot.Ingestor.Gsf
                         };
 
                         rdr.Close();
-                        DbOps.UpdateStatus(conn, tx, job.Id, "running", 1, "Iniciando");
+                        DbOps.MarkStarted(conn, tx, job.Id, "running", 1, "Iniciando");
                         tx.Commit();
                         return job;
                     }
@@ -375,7 +375,7 @@ namespace OpenPlot.Ingestor.Gsf
 
                             if (pmusComDados == null || pmusComDados.Count == 0)
                             {
-                                DbOps.UpdateStatus(
+                                DbOps.MarkFinished(
                                     conn,
                                     tx2,
                                     job.Id,
@@ -386,7 +386,7 @@ namespace OpenPlot.Ingestor.Gsf
                             }
                             else
                             {
-                                DbOps.UpdateStatus(
+                                DbOps.MarkFinished(
                                     conn,
                                     tx2,
                                     job.Id,
@@ -414,7 +414,7 @@ namespace OpenPlot.Ingestor.Gsf
                     {
                         using (var tx2 = conn.BeginTransaction())
                         {
-                            DbOps.UpdateStatus(conn, tx2, job.Id, "failed", 0, ex.Message);
+                            DbOps.MarkFinished(conn, tx2, job.Id, "failed", 0, ex.Message);
                             tx2.Commit();
                         }
                     }

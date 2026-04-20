@@ -47,8 +47,13 @@ CREATE TABLE IF NOT EXISTS openplot.search_runs (
   status       text         NOT NULL,
   progress     int          NOT NULL DEFAULT 0,
   message      text         NULL,
-  created_at   timestamptz  NOT NULL DEFAULT now()
+  created_at   timestamptz  NOT NULL DEFAULT now(),
+  started_at   timestamptz  NULL,
+  finished_at     timestamptz  NULL
 );
+
+ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS started_at timestamptz NULL;
+ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS ended_at timestamptz NULL;
 
 CREATE TABLE IF NOT EXISTS openplot.ingest_chunks (
   id          bigserial      PRIMARY KEY,
@@ -70,6 +75,43 @@ CREATE TABLE IF NOT EXISTS openplot.ingest_chunks (
         using (var cmd = new NpgsqlCommand(@"
             UPDATE openplot.search_runs
                SET status=@s, progress=@p, message=@m
+             WHERE id=@id;", conn, tx))
+        {
+            cmd.Parameters.AddWithValue("s", status);
+            cmd.Parameters.AddWithValue("p", progress);
+            cmd.Parameters.AddWithValue("m", (object)message ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("id", id);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    public static void MarkStarted(NpgsqlConnection conn, NpgsqlTransaction tx, Guid id, string status, int progress, string message)
+    {
+        using (var cmd = new NpgsqlCommand(@"
+            UPDATE openplot.search_runs
+               SET status=@s,
+                   progress=@p,
+                   message=@m,
+                   started_at=now(),
+                   finished_at=NULL
+             WHERE id=@id;", conn, tx))
+        {
+            cmd.Parameters.AddWithValue("s", status);
+            cmd.Parameters.AddWithValue("p", progress);
+            cmd.Parameters.AddWithValue("m", (object)message ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("id", id);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    public static void MarkFinished(NpgsqlConnection conn, NpgsqlTransaction tx, Guid id, string status, int progress, string message)
+    {
+        using (var cmd = new NpgsqlCommand(@"
+            UPDATE openplot.search_runs
+               SET status=@s,
+                   progress=@p,
+                   message=@m,
+                   finished_at=now()
              WHERE id=@id;", conn, tx))
         {
             cmd.Parameters.AddWithValue("s", status);

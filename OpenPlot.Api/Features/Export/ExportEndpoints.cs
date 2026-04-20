@@ -7,6 +7,15 @@ using OpenPlot.Data.Dtos;
 
 public static class ExportEndpoints
 {
+    internal static bool CanConvertSearchRun(string? runStatus) =>
+        string.Equals(runStatus, "done", StringComparison.OrdinalIgnoreCase);
+
+    internal static object BuildIncompleteRunError(string? runStatus) => new
+    {
+        error = "A consulta não está concluída. Só é possível converter consultas completas/íntegras.",
+        status = runStatus
+    };
+
     public static IEndpointRouteBuilder MapExport(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/export")
@@ -52,12 +61,8 @@ LIMIT 1;", new { run_id = runId });
             if (runStatus is null)
                 return Results.NotFound("run não encontrada.");
 
-            if (!string.Equals(runStatus, "done", StringComparison.OrdinalIgnoreCase))
-                return Results.BadRequest(new
-                {
-                    error = "A consulta não está concluída. Só é possível converter consultas completas/íntegras.",
-                    status = runStatus
-                });
+            if (!CanConvertSearchRun(runStatus))
+                return Results.BadRequest(BuildIncompleteRunError(runStatus));
 
             await db.ExecuteAsync(ExportSql.QueueExportRun, new { run_id = runId });
 
