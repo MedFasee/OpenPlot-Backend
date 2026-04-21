@@ -35,6 +35,7 @@ public sealed class PmuHierarchyService : IPmuHierarchyService
                                     {
                                         id = p.id_name,
                                         nome = p.full_name ?? p.id_name,
+                                        tipo = p.kind,
                                         tensao = Math.Round(gVolt.Key / 1000.0, 2),
                                         area = gArea.Key,
                                         estado = gState.Key,
@@ -62,6 +63,8 @@ public sealed class PmuMeta
     public string? area { get; set; }
     public string? state { get; set; }
     public string? station { get; set; }
+    public string? kind { get; set; }
+    public string? tipo { get; set; }
 
     public IReadOnlyList<string>? Grandezas { get; set; }
     public IReadOnlyList<string>? Fases { get; set; }
@@ -86,6 +89,7 @@ public sealed class PmuMetaRow
     public string? area { get; set; }
     public string? state { get; set; }
     public string? station { get; set; }
+    public string? kind { get; set; }
 
     public IReadOnlyList<string>? grandezas { get; set; }
     public IReadOnlyList<string>? fases { get; set; }

@@ -134,7 +134,7 @@ public static class RunsEndpoints
 
                 const string pmusSql = @"
     WITH run AS (
-      SELECT id, signals, COALESCE(pmus_ok, pmus) AS pmus
+      SELECT id, source, signals, COALESCE(pmus_ok, pmus) AS pmus
       FROM openplot.search_runs
       WHERE id = @id
     ),
@@ -143,35 +143,40 @@ public static class RunsEndpoints
                WHEN jsonb_typeof(signals) = 'array' AND jsonb_array_length(signals) > 0 THEN signals
                WHEN jsonb_typeof(pmus)    = 'array' AND jsonb_array_length(pmus)    > 0 THEN pmus
                ELSE '[]'::jsonb
-             END AS arr
+             END AS arr,
+             source
       FROM run
     ),
     elems AS (
-      SELECT jsonb_array_elements(arr) AS elem
+      SELECT jsonb_array_elements(arr) AS elem, source
       FROM src
     ),
 
     pmus_from_string AS (
-      SELECT DISTINCT p.pmu_id, p.id_name, p.full_name, p.volt_level, p.area, p.state, p.station
+      SELECT DISTINCT p.pmu_id, p.id_name, p.full_name, p.volt_level, p.area, p.state, p.station, ppm.kind
       FROM elems e
       JOIN openplot.pmu p ON p.id_name = btrim(e.elem::text, '""')
+      LEFT JOIN openplot.pdc pd ON pd.name = e.source
+      LEFT JOIN openplot.pdc_pmu ppm ON ppm.pdc_id = pd.pdc_id AND ppm.pmu_id = p.pmu_id
       WHERE jsonb_typeof(e.elem) = 'string'
     ),
 
     pmus_direct AS (
-      SELECT DISTINCT p.pmu_id, p.id_name, p.full_name, p.volt_level, p.area, p.state, p.station
+      SELECT DISTINCT p.pmu_id, p.id_name, p.full_name, p.volt_level, p.area, p.state, p.station, ppm.kind
       FROM elems e
       JOIN LATERAL (
         SELECT NULLIF(TRIM(e.elem->>'pmu'), '')     AS key_pmu,
                NULLIF(TRIM(e.elem->>'id_name'), '') AS key_idname
       ) k ON TRUE
       JOIN openplot.pmu p ON p.id_name = COALESCE(k.key_pmu, k.key_idname)
+      LEFT JOIN openplot.pdc pd ON pd.name = e.source
+      LEFT JOIN openplot.pdc_pmu ppm ON ppm.pdc_id = pd.pdc_id AND ppm.pmu_id = p.pmu_id
       WHERE jsonb_typeof(e.elem) = 'object'
         AND COALESCE(k.key_pmu, k.key_idname) IS NOT NULL
     ),
 
     pmus_by_pdcpmu AS (
-      SELECT DISTINCT p.pmu_id, p.id_name, p.full_name, p.volt_level, p.area, p.state, p.station
+      SELECT DISTINCT p.pmu_id, p.id_name, p.full_name, p.volt_level, p.area, p.state, p.station, ppm.kind
       FROM elems e
       JOIN LATERAL (SELECT NULLIF(e.elem->>'pdc_pmu_id','')::int AS key_pdc_pmu_id) k ON TRUE
       JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = k.key_pdc_pmu_id
@@ -180,7 +185,7 @@ public static class RunsEndpoints
     ),
 
     pmus_by_signal AS (
-      SELECT DISTINCT p.pmu_id, p.id_name, p.full_name, p.volt_level, p.area, p.state, p.station
+      SELECT DISTINCT p.pmu_id, p.id_name, p.full_name, p.volt_level, p.area, p.state, p.station, ppm.kind
       FROM elems e
       JOIN LATERAL (SELECT NULLIF(e.elem->>'signal_id','')::int AS key_signal_id) k ON TRUE
       JOIN openplot.signal  s   ON s.signal_id    = k.key_signal_id
@@ -190,7 +195,7 @@ public static class RunsEndpoints
     ),
 
     pmus_by_point AS (
-      SELECT DISTINCT p.pmu_id, p.id_name, p.full_name, p.volt_level, p.area, p.state, p.station
+      SELECT DISTINCT p.pmu_id, p.id_name, p.full_name, p.volt_level, p.area, p.state, p.station, ppm.kind
       FROM elems e
       JOIN LATERAL (SELECT NULLIF(e.elem->>'historian_point','')::int AS key_point) k ON TRUE
       JOIN openplot.signal  s   ON s.historian_point = k.key_point
@@ -200,7 +205,15 @@ public static class RunsEndpoints
     ),
 
     pmus_union AS (
-      SELECT DISTINCT pmu_id, id_name, full_name, volt_level, area, state, station
+      SELECT
+        pmu_id,
+        id_name,
+        full_name,
+        volt_level,
+        area,
+        state,
+        station,
+        MAX(kind) AS kind
       FROM (
         SELECT * FROM pmus_from_string
         UNION ALL SELECT * FROM pmus_direct
@@ -208,6 +221,7 @@ public static class RunsEndpoints
         UNION ALL SELECT * FROM pmus_by_signal
         UNION ALL SELECT * FROM pmus_by_point
       ) u
+      GROUP BY pmu_id, id_name, full_name, volt_level, area, state, station
     ),
 
     signals_agg AS (
@@ -313,6 +327,7 @@ public static class RunsEndpoints
       pu.area,
       pu.state,
       pu.station,
+      pu.kind,
       COALESCE(sf.grandezas, ARRAY[]::text[]) AS grandezas,
       COALESCE(sf.fases,     ARRAY[]::text[]) AS fases,
       COALESCE(sf.thd_fases, ARRAY[]::text[]) AS thd_fases,
@@ -370,6 +385,7 @@ public static class RunsEndpoints
                         area = r.area,
                         state = r.state,
                         station = r.station,
+                        kind = r.kind,
                         Grandezas = r.grandezas ?? Array.Empty<string>(),
                         Fases = r.fases ?? Array.Empty<string>(),
                         Adicionais = adicionais

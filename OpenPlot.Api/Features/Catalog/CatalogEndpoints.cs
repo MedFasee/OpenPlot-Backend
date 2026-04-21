@@ -26,6 +26,7 @@ file sealed class PmuRow
     public string? station { get; init; }
     public double? lat { get; init; }
     public double? lon { get; init; }
+    public string? kind { get; init; }
 }
 
 
@@ -82,7 +83,8 @@ SELECT
     m.state,
     m.station,
     m.lat,
-    m.lon
+    m.lon,
+    pp.kind
 FROM openplot.pdc AS p
 JOIN openplot.pdc_pmu AS pp
   ON p.pdc_id = pp.pdc_id
@@ -134,6 +136,7 @@ ORDER BY m.area, m.state, m.volt_level, m.station, m.id_name;";
                                                     id,
                                                     terminal = t.full_name,
                                                     nome = t.full_name ?? t.id_name,
+                                                    tipo = t.kind,
                                                     estacao = t.station,
                                                     estado = t.state,
                                                     area = t.area,
