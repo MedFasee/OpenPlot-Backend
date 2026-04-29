@@ -163,7 +163,7 @@ namespace OpenPlot.Ingestor.Gsf
                 type: type,
                 user: user,
                 pass: pass,
-                db: dbName           // 👈 AQUI entra o db_name
+                db: dbName           // AQUI entra o db_name
             );
 
             // 3) Terminais
