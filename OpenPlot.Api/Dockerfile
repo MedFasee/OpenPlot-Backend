@@ -11,6 +11,6 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY --from=build /app/publish .
 
-EXPOSE 5173
-ENV ASPNETCORE_URLS=http://+:5173
+EXPOSE 8080
+ENV ASPNETCORE_URLS=http://+:8080
 ENTRYPOINT ["dotnet", "OpenPlot.dll"]

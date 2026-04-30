@@ -1,5 +1,4 @@
-﻿
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Http;
@@ -14,10 +13,11 @@ namespace OpenPlot.Ingestor.Gsf.Repository
 {
     public class MeasurementHistorian2 : Database, IMeasurementDb
     {
-        readonly string _ip;
-        public MeasurementHistorian2(string ip, string user, string pass) : base(ip, user, pass)
+        readonly string _historianServer;
+
+        public MeasurementHistorian2(string ip, int port, string user, string pass) : base(ip, user, pass)
         {
-            _ip = ip;
+            _historianServer = port > 0 ? $"{ip}:{port}" : ip;
         }
 
         public Dictionary<Channel, ITimeSeries> QueryTerminalSeries(string Id, DateTime start, DateTime finish, List<Channel> measurements, int dataRate, int equipmentRate, bool downloadStat = false)
@@ -41,7 +41,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
             {
                 var data = new HistorianDataFetcher();
 
-                var queryTask = data.FetchHistorianDataAsString(_ip, "PPA", start, finish, dataRate, equipmentRate, channels, interval);
+                var queryTask = data.FetchHistorianDataAsString(_historianServer, "PPA", start, finish, dataRate, equipmentRate, channels, interval);
 
                 result = ParseJson(queryTask, builtMeasurements, dataRate, downloadStat);
 

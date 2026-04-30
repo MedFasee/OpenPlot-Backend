@@ -1,18 +1,23 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
-using GSF.Snap;
-using GSF.Snap.Filters;
-using GSF.Snap.Services;
-using GSF.Snap.Services.Reader;
-using openHistorian.Net;
-using openHistorian.Snap;
-using Newtonsoft.Json;
+using System.Text.Json;
+using OpenPlot.Ingestor.Gsf.Snap;
+using SnapDB.Snap.Filters;
+using SnapDB.Snap.Services.Net;
+using SnapDB.Snap.Services.Reader;
 
 namespace OpenPlot.Ingestor.Gsf.Repository
 {
     public class HistorianDataFetcher
     {
+        private const int DefaultHistorianPort = 38402;
+        private static readonly JsonSerializerOptions JsonOptions = new()
+        {
+            PropertyNamingPolicy = null
+        };
+
         public class MeasurementData
         {
             public ulong HistorianID { get; set; }
@@ -31,73 +36,103 @@ namespace OpenPlot.Ingestor.Gsf.Repository
 
         public class TimeSeriesDataWrapper
         {
-            public List<MeasurementData> TimeSeriesDataPoints { get; set; }
+            public List<MeasurementData> TimeSeriesDataPoints { get; set; } = new();
         }
 
-        public IEnumerable<MeasurementData> FetchHistorianData(string historianServer, string instanceName, DateTime startTime, DateTime stopTime, int dataRate, int equipmentRate, string measurementIDs = null, TimeSpan interval = default(TimeSpan))
+        public IEnumerable<MeasurementData> FetchHistorianData(string historianServer, string instanceName, DateTime startTime, DateTime stopTime, int dataRate, int equipmentRate, string measurementIDs = null, TimeSpan interval = default)
         {
-            int DefaultHistorianPort = 38402;
-
-            if (string.IsNullOrEmpty(historianServer))
+            if (string.IsNullOrWhiteSpace(historianServer))
                 throw new ArgumentNullException(nameof(historianServer), "Missing historian server parameter");
-
-            if (string.IsNullOrEmpty(instanceName))
-                throw new ArgumentNullException(nameof(instanceName), "Missing historian instance name parameter");
 
             if (startTime > stopTime)
                 throw new ArgumentException("Invalid time range specified", nameof(startTime));
 
-            string[] parts = historianServer.Split(':');
-            string hostName = parts[0];
-            int port;
+            if (string.IsNullOrWhiteSpace(instanceName))
+                throw new ArgumentNullException(nameof(instanceName), "Missing historian instance name parameter");
 
-            if (parts.Length < 2 || !int.TryParse(parts[1], out port))
-                port = DefaultHistorianPort;
+            ParseServer(historianServer, out string host, out int port);
+            ulong[] pointIds = ParseMeasurementIds(measurementIDs);
 
-            using (HistorianClient client = new HistorianClient(hostName, port))
-            using (ClientDatabaseBase<HistorianKey, HistorianValue> reader = client.GetDatabase<HistorianKey, HistorianValue>(instanceName))
+            var settings = new SnapNetworkClientSettings
             {
-                SeekFilterBase<HistorianKey> timeFilter;
+                ServerNameOrIP = host,
+                NetworkPort = port
+            };
 
-                ulong intervalTicks = (ulong)interval.Ticks;
+            using var client = new SnapNetworkClient(settings, null, false);
+            using var database = client.GetDatabase<HistorianKey, HistorianValue>(instanceName);
+            using var stream = CreateReadStream(database, startTime, stopTime, dataRate, equipmentRate, interval, pointIds);
 
-                if (dataRate != equipmentRate)
-                    timeFilter = TimestampSeekFilter.CreateFromIntervalData<HistorianKey>((ulong)startTime.Ticks, (ulong)stopTime.Ticks - intervalTicks, intervalTicks, (ulong)TimeSpan.TicksPerMillisecond * 2);
-                else
-                    timeFilter = TimestampSeekFilter.CreateFromRange<HistorianKey>((ulong)startTime.Ticks, (ulong)stopTime.Ticks);
+            var key = new HistorianKey();
+            var value = new HistorianValue();
 
-                MatchFilterBase<HistorianKey, HistorianValue> pointFilter = null;
-                HistorianKey key = new HistorianKey();
-                HistorianValue value = new HistorianValue();
-
-                if (!string.IsNullOrEmpty(measurementIDs))
-                    pointFilter = PointIdMatchFilter.CreateFromList<HistorianKey, HistorianValue>(measurementIDs.Split(',').Select(ulong.Parse));
-
-                TreeStream<HistorianKey, HistorianValue> stream = reader.Read(SortedTreeEngineReaderOptions.Default, timeFilter, pointFilter);
-
-                while (stream.Read(key, value))
-                {
-                    int qualityFlags = (int)value.Value3;
-                    yield return new MeasurementData(key.PointID, key.TimestampAsDate, value.AsSingle, (int)qualityFlags);
-                }
+            while (stream.Read(key, value))
+            {
+                yield return new MeasurementData(
+                    key.PointID,
+                    new DateTime((long)key.Timestamp, DateTimeKind.Unspecified),
+                    value.AsSingle,
+                    29);
             }
         }
 
-        public string FetchHistorianDataAsString(string historianServer, string instanceName, DateTime startTime, DateTime stopTime, int dataRate, int equipmentRate, string measurementIDs = null, TimeSpan interval = default(TimeSpan))
+        public string FetchHistorianDataAsString(string historianServer, string instanceName, DateTime startTime, DateTime stopTime, int dataRate, int equipmentRate, string measurementIDs = null, TimeSpan interval = default)
         {
-            IEnumerable<MeasurementData> historianData = FetchHistorianData(historianServer, "PPA", startTime, stopTime, dataRate, equipmentRate, measurementIDs, interval);
+            var wrapper = new TimeSeriesDataWrapper();
 
-            var dataWrapper = new TimeSeriesDataWrapper { TimeSeriesDataPoints = historianData.ToList() };
+            foreach (MeasurementData point in FetchHistorianData(historianServer, instanceName, startTime, stopTime, dataRate, equipmentRate, measurementIDs, interval))
+                wrapper.TimeSeriesDataPoints.Add(point);
 
-            JsonSerializerSettings settings = new JsonSerializerSettings
-            {
-                DateFormatString = "yyyy-MM-dd HH:mm:ss.fff",
-                Formatting = Formatting.None
-            };
+            return JsonSerializer.Serialize(wrapper, JsonOptions);
+        }
 
-            string jsonData = JsonConvert.SerializeObject(dataWrapper, settings);
-            jsonData = jsonData.Replace("\r\n", "").Replace("\"Time\":\"", "\"Time\":\" ");
-            return jsonData;
+        private static SnapDB.Snap.TreeStream<HistorianKey, HistorianValue> CreateReadStream(
+            dynamic database,
+            DateTime startTime,
+            DateTime stopTime,
+            int dataRate,
+            int equipmentRate,
+            TimeSpan interval,
+            IEnumerable<ulong> pointIds)
+        {
+            var seekFilter = CreateTimestampFilter(startTime, stopTime, dataRate, equipmentRate, interval);
+            var matchFilter = pointIds.Any()
+                ? PointIDMatchFilter.CreateFromList<HistorianKey, HistorianValue>(pointIds)
+                : null;
+
+            return matchFilter is null
+                ? database.Read(SortedTreeEngineReaderOptions.Default, seekFilter, null)
+                : database.Read(SortedTreeEngineReaderOptions.Default, seekFilter, matchFilter);
+        }
+
+        private static SeekFilterBase<HistorianKey> CreateTimestampFilter(DateTime startTime, DateTime stopTime, int dataRate, int equipmentRate, TimeSpan interval)
+        {
+            bool useIntervalData = interval > TimeSpan.Zero && dataRate > 0 && equipmentRate > 0 && dataRate != equipmentRate;
+
+            return useIntervalData
+                ? TimestampSeekFilter.CreateFromIntervalData<HistorianKey>(startTime, stopTime, interval, interval)
+                : TimestampSeekFilter.CreateFromRange<HistorianKey>(startTime, stopTime);
+        }
+
+        private static ulong[] ParseMeasurementIds(string measurementIDs)
+        {
+            if (string.IsNullOrWhiteSpace(measurementIDs))
+                return Array.Empty<ulong>();
+
+            return measurementIDs
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(id => ulong.Parse(id, CultureInfo.InvariantCulture))
+                .Distinct()
+                .ToArray();
+        }
+
+        private static void ParseServer(string historianServer, out string host, out int port)
+        {
+            string[] parts = historianServer.Split(':', 2, StringSplitOptions.TrimEntries);
+            host = parts[0];
+            port = parts.Length == 2 && int.TryParse(parts[1], out int parsedPort)
+                ? parsedPort
+                : DefaultHistorianPort;
         }
     }
 }

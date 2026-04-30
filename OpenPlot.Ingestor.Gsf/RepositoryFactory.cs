@@ -1,5 +1,4 @@
-﻿
-using OpenPlot.Ingestor.Gsf.Repository;
+﻿using OpenPlot.Ingestor.Gsf.Repository;
 
 namespace OpenPlot.Ingestor.Gsf
 {
@@ -20,7 +19,7 @@ namespace OpenPlot.Ingestor.Gsf
                     return new MeasurementHistorian(sys.Ip, sys.Port, sys.User, sys.Password);
 
                 case DatabaseType.Historian2_OpenHistorian2:
-                    return new MeasurementHistorian2(sys.Ip, sys.User, sys.Password);
+                    return new MeasurementHistorian2(sys.Ip, sys.Port, sys.User, sys.Password);
 
                 default:
                     throw new System.NotSupportedException(sys.Type.ToString());

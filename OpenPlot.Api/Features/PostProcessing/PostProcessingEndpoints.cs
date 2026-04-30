@@ -1,5 +1,4 @@
-﻿using GSF.Units.EE;
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using OpenPlot.Features.PostProcessing.Handlers;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Repositories;
@@ -60,7 +59,6 @@ public static class PostProcessingEndpoints
                     fMax = dft.Zoom?.Size
                 },
                 series
-
             });
         });
 

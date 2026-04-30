@@ -2,6 +2,7 @@
   <PropertyGroup>
 	<ServerGarbageCollection>true</ServerGarbageCollection>
     <TargetFramework>net10.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <OutputType>Exe</OutputType>
     <RootNamespace>OpenPlot.Ingestor.Gsf</RootNamespace>
     <AssemblyName>OpenPlot.Ingestor.Gsf</AssemblyName>
@@ -15,20 +16,7 @@
     <RunAnalyzersDuringLiveAnalysis>False</RunAnalyzersDuringLiveAnalysis>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Remove legacy .NET Framework 4.x DLL references:
-         GSF.SortedTreeStore and openHistorian.Core are no longer used.
-         HistorianDataFetcher now uses HttpClient (openHistorian REST API). -->
-  </ItemGroup>
-  <ItemGroup>
-    <Reference Include="GSF.SortedTreeStore">
-      <HintPath>libs\GSF.SortedTreeStore.dll</HintPath>
-    </Reference>
-    <Reference Include="openHistorian.Core">
-      <HintPath>libs\openHistorian.Core.dll</HintPath>
-    </Reference>
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="GSF.Core" Version="2.4.274" />
+    <PackageReference Include="Gemstone.SnapDB" Version="1.0.103" />
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.1" />
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageReference Include="MySql.Data" Version="6.10.9" />
@@ -36,7 +24,6 @@
     <PackageReference Include="Npgsql" Version="5.0.18" />
     <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
     <PackageReference Include="System.Data.DataSetExtensions" Version="4.5.0" />
-    <PackageReference Include="System.Management" Version="10.0.1" />
     <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.1.2" />
     <PackageReference Include="System.Text.Encodings.Web" Version="10.0.1" />
     <PackageReference Include="System.Text.Json" Version="10.0.1" />
