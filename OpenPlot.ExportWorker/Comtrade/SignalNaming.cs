@@ -75,8 +75,7 @@ public static class SignalNaming
 
     public static string MapDigitalName(MeasurementRow r)
     {
-        // MVP: sem metadata extra, usa nome estável por signal_id.
-        // Quando você tiver acrônimo/descrição, a gente troca aqui para "VO1|TRIGGER_OSC".
-        return $"D{r.SignalId}";
+        var name = (r.SignalName ?? "").Trim();
+        return string.IsNullOrEmpty(name) ? $"D{r.SignalId}" : name;
     }
 }

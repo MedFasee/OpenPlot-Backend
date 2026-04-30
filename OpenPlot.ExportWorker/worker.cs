@@ -80,7 +80,7 @@ public sealed class Worker : BackgroundService
                     continue;
                 }
 
-                var nominal = await pdcRepo.GetFpsByNameAsync(ctx.PdcName, stoppingToken)
+                var pdcFps = await pdcRepo.GetFpsByNameAsync(ctx.PdcName, stoppingToken)
                              ?? _opt.NominalFrequencyFallback;
                 await runRepo.UpdateProgressAsync(runId.Value, 5, "Carregando medições...", stoppingToken);
 
@@ -99,7 +99,7 @@ public sealed class Worker : BackgroundService
 
                 await runRepo.UpdateProgressAsync(runId.Value, 20, $"Montando PMUs/canais ({rows.Count} pontos)...", stoppingToken);
 
-                var pmus = _builder.Build(ctx, rows, onProgress: async (p, msg) =>
+                var pmus = _builder.Build(ctx, rows, nominalFps: pdcFps, onProgress: async (p, msg) =>
                 {
                     await runRepo.UpdateProgressAsync(runId.Value, p, msg, stoppingToken);
                 });
@@ -123,7 +123,7 @@ public sealed class Worker : BackgroundService
                             stream: stream,
                             run: ctx,
                             pmus: pmus,
-                            nominalFrequency: nominal,
+                            nominalFrequency: _opt.NominalFrequencyFallback,
                             timeCodeMode: _opt.TimeCodeMode,
                             tmqCode: _opt.TmqCode,
                             leapSec: _opt.LeapSec,

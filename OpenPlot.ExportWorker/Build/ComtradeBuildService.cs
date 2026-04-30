@@ -8,13 +8,18 @@ public sealed class ComtradeBuildService
     public List<PmuComtrade> Build(
         RunContext run,
         List<MeasurementRow> rows,
+        int nominalFps,
         Func<int, string, Task>? onProgress = null)
     {
-        var sampleRate = run.SelectRate > 0 ? run.SelectRate : 60;
+        var sampleRate = nominalFps > 0 ? nominalFps : (run.SelectRate > 0 ? run.SelectRate : 60);
 
-        // timeline ideal baseada na janela do run e na taxa
+        // timeline baseada na freq real do sistema (nominalFps)
         var timeline = BuildTimeline(run.FromUtc, run.ToUtc, sampleRate);
         int n = timeline.Length;
+
+        // tolerância: metade do passo da timeline em ticks (1 tick = 100ns)
+        long stepTicks = n > 1 ? (timeline[1] - timeline[0]).Ticks : TimeSpan.TicksPerSecond / sampleRate;
+        long halfStepTicks = stepTicks / 2;
 
         // agrupa por PMU (id_name)
         var pmuGroups = rows.GroupBy(r => r.IdName).ToList();
@@ -49,32 +54,30 @@ public sealed class ComtradeBuildService
 
                 var meta = list[0];
 
-                // map Ts->Value (UTC)
-                var map = new Dictionary<DateTimeOffset, double>(list.Count);
-                foreach (var p in list)
-                    map[p.Ts.ToUniversalTime()] = p.Value;
+                // pontos ordenados por timestamp UTC para binary search
+                var ticks = new long[list.Count];
+                var vals  = new double[list.Count];
+                for (int k = 0; k < list.Count; k++)
+                {
+                    ticks[k] = list[k].Ts.ToUniversalTime().Ticks;
+                    vals[k]  = list[k].Value;
+                }
 
                 if (SignalNaming.IsDigital(meta))
                 {
                     var dName = SignalNaming.MapDigitalName(meta);
-
                     var values = new bool[n];
                     bool last = false;
                     bool hasLast = false;
 
                     for (int i = 0; i < n; i++)
                     {
-                        if (map.TryGetValue(timeline[i], out var v))
+                        if (TryFindNearest(ticks, vals, timeline[i].Ticks, halfStepTicks, out var v))
                         {
-                            // regra de binarização: >= 0.5 => 1
                             last = v >= 0.5;
                             hasLast = true;
-                            values[i] = last;
                         }
-                        else
-                        {
-                            values[i] = hasLast ? last : false;
-                        }
+                        values[i] = hasLast ? last : false;
                     }
 
                     digitals.Add(new DigitalSeries(dIdx++, dName, values));
@@ -82,24 +85,19 @@ public sealed class ComtradeBuildService
                 else
                 {
                     var chName = SignalNaming.MapAnalogName(meta);
-                    var unit = SignalNaming.MapAnalogUnit(meta);
-
+                    var unit   = SignalNaming.MapAnalogUnit(meta);
                     var values = new double[n];
                     double last = 0.0;
                     bool hasLast = false;
 
                     for (int i = 0; i < n; i++)
                     {
-                        if (map.TryGetValue(timeline[i], out var v))
+                        if (TryFindNearest(ticks, vals, timeline[i].Ticks, halfStepTicks, out var v))
                         {
-                            values[i] = v;
                             last = v;
                             hasLast = true;
                         }
-                        else
-                        {
-                            values[i] = hasLast ? last : 0.0;
-                        }
+                        values[i] = hasLast ? last : 0.0;
                     }
 
                     analogs.Add(new AnalogSeries(aIdx++, chName, unit, values));
@@ -121,6 +119,44 @@ public sealed class ComtradeBuildService
         return pmus;
     }
 
+    /// <summary>
+    /// Busca o ponto mais próximo de <paramref name="targetTicks"/> dentro de ±<paramref name="halfStepTicks"/>.
+    /// Usa binary search no array ordenado <paramref name="ticks"/>.
+    /// </summary>
+    private static bool TryFindNearest(long[] ticks, double[] vals, long targetTicks, long halfStepTicks, out double value)
+    {
+        int lo = 0, hi = ticks.Length - 1, best = -1;
+        long bestDist = halfStepTicks + 1;
+
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            long dist = Math.Abs(ticks[mid] - targetTicks);
+
+            if (dist < bestDist)
+            {
+                bestDist = dist;
+                best = mid;
+            }
+
+            if (ticks[mid] < targetTicks)
+                lo = mid + 1;
+            else if (ticks[mid] > targetTicks)
+                hi = mid - 1;
+            else
+                break; // match exato
+        }
+
+        if (best >= 0 && bestDist <= halfStepTicks)
+        {
+            value = vals[best];
+            return true;
+        }
+
+        value = 0.0;
+        return false;
+    }
+
     private static DateTimeOffset[] BuildTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, int rate)
     {
         long stepUs = (long)Math.Round(1_000_000.0 / rate);
@@ -133,7 +169,7 @@ public sealed class ComtradeBuildService
 
         var arr = new DateTimeOffset[count];
         for (int i = 0; i < (int)count; i++)
-            arr[i] = fromUtc.AddTicks((stepUs * i) * 10); // 10 ticks = 1us
+            arr[i] = fromUtc.AddTicks((stepUs * i) * 10); // 10 ticks = 1µs
 
         return arr;
     }

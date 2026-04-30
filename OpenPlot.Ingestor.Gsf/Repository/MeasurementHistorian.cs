@@ -1,168 +1,103 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Diagnostics.Eventing.Reader;
 using System.Globalization;
-using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using OpenPlot.Ingestor.Gsf.Data;
 using OpenPlot.Ingestor.Gsf.Utils;
-using static System.Net.WebRequestMethods;
-
 
 namespace OpenPlot.Ingestor.Gsf.Repository
 {
     public class MeasurementHistorian : Database, IMeasurementDb
     {
-        // Variável estática para controlar o incremento
+        private static readonly HttpClient httpClient = new HttpClient();
 
         readonly string connectionString;
         readonly string connectionStringHTTPS;
+
         public MeasurementHistorian(string ip, int port, string user, string pass) : base(ip, user, pass)
         {
             connectionString = "http://" + ip + ":" + port + "/historian/timeseriesdata/read/historic/";
 
             if (ip.ToLower().Contains("https"))
             {
-                //if (port == 6152)
-                //{
-                //    connectionStringHTTPS = "https://" + ip + "/historian/timeseriesdata/read/historic/"; //Talvez precisemos mudar isso aqui no futuro
-                //}
-
                 connectionString = ip.Replace("https://", "http://") + ":" + port + "/historian/timeseriesdata/read/historic/";
 
                 if (port == 6156)
-                {
                     connectionStringHTTPS = ip + "/historian/timeseriesdata/read/historic/";
-                }
             }
-
-
         }
 
         public Dictionary<Channel, ITimeSeries> QueryTerminalSeries(string Id, DateTime start, DateTime finish, List<Channel> measurements, int dataRate, int equipmentRate, bool downloadStat = false)
         {
             Console.WriteLine("QueryTerminal");
             Console.Out.Flush();
-            Dictionary<Channel, ITimeSeries> result = new Dictionary<Channel, ITimeSeries>();
 
-            Dictionary<string, Channel> builtMeasurements = new Dictionary<string, Channel>();
-
-            bool sucessoBusca = false;
+            var builtMeasurements = new Dictionary<int, Channel>();
 
             foreach (Channel channel in measurements)
-                builtMeasurements[channel.Id.ToString()] = channel;
+                builtMeasurements[channel.Id] = channel;
 
-            if (downloadStat)
-                builtMeasurements["MISSING"] = Channel.MISSING;
-
-            string path = BuildPath(start, finish, GetChannels(measurements));
+            string channels = GetChannels(measurements);
+            string path = BuildPath(start, finish, channels);
 
             if (!string.IsNullOrEmpty(connectionStringHTTPS))
             {
-                string pathHTTPS = BuildPathHTTPS(start, finish, GetChannels(measurements));
+                string pathHTTPS = BuildPathHTTPS(start, finish, channels);
 
                 try
                 {
-                    using (var httpClient = new HttpClient())
-                    {
-                        var queryTask = httpClient.GetStringAsync(pathHTTPS);
-
-                        result = ParseJson(ref queryTask, builtMeasurements, dataRate, downloadStat);
-
-                    }
-
-                    sucessoBusca = true;
-
+                    Task<string> queryTask = httpClient.GetStringAsync(pathHTTPS);
+                    return ParseJson(queryTask, builtMeasurements, dataRate, downloadStat);
                 }
                 catch (Exception e)
                 {
                     try
                     {
-                        using (var httpClient = new HttpClient())
-                        {
-                            var queryTask = httpClient.GetStringAsync(path);
-
-                            result = ParseJson(ref queryTask, builtMeasurements, dataRate, downloadStat);
-
-                        }
-
-
+                        Task<string> queryTask = httpClient.GetStringAsync(path);
+                        return ParseJson(queryTask, builtMeasurements, dataRate, downloadStat);
                     }
-                    catch (Exception _ex)
+                    catch (Exception)
                     {
-                        if (e.InnerException != null)
-                        {
-                            if (e.InnerException is HttpRequestException)
-                            {
-                                if (e.InnerException.HResult == -2147467259)
-                                    throw new InvalidConnectionException(Ip);
-                                else if (e.InnerException.HResult == -2146233088)
-                                    throw new InvalidQueryException(InvalidQueryException.BAD_HIST_QUERY);
-                            }
-                            if (e.InnerException is TaskCanceledException && e.InnerException.HResult == -2146233029)
-                            {
-                                throw new QueryTimeoutException();
-                            }
-                            else
-                            {
-                                throw new InvalidQueryException(e.InnerException.Message);
-                            }
-                        }
-                        else
-                            throw new InvalidQueryException(e.Message);
+                        HandleQueryException(e);
                     }
                 }
             }
 
-            if (string.IsNullOrEmpty(connectionStringHTTPS))
+            try
             {
-
-
-                try
-                {
-                    using (var httpClient = new HttpClient())
-                    {
-                        var queryTask = httpClient.GetStringAsync(path);
-
-                        result = ParseJson(ref queryTask, builtMeasurements, dataRate, downloadStat);
-
-                    }
-
-
-                }
-                catch (Exception e)
-                {
-                    if (e.InnerException != null)
-                    {
-                        if (e.InnerException is HttpRequestException)
-                        {
-                            if (e.InnerException.HResult == -2147467259)
-                                throw new InvalidConnectionException(Ip);
-                            else if (e.InnerException.HResult == -2146233088)
-                                throw new InvalidQueryException(InvalidQueryException.BAD_HIST_QUERY);
-                        }
-                        if (e.InnerException is TaskCanceledException && e.InnerException.HResult == -2146233029)
-                        {
-                            throw new QueryTimeoutException();
-                        }
-                        else
-                        {
-                            throw new InvalidQueryException(e.InnerException.Message);
-                        }
-                    }
-                    else
-                        throw new InvalidQueryException(e.Message);
-                }
+                Task<string> queryTask = httpClient.GetStringAsync(path);
+                return ParseJson(queryTask, builtMeasurements, dataRate, downloadStat);
+            }
+            catch (Exception e)
+            {
+                HandleQueryException(e);
             }
 
+            throw new InvalidQueryException(InvalidQueryException.BAD_HIST_QUERY);
+        }
 
+        private void HandleQueryException(Exception e)
+        {
+            if (e.InnerException != null)
+            {
+                if (e.InnerException is HttpRequestException)
+                {
+                    if (e.InnerException.HResult == -2147467259)
+                        throw new InvalidConnectionException(Ip);
+                    if (e.InnerException.HResult == -2146233088)
+                        throw new InvalidQueryException(InvalidQueryException.BAD_HIST_QUERY);
+                }
 
-            return result;
+                if (e.InnerException is TaskCanceledException && e.InnerException.HResult == -2146233029)
+                    throw new QueryTimeoutException();
 
+                throw new InvalidQueryException(e.InnerException.Message);
+            }
+
+            throw new InvalidQueryException(e.Message);
         }
 
         private string BuildPath(DateTime start, DateTime finish, string channels)
@@ -182,21 +117,23 @@ namespace OpenPlot.Ingestor.Gsf.Repository
 
             foreach (var ch in measurements)
             {
-                if (seen.Add(ch.Id)) // só entra 1x por HistorianID
+                if (seen.Add(ch.Id))
                 {
-                    if (sb.Length > 0) sb.Append(',');
+                    if (sb.Length > 0)
+                        sb.Append(',');
+
                     sb.Append(ch.Id);
                 }
             }
+
             return sb.ToString();
         }
 
-
         private static Dictionary<Channel, ITimeSeries> ParseJson(
-     ref Task<string> query,
-     Dictionary<string, Channel> measurements,
-     double framesPerSecond,
-     bool downloadStat)
+            Task<string> query,
+            Dictionary<int, Channel> measurementsById,
+            double framesPerSecond,
+            bool downloadStat)
         {
             query.Wait();
 
@@ -205,19 +142,6 @@ namespace OpenPlot.Ingestor.Gsf.Repository
             if (jsonData == "{\"TimeSeriesDataPoints\":[]}")
                 throw new InvalidQueryException(InvalidQueryException.EMPTY);
 
-            // ------------------------------------------------------------
-            // 1) Converte measurements (string -> int) UMA VEZ
-            // ------------------------------------------------------------
-            var measurementsById = new Dictionary<int, Channel>(measurements.Count);
-            foreach (var kv in measurements)
-            {
-                if (int.TryParse(kv.Key, NumberStyles.Integer, CultureInfo.InvariantCulture, out int id))
-                    measurementsById[id] = kv.Value;
-            }
-
-            // ------------------------------------------------------------
-            // 2) Inicializa séries
-            // ------------------------------------------------------------
             var series = new Dictionary<Channel, ITimeSeries>(measurementsById.Count + (downloadStat ? 1 : 0));
             foreach (var ch in measurementsById.Values)
                 series[ch] = new TimeSeries();
@@ -227,12 +151,8 @@ namespace OpenPlot.Ingestor.Gsf.Repository
 
             bool oneValid = downloadStat;
             bool hasData = false;
-
             double frameMs = 1000.0 / framesPerSecond;
 
-            // ------------------------------------------------------------
-            // 3) Utf8JsonReader (streaming, rápido)
-            // ------------------------------------------------------------
             byte[] utf8 = Encoding.UTF8.GetBytes(jsonData);
             var reader = new Utf8JsonReader(utf8, isFinalBlock: true, state: default);
 
@@ -240,7 +160,6 @@ namespace OpenPlot.Ingestor.Gsf.Repository
             DateTime measureTime = default;
             double value = 0;
             int qualityCode = 0;
-
             bool gotId = false, gotTime = false, gotValue = false, gotQuality = false;
 
             while (reader.Read())
@@ -249,7 +168,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
                 {
                     if (reader.ValueTextEquals("TimeSeriesDataPoints"))
                     {
-                        reader.Read(); // StartArray
+                        reader.Read();
                         continue;
                     }
 
@@ -265,7 +184,6 @@ namespace OpenPlot.Ingestor.Gsf.Repository
                     {
                         reader.Read();
                         string t = reader.GetString()!;
-
                         t = t.TrimStart();
 
                         gotTime = DateTime.TryParseExact(
@@ -295,9 +213,6 @@ namespace OpenPlot.Ingestor.Gsf.Repository
                     }
                 }
 
-                // --------------------------------------------------------
-                // 4) Fecha um objeto { ... } → processa o ponto
-                // --------------------------------------------------------
                 if (reader.TokenType == JsonTokenType.EndObject)
                 {
                     if (gotId && gotTime && gotValue && gotQuality)
@@ -322,12 +237,10 @@ namespace OpenPlot.Ingestor.Gsf.Repository
                                     if (!qualityOk && downloadStat)
                                         series[Channel.MISSING].Add(time, 2);
                                 }
-                                // se não tiver no dicionário, ignora
                             }
                         }
                     }
 
-                    // reset do estado
                     historianId = 0;
                     measureTime = default;
                     value = 0;

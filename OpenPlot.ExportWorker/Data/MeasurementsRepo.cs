@@ -115,6 +115,7 @@ sig AS(
   SELECT
     s.signal_id,
     s.pdc_pmu_id,
+    s.name AS signal_name,
     LOWER(s.quantity::text) AS quantity,
     UPPER(s.component::text) AS component,
     UPPER(s.phase::text) AS phase,
@@ -161,16 +162,17 @@ raw AS(
     AND m.ts <= (SELECT to_utc FROM win)
 )
 SELECT
-  s.signal_id AS SignalId,
-  s.pdc_pmu_id AS PdcPmuId,
-  s.id_name AS IdName,
-  s.pdc_name AS PdcName,
-  s.quantity AS Quantity,
-  s.component AS Component,
-  s.phase AS Phase,
-  NULL AS Unit,
-  r.ts AS Ts,
-  r.value AS Value
+  s.signal_id   AS SignalId,
+  s.pdc_pmu_id  AS PdcPmuId,
+  s.id_name     AS IdName,
+  s.pdc_name    AS PdcName,
+  s.signal_name AS SignalName,
+  s.quantity    AS Quantity,
+  s.component   AS Component,
+  s.phase       AS Phase,
+  NULL          AS Unit,
+  r.ts          AS Ts,
+  r.value       AS Value
 FROM sig s
 JOIN raw r USING(signal_id)
 ORDER BY s.id_name, s.signal_id, r.ts;
