@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -49,27 +50,19 @@ namespace OpenPlot.Ingestor.Gsf.Repository
 
                 try
                 {
-                    Task<string> queryTask = httpClient.GetStringAsync(pathHTTPS);
-                    return ParseJson(queryTask, builtMeasurements, dataRate, downloadStat);
+                    string json = httpClient.GetStringAsync(pathHTTPS).GetAwaiter().GetResult();
+                    return ParseJson(json, builtMeasurements, dataRate, downloadStat);
                 }
-                catch (Exception e)
+                catch (Exception)
                 {
-                    try
-                    {
-                        Task<string> queryTask = httpClient.GetStringAsync(path);
-                        return ParseJson(queryTask, builtMeasurements, dataRate, downloadStat);
-                    }
-                    catch (Exception)
-                    {
-                        HandleQueryException(e);
-                    }
+                    // HTTPS falhou — tenta HTTP como fallback
                 }
             }
 
             try
             {
-                Task<string> queryTask = httpClient.GetStringAsync(path);
-                return ParseJson(queryTask, builtMeasurements, dataRate, downloadStat);
+                string json = httpClient.GetStringAsync(path).GetAwaiter().GetResult();
+                return ParseJson(json, builtMeasurements, dataRate, downloadStat);
             }
             catch (Exception e)
             {
@@ -81,23 +74,21 @@ namespace OpenPlot.Ingestor.Gsf.Repository
 
         private void HandleQueryException(Exception e)
         {
-            if (e.InnerException != null)
+            // Unwrap AggregateException caso o chamador ainda use .Wait() em algum ponto
+            Exception actual = e is AggregateException ae ? (ae.InnerException ?? e) : e;
+
+            if (actual is TaskCanceledException || actual is OperationCanceledException)
+                throw new QueryTimeoutException();
+
+            if (actual is HttpRequestException httpEx)
             {
-                if (e.InnerException is HttpRequestException)
-                {
-                    if (e.InnerException.HResult == -2147467259)
-                        throw new InvalidConnectionException(Ip);
-                    if (e.InnerException.HResult == -2146233088)
-                        throw new InvalidQueryException(InvalidQueryException.BAD_HIST_QUERY);
-                }
+                if (httpEx.InnerException is SocketException)
+                    throw new InvalidConnectionException(Ip);
 
-                if (e.InnerException is TaskCanceledException && e.InnerException.HResult == -2146233029)
-                    throw new QueryTimeoutException();
-
-                throw new InvalidQueryException(e.InnerException.Message);
+                throw new InvalidQueryException(InvalidQueryException.BAD_HIST_QUERY);
             }
 
-            throw new InvalidQueryException(e.Message);
+            throw new InvalidQueryException(actual.Message);
         }
 
         private string BuildPath(DateTime start, DateTime finish, string channels)
@@ -130,15 +121,11 @@ namespace OpenPlot.Ingestor.Gsf.Repository
         }
 
         private static Dictionary<Channel, ITimeSeries> ParseJson(
-            Task<string> query,
+            string jsonData,
             Dictionary<int, Channel> measurementsById,
             double framesPerSecond,
             bool downloadStat)
         {
-            query.Wait();
-
-            string jsonData = query.Result;
-
             if (jsonData == "{\"TimeSeriesDataPoints\":[]}")
                 throw new InvalidQueryException(InvalidQueryException.EMPTY);
 

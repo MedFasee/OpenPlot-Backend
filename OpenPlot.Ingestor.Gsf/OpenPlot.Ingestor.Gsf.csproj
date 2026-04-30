@@ -15,6 +15,11 @@
     <RunAnalyzersDuringLiveAnalysis>False</RunAnalyzersDuringLiveAnalysis>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Remove legacy .NET Framework 4.x DLL references:
+         GSF.SortedTreeStore and openHistorian.Core are no longer used.
+         HistorianDataFetcher now uses HttpClient (openHistorian REST API). -->
+  </ItemGroup>
+  <ItemGroup>
     <Reference Include="GSF.SortedTreeStore">
       <HintPath>libs\GSF.SortedTreeStore.dll</HintPath>
     </Reference>
