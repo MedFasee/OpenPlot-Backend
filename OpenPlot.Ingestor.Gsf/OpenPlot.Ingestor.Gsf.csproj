@@ -1,29 +1,22 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
 	<ServerGarbageCollection>true</ServerGarbageCollection>
-    <TargetFramework>net10.0</TargetFramework>
-    <OutputType>Exe</OutputType>
-    <RootNamespace>OpenPlot.Ingestor.Gsf</RootNamespace>
-    <AssemblyName>OpenPlot.Ingestor.Gsf</AssemblyName>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <AssemblyTitle>OpenPlot.Ingestor.Gsf</AssemblyTitle>
-    <Product>OpenPlot.Ingestor.Gsf</Product>
-    <Copyright>Copyright ©  2025</Copyright>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
-    <Platforms>AnyCPU;x64;x86</Platforms>
-    <RunAnalyzersDuringLiveAnalysis>False</RunAnalyzersDuringLiveAnalysis>
+	<TargetFramework>net10.0</TargetFramework>
+	<OutputType>Exe</OutputType>
+	<RootNamespace>OpenPlot.Ingestor.Gsf</RootNamespace>
+	<AssemblyName>OpenPlot.Ingestor.Gsf</AssemblyName>
+	<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+	<AssemblyTitle>OpenPlot.Ingestor.Gsf</AssemblyTitle>
+	<Product>OpenPlot.Ingestor.Gsf</Product>
+	<Copyright>Copyright ©  2025</Copyright>
+	<AssemblyVersion>1.0.0.0</AssemblyVersion>
+	<FileVersion>1.0.0.0</FileVersion>
+	<Platforms>AnyCPU;x64;x86</Platforms>
+	<RunAnalyzersDuringLiveAnalysis>False</RunAnalyzersDuringLiveAnalysis>
+	<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="GSF.SortedTreeStore">
-      <HintPath>libs\GSF.SortedTreeStore.dll</HintPath>
-    </Reference>
-    <Reference Include="openHistorian.Core">
-      <HintPath>libs\openHistorian.Core.dll</HintPath>
-    </Reference>
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="GSF.Core" Version="2.4.274" />
+    <PackageReference Include="Gemstone.SnapDB" Version="1.0.103" />
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.1" />
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageReference Include="MySql.Data" Version="6.10.9" />

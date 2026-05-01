@@ -35,6 +35,16 @@ services:
       - db
     restart: unless-stopped
 
+  exportworker:
+    build:
+      context: .
+      dockerfile: OpenPlot.ExportWorker/Dockerfile
+    environment:
+      ConnectionStrings__Default: Host=db;Port=5432;Database=openplot;Username=openplot;Password=openplot
+    depends_on:
+      - db
+    restart: unless-stopped
+
   xmlimporter:
     build:
       context: .

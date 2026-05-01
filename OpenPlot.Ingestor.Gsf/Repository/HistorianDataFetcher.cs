@@ -1,13 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using GSF.Snap;
-using GSF.Snap.Filters;
-using GSF.Snap.Services;
-using GSF.Snap.Services.Reader;
-using openHistorian.Net;
-using openHistorian.Snap;
+using SnapDB.Snap;
+using SnapDB.Snap.Filters;
+using SnapDB.Snap.Services;
+using SnapDB.Snap.Services.Reader;
 using Newtonsoft.Json;
+using OpenPlot.Ingestor.Gsf.Snap;
 
 namespace OpenPlot.Ingestor.Gsf.Repository
 {
@@ -54,7 +53,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
             if (parts.Length < 2 || !int.TryParse(parts[1], out port))
                 port = DefaultHistorianPort;
 
-            using (HistorianClient client = new HistorianClient(hostName, port))
+            using (SnapClient client = SnapClient.Connect(hostName, port))
             using (ClientDatabaseBase<HistorianKey, HistorianValue> reader = client.GetDatabase<HistorianKey, HistorianValue>(instanceName))
             {
                 SeekFilterBase<HistorianKey> timeFilter;
@@ -71,7 +70,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
                 HistorianValue value = new HistorianValue();
 
                 if (!string.IsNullOrEmpty(measurementIDs))
-                    pointFilter = PointIdMatchFilter.CreateFromList<HistorianKey, HistorianValue>(measurementIDs.Split(',').Select(ulong.Parse));
+                    pointFilter = PointIDMatchFilter.CreateFromList<HistorianKey, HistorianValue>(measurementIDs.Split(',').Select(ulong.Parse));
 
                 TreeStream<HistorianKey, HistorianValue> stream = reader.Read(SortedTreeEngineReaderOptions.Default, timeFilter, pointFilter);
 
