@@ -1,19 +1,19 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
 	<ServerGarbageCollection>true</ServerGarbageCollection>
-    <TargetFramework>net10.0</TargetFramework>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <OutputType>Exe</OutputType>
-    <RootNamespace>OpenPlot.Ingestor.Gsf</RootNamespace>
-    <AssemblyName>OpenPlot.Ingestor.Gsf</AssemblyName>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <AssemblyTitle>OpenPlot.Ingestor.Gsf</AssemblyTitle>
-    <Product>OpenPlot.Ingestor.Gsf</Product>
-    <Copyright>Copyright ©  2025</Copyright>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
-    <Platforms>AnyCPU;x64;x86</Platforms>
-    <RunAnalyzersDuringLiveAnalysis>False</RunAnalyzersDuringLiveAnalysis>
+	<TargetFramework>net10.0</TargetFramework>
+	<OutputType>Exe</OutputType>
+	<RootNamespace>OpenPlot.Ingestor.Gsf</RootNamespace>
+	<AssemblyName>OpenPlot.Ingestor.Gsf</AssemblyName>
+	<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+	<AssemblyTitle>OpenPlot.Ingestor.Gsf</AssemblyTitle>
+	<Product>OpenPlot.Ingestor.Gsf</Product>
+	<Copyright>Copyright ©  2025</Copyright>
+	<AssemblyVersion>1.0.0.0</AssemblyVersion>
+	<FileVersion>1.0.0.0</FileVersion>
+	<Platforms>AnyCPU;x64;x86</Platforms>
+	<RunAnalyzersDuringLiveAnalysis>False</RunAnalyzersDuringLiveAnalysis>
+	<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Gemstone.SnapDB" Version="1.0.103" />
@@ -24,6 +24,7 @@
     <PackageReference Include="Npgsql" Version="5.0.18" />
     <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
     <PackageReference Include="System.Data.DataSetExtensions" Version="4.5.0" />
+    <PackageReference Include="System.Management" Version="10.0.1" />
     <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.1.2" />
     <PackageReference Include="System.Text.Encodings.Web" Version="10.0.1" />
     <PackageReference Include="System.Text.Json" Version="10.0.1" />

@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Gemstone.Configuration;
 using Newtonsoft.Json.Linq;
 using Npgsql;
 using OpenPlot.Ingestor.Gsf.Repository;
@@ -216,6 +217,13 @@ namespace OpenPlot.Ingestor.Gsf
         {
             try
             {
+                // Inicializa o Gemstone Settings antes de qualquer uso do SnapDB
+                _ = new Settings();
+
+                // Garante que o Library estático do SnapDB seja inicializado e registre
+                // os encodings do assembly atual (HistorianStreamEncodingDefinition) via reflexão.
+                _ = SnapDB.Snap.Library.Encodings;
+
                 LoadConfig();
 
                 using (var conn = new NpgsqlConnection(PgConnString))
