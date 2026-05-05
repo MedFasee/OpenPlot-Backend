@@ -123,6 +123,35 @@ VALUES
                 return Results.Ok(new { status = 200, data = updated });
             });
 
+        group.MapPost("/cancel", async (
+        HttpContext http,
+        [FromServices] IDbConnectionFactory dbf,
+        [FromBody] CancelSearchRun req
+    ) =>
+            {
+                var username = http.User?.FindFirst("username")?.Value
+                               ?? http.User?.FindFirst("unique_name")?.Value
+                               ?? http.User?.Identity?.Name;
+
+                if (string.IsNullOrWhiteSpace(username))
+                    return Results.Unauthorized();
+
+                if (req.id == Guid.Empty)
+                    return Results.BadRequest("id inválido");
+
+                using var db = dbf.Create();
+
+                var updated = await db.QuerySingleOrDefaultAsync(
+                    SearchSql.CancelRun,
+                    new { id = req.id, username }
+                );
+
+                if (updated is null)
+                    return Results.NotFound("run não encontrada, não pertence ao usuário ou não está mais em execução.");
+
+                return Results.Ok(new { status = 200, data = updated });
+            });
+
 
         // POST /search/all (multi-PMU)
         group.MapPost("/all", async (

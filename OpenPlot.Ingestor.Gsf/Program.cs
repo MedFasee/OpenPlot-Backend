@@ -37,6 +37,14 @@ namespace OpenPlot.Ingestor.Gsf
             public int SelectRate { get; init; }
         }
 
+        private sealed class JobCanceledException : OperationCanceledException
+        {
+            public JobCanceledException(Guid jobId)
+                : base("Consulta cancelada pelo usuário. jobId=" + jobId)
+            {
+            }
+        }
+
         // ----------------- TIMING HELPERS -----------------
         private static string FmtMs(long ms)
         {
@@ -99,6 +107,30 @@ namespace OpenPlot.Ingestor.Gsf
             {
                 // noop
             }
+        }
+
+        private static bool IsJobCancellationRequested(Guid jobId)
+        {
+            using (var conn = new NpgsqlConnection(PgConnString))
+            {
+                conn.Open();
+
+                using (var cmd = new NpgsqlCommand(@"
+                    SELECT LOWER(status) = 'canceled'
+                      FROM openplot.search_runs
+                     WHERE id = @id;", conn))
+                {
+                    cmd.Parameters.AddWithValue("id", jobId);
+                    var value = cmd.ExecuteScalar();
+                    return value is bool canceled && canceled;
+                }
+            }
+        }
+
+        private static void ThrowIfJobCancellationRequested(Guid jobId)
+        {
+            if (IsJobCancellationRequested(jobId))
+                throw new JobCanceledException(jobId);
         }
 
         // ----------------- PMUS_OK PERSISTENCE -----------------
@@ -331,6 +363,8 @@ namespace OpenPlot.Ingestor.Gsf
                     using (TimeBlock($"JOB {job.Id} (worker={workerId}, source={job.Source}) from={job.From:O} to={job.To:O}"))
                     using (var wd = StartWatchdog(TimeSpan.FromMinutes(2), $"JOB {job.Id}"))
                     {
+                        ThrowIfJobCancellationRequested(job.Id);
+
                         var fromUtc = job.From.Kind == DateTimeKind.Utc ? job.From : job.From.ToUniversalTime();
                         var toUtc = job.To.Kind == DateTimeKind.Utc ? job.To : job.To.ToUniversalTime();
 
@@ -353,6 +387,8 @@ namespace OpenPlot.Ingestor.Gsf
 
                             foreach (var pmuIdName in pmuList)
                             {
+                                ThrowIfJobCancellationRequested(job.Id);
+
                                 var term = TerminalResolver.Resolve(sysCfg, pmuIdName);
                                 var channels = LoadChannelsFromDb(conn, job.Source, pmuIdName);
 
@@ -376,6 +412,8 @@ namespace OpenPlot.Ingestor.Gsf
                                     pmusComDados.Add(pmuIdName);
                             }
                         }
+
+                        ThrowIfJobCancellationRequested(job.Id);
 
                         using (var tx2 = conn.BeginTransaction())
                         {
@@ -408,6 +446,21 @@ namespace OpenPlot.Ingestor.Gsf
                         }
 
                         wd.Cancel();
+                    }
+                }
+                catch (JobCanceledException ex)
+                {
+                    Console.WriteLine("[cancelado] job " + job.Id + ": " + ex.Message);
+                    try
+                    {
+                        using (var tx2 = conn.BeginTransaction())
+                        {
+                            DbOps.MarkCanceled(conn, tx2, job.Id, "Cancelado pelo usuário");
+                            tx2.Commit();
+                        }
+                    }
+                    catch
+                    {
                     }
                 }
                 catch (InvalidConnectionException ex)
@@ -447,6 +500,7 @@ namespace OpenPlot.Ingestor.Gsf
             ProgressReporter progress)
         {
             int hasData = 0;
+            int canceled = 0;
 
             var ctx = GetPdcContext(conn, jobSource, term.Id);
             int pdcPmuId = ctx.pdcPmuId;
@@ -482,7 +536,25 @@ namespace OpenPlot.Ingestor.Gsf
             {
                 Parallel.ForEach(intervals, po, (interval, state) =>
                 {
+                    bool CheckCancellation()
+                    {
+                        if (!IsJobCancellationRequested(jobId))
+                            return false;
+
+                        if (Interlocked.CompareExchange(ref canceled, 1, 0) == 0)
+                        {
+                            Console.WriteLine("[cancelado] job " + jobId + " interrompido durante processamento.");
+                            cts.Cancel();
+                            state.Stop();
+                        }
+
+                        return true;
+                    }
+
                     if (po.CancellationToken.IsCancellationRequested)
+                        return;
+
+                    if (CheckCancellation())
                         return;
 
                     var cs = interval.cs;
@@ -495,6 +567,9 @@ namespace OpenPlot.Ingestor.Gsf
                         slotAcquired = true;
 
                         if (po.CancellationToken.IsCancellationRequested)
+                            return;
+
+                        if (CheckCancellation())
                             return;
 
                         if (ChunkAlreadyPresentDb(PgConnString, pdcPmuId, allSignalIds, cs, ce))
@@ -628,6 +703,9 @@ namespace OpenPlot.Ingestor.Gsf
 
             if (badConn != null)
                 throw badConn;
+
+            if (canceled != 0)
+                throw new JobCanceledException(jobId);
 
             return hasData != 0;
         }

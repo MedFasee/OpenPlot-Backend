@@ -30,6 +30,17 @@ WHERE id = @id
   AND LOWER(username) = LOWER(@username)
 RETURNING id, is_visible, deleted_at;";
 
+        public const string CancelRun = @"
+UPDATE openplot.search_runs
+SET
+  status = 'canceled',
+  message = 'Cancelado pelo usuário',
+  finished_at = now()
+WHERE id = @id
+  AND LOWER(username) = LOWER(@username)
+  AND LOWER(status) IN ('queued', 'running')
+RETURNING id, status, progress, message, finished_at;";
+
 
 
         public const string ListRuns =  @"

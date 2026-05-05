@@ -75,10 +75,27 @@ CREATE TABLE IF NOT EXISTS openplot.ingest_chunks (
         using (var cmd = new NpgsqlCommand(@"
             UPDATE openplot.search_runs
                SET status=@s, progress=@p, message=@m
-             WHERE id=@id;", conn, tx))
+             WHERE id=@id
+               AND LOWER(status) = 'running';", conn, tx))
         {
             cmd.Parameters.AddWithValue("s", status);
             cmd.Parameters.AddWithValue("p", progress);
+            cmd.Parameters.AddWithValue("m", (object)message ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("id", id);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    public static void MarkCanceled(NpgsqlConnection conn, NpgsqlTransaction tx, Guid id, string message)
+    {
+        using (var cmd = new NpgsqlCommand(@"
+            UPDATE openplot.search_runs
+               SET status='canceled',
+                   message=@m,
+                   finished_at=now()
+             WHERE id=@id
+               AND LOWER(status) <> 'canceled';", conn, tx))
+        {
             cmd.Parameters.AddWithValue("m", (object)message ?? DBNull.Value);
             cmd.Parameters.AddWithValue("id", id);
             cmd.ExecuteNonQuery();
