@@ -166,5 +166,29 @@
             "organization": "UFSC",
             "tenant": "ONS_tester_2"
         }
-    }
+    },
+	{
+		"sub": "e6f7e6c2-0e3c-4e5e-9b30-a2e2f0d91f11",
+		"username": "idiego",
+		"password": "Diego@2027",
+		"preferred_username": "Diego Issicaba",
+		"email": "-",
+		"roles": ["reader"],
+		"claims": {
+		  "organization": "UFSC",
+		  "tenant": "UFSC_tester"
+		}
+	  },
+	{
+		"sub": "e6f7e3c2-0e3c-4e5e-9b30-a2e2f0d91f11",
+		"username": "emaria",
+		"password": "Maria@2027",
+		"preferred_username": "Maria Eduarda",
+		"email": "-",
+		"roles": ["reader"],
+		"claims": {
+		  "organization": "UFSC",
+		  "tenant": "UFSC_dev"
+		}
+	  }
 ]
