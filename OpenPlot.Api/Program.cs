@@ -105,6 +105,7 @@ builder.Services.AddScoped<CurrentSeriesHandler>();
 builder.Services.AddScoped<SeqSeriesHandler>();
 builder.Services.AddScoped<UnbalanceSeriesHandler>();
 builder.Services.AddScoped<IDftMetaBuilder, DftMetaBuilder>();
+builder.Services.AddScoped<IPronyMetaBuilder, PronyMetaBuilder>();
 
 // UI Analise
 builder.Services.AddSingleton(new FeatureFlags(
