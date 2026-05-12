@@ -8,12 +8,21 @@ using OpenPlot.Data.Dtos;
 
 public static class ExportEndpoints
 {
+    private const string IncompleteRunErrorMessage = "A consulta n\u00E3o est\u00E1 conclu\u00EDda. S\u00F3 \u00E9 poss\u00EDvel converter consultas completas/\u00EDntegras.";
+    private const string InvalidRunIdMessage = "run_id inv\u00E1lido";
+    private const string RequiredFormatMessage = "format \u00E9 obrigat\u00F3rio";
+    private const string UnsupportedFormatMessage = "Formato de exporta\u00E7\u00E3o ainda n\u00E3o suportado";
+    private const string RunNotFoundMessage = "run n\u00E3o encontrada.";
+    private const string ExportNotCompletedMessage = "export ainda n\u00E3o conclu\u00EDdo";
+    private const string ExportFileNotLocatedMessage = "arquivo de exporta\u00E7\u00E3o n\u00E3o localizado.";
+    private const string ExportFileNotFoundOnDiskMessage = "arquivo de exporta\u00E7\u00E3o n\u00E3o encontrado em disco.";
+
     internal static bool CanConvertSearchRun(string? runStatus) =>
         string.Equals(runStatus, "done", StringComparison.OrdinalIgnoreCase);
 
     internal static object BuildIncompleteRunError(string? runStatus) => new
     {
-        error = "A consulta não está concluída. Só é possível converter consultas completas/íntegras.",
+        error = IncompleteRunErrorMessage,
         status = runStatus
     };
 
