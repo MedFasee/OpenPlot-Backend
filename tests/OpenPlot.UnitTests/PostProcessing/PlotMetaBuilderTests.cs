@@ -1,4 +1,4 @@
-using OpenPlot.Features.Runs.Contracts;
+ï»¿using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Repositories;
 
 namespace OpenPlot.UnitTests.PostProcessing;
@@ -18,8 +18,8 @@ public sealed class PlotMetaBuilderTests
         var meta = Sut.Build(new WindowQuery(from, to), ctx, meas);
 
         Assert.Equal("Tempo (UTC) - Dia 02/01/2025", meta.XLabel);
-        Assert.Equal("Frequência - 60 fasores/s", meta.Title);
-        Assert.Equal("Frequência (Hz)", meta.YLabel);
+        Assert.Equal("FrequÃªncia - 60 fasores/s", meta.Title);
+        Assert.Equal("FrequÃªncia (Hz)", meta.YLabel);
     }
 
     [Fact]
@@ -38,8 +38,8 @@ public sealed class PlotMetaBuilderTests
 
         var meta = Sut.Build(new WindowQuery(from, to), ctx, meas);
 
-        Assert.Equal("Diferença Angular da Tensão Ref.: PMU-REF - 30 fasores/s", meta.Title);
-        Assert.Equal("Diferença Angular (Graus)", meta.YLabel);
+        Assert.Equal("DiferenÃ§a Angular da TensÃ£o Ref.: PMU-REF - 30 fasores/s", meta.Title);
+        Assert.Equal("DiferenÃ§a Angular (Graus)", meta.YLabel);
     }
 
     [Fact]
@@ -57,8 +57,8 @@ public sealed class PlotMetaBuilderTests
 
         var meta = Sut.Build(new WindowQuery(from, to), ctx, meas);
 
-        Assert.Equal("Distorção de Tensão Harmônica Total - Fase B - 120 fasores/s", meta.Title);
-        Assert.Equal("Distorção Harmônica (%)", meta.YLabel);
+        Assert.Equal("DistorÃ§Ã£o de TensÃ£o HarmÃ´nica Total - Fase B - 120 fasores/s", meta.Title);
+        Assert.Equal("DistorÃ§Ã£o HarmÃ´nica (%)", meta.YLabel);
     }
 
     [Fact]
@@ -72,8 +72,8 @@ public sealed class PlotMetaBuilderTests
         var meta = Sut.Build(new WindowQuery(from, to), ctx, meas);
 
         Assert.Equal("Tempo (UTC)", meta.XLabel);
-        Assert.Equal("Variação de Frequência - 1 fasor/s", meta.Title);
-        Assert.Equal("Var. de Frequência (Hz/s)", meta.YLabel);
+        Assert.Equal("VariaÃ§Ã£o de FrequÃªncia - 1 fasor/s", meta.Title);
+        Assert.Equal("Var. de FrequÃªncia (Hz/s)", meta.YLabel);
     }
 
     private static RunContext CreateRunContext(DateTime from, DateTime to, int selectRate)

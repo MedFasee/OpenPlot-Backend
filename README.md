@@ -10,13 +10,13 @@ O objetivo é disponibilizar uma API HTTP para consulta/visualização de série
 A solution `openplot.sln` é composta pelos seguintes projetos:
 
 ### `OpenPlot.Api`
-API HTTP (Minimal API) responsável por:
+API HTTP (Minimal API) responsavel por:
 
 - autenticação e sessão;
 - cadastro e consulta de *search runs*;
 - recuperação de séries temporais para plotagem (tensão, corrente, sequência, desequilíbrio, frequência, THD, potência, diferença angular etc.);
 - geração de metadados de gráficos (`title`, `xLabel`, `yLabel`) e envelopes consistentes;
-- pós-processamento baseado em `cache_id` (ex.: DFT).
+- pos-processamento baseado em `cache_id` (ex.: DFT e Prony).
 
 ### `OpenPlot.Ingestor.Gsf`
 Aplicação de ingestão responsável por:
@@ -82,7 +82,18 @@ Cobertura atual:
 - `POST /api/v1/auth/logout`;
 - `GET /api/v1/dft`.
 
-A documentação detalhada de testes está em `docs/testes/README.md`.
+No estado atual do workspace, a cobertura automatizada de post-processing esta concentrada em DFT; a feature Prony ja esta implementada na API, mas ainda nao aparece listada aqui com cobertura equivalente.
+
+A documentacao detalhada de testes esta em `docs/Testes/README.md`.
+
+## 2.1 Documentacao tecnica por feature
+
+Os documentos tecnicos da API ficam em `docs/Features/`.
+
+Referencias principais:
+
+- `docs/Features/runsEndpoints.md` - endpoints de runs, terminais e series.
+- `docs/Features/postProcessingEndpoints.md` - arquitetura e contratos de DFT e Prony sobre `cache_id`.
 
 ---
 
@@ -93,3 +104,4 @@ Na raiz do repositório:
 ```powershell
 dotnet test tests/OpenPlot.UnitTests/OpenPlot.UnitTests.csproj
 dotnet test tests/OpenPlot.Api.IntegrationTests/OpenPlot.Api.IntegrationTests.csproj
+```

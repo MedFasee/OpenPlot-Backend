@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace OpenPlot.Api.IntegrationTests.Export;
+namespace OpenPlot.UnitTests.Export;
 
 public sealed class ExportEndpointsValidationTests
 {
@@ -30,7 +30,7 @@ public sealed class ExportEndpointsValidationTests
         var json = JsonSerializer.SerializeToDocument(payload);
 
         Assert.Equal(
-            "A consulta n„o est· concluÌda. SÛ È possÌvel converter consultas completas/Ìntegras.",
+            "A consulta n√£o est√° conclu√≠da. S√≥ √© poss√≠vel converter consultas completas/√≠ntegras.",
             json.RootElement.GetProperty("error").GetString());
         Assert.Equal("running", json.RootElement.GetProperty("status").GetString());
     }

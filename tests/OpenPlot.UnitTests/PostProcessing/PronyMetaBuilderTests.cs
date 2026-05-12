@@ -1,15 +1,14 @@
 ﻿using OpenPlot.Features.PostProcessing.Handlers;
 using OpenPlot.Features.Runs.Contracts;
-using Xunit;
 
 namespace OpenPlot.UnitTests.PostProcessing;
 
-public sealed class DftMetaBuilderTests
+public sealed class PronyMetaBuilderTests
 {
     [Fact]
     public void Build_WhenPayloadHasNoSeries_ReturnsFallbackMetadata()
     {
-        var sut = new DftMetaBuilder(new PlotMetaBuilder());
+        var sut = new PronyMetaBuilder(new PlotMetaBuilder());
         var payload = new RowsCacheV2
         {
             From = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc),
@@ -19,15 +18,15 @@ public sealed class DftMetaBuilderTests
 
         var meta = sut.Build(payload);
 
-        Assert.Equal("Espectro de Freq.", meta.Title);
+        Assert.Equal("Prony", meta.Title);
         Assert.Equal("Tempo (UTC)", meta.XLabel);
-        Assert.Contains("Freq", meta.YLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Valor", meta.YLabel);
     }
 
     [Fact]
-    public void Build_WhenSeriesRepresentsPositiveSequence_ComposesSpectrumTitleFromPlotMetadata()
+    public void Build_WhenSeriesRepresentsPositiveSequence_ComposesPronyTitleFromPlotMetadata()
     {
-        var sut = new DftMetaBuilder(new PlotMetaBuilder());
+        var sut = new PronyMetaBuilder(new PlotMetaBuilder());
         var payload = new RowsCacheV2
         {
             From = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc),
@@ -54,9 +53,8 @@ public sealed class DftMetaBuilderTests
 
         var meta = sut.Build(payload);
 
-        Assert.Equal("Espectro de Freq. do Módulo da Tensão - Sequência Positiva - 60 fasores/s", meta.Title);
+        Assert.Equal("Prony do Módulo da Tensão - Sequência Positiva - 60 fasores/s", meta.Title);
         Assert.Equal("Tempo (UTC) - Dia 01/01/2025", meta.XLabel);
-        Assert.Contains("Freq", meta.YLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Tensão (V)", meta.YLabel);
     }
 }
-
