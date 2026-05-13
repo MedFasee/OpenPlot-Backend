@@ -1,7 +1,6 @@
 ﻿using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Http;
 using System.ComponentModel.DataAnnotations;
-using OpenPlot.XmlImporter;
 
 namespace OpenPlot.Features.Import;
 
@@ -16,17 +15,13 @@ public static class ImportEndpoints
         // POST /import/xml/import  → body: { "path": "C:\\pasta\\com\\xmls" }
         group.MapPost("/xml/import", async (
             ImportXmlRequest req,
-            IConfiguration cfg,
+            IXmlImportService importService,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(req.Path))
                 return Results.BadRequest(new { error = "Path obrigatório." });
 
-            var cs = cfg.GetConnectionString("Db")
-                   ?? "Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=postgres";
-
-            var importer = new OpenPlot.XmlImporter.XmlImporter(cs);
-            var summaries = await importer.RunAsync(req.Path, ct);
+            var summaries = await importService.ImportAsync(req.Path, ct);
             return Results.Json(new { status = 200, data = summaries });
         })
         .WithTags("Import"); // ajuda a organizar no Swagger

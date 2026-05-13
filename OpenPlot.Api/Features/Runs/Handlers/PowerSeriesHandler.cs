@@ -203,7 +203,13 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
 
         _pmuHelper.AddSqlParameters(dyn, pmuList);
 
-        var rows = (await db.QueryAsync<PowerRow>(sql, dyn)).ToList();
+        var command = new CommandDefinition(
+            sql,
+            dyn,
+            cancellationToken: ct,
+            commandTimeout: 300);
+
+        var rows = (await db.QueryAsync<PowerRow>(command)).ToList();
         if (rows.Count == 0)
             return Results.NotFound("Nada encontrado para esse run/filtro no intervalo solicitado.");
 
@@ -354,7 +360,7 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
         var cachePayload = _seriesAssembly.BuildCachePayload(
             windowFrom,
             windowTo,
-            (int)ctx.SelectRate,
+            ctx.SelectRate ?? 0,
             cacheSeries);
 
         var cacheId = await _cacheRepo.SaveAsync(query.RunId, cachePayload, ct);

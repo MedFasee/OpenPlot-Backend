@@ -100,7 +100,7 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
         {
             return Results.StatusCode(StatusCodes.Status408RequestTimeout);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             return Results.StatusCode(StatusCodes.Status500InternalServerError);
         }

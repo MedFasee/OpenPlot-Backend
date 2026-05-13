@@ -27,7 +27,8 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddScoped<SearchRunsRepo>();
         services.AddScoped<MeasurementsRepo>();
         services.AddScoped<PdcRepo>();
-
+        services.AddSingleton<IExportRunProcessor, ExportRunProcessor>();
+        services.AddSingleton<IExportArtifactStore, DiskExportStore>();
         services.AddSingleton<DiskExportStore>();
         services.AddSingleton<ComtradeBuildService>();
         services.AddSingleton<Comtrade2013Writer>();

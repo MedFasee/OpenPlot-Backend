@@ -1,10 +1,9 @@
 ﻿using System.Diagnostics;
 using System.IO;
-using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using OpenPlot.Auth.Web.Session;
+using OpenPlot.Api.Services.Security;
 
 namespace OpenPlot.Api.Services.Logging;
 
@@ -21,7 +20,7 @@ public class RequestLoggingMiddleware
         _logger = logger;
     }
 
-    public async Task Invoke(HttpContext context, IApiRequestLogRepository logRepo)
+    public async Task Invoke(HttpContext context, IApiRequestLogRepository logRepo, IUserContextAccessor userContextAccessor)
     {
         var sw = Stopwatch.StartNew();
         var request = context.Request;
@@ -32,39 +31,9 @@ public class RequestLoggingMiddleware
         context.Items["CorrelationId"] = correlationId;
         context.Response.Headers["X-Correlation-ID"] = correlationId;
 
-        string? userName = null;
-        string? userId = null;
-
-        // ==========================================
-        // 1) Usuário via Claims (JWT)
-        // ==========================================
-        if (context.User?.Identity?.IsAuthenticated == true)
-        {
-            userName =
-                context.User.FindFirst("username")?.Value
-                ?? context.User.Identity?.Name
-                ?? context.User.FindFirst(ClaimTypes.Name)?.Value
-                ?? context.User.FindFirst(ClaimTypes.Email)?.Value;
-
-            userId =
-                context.User.FindFirst("sub")?.Value
-                ?? context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        }
-
-        // ==========================================
-        // 2) Fallback via SessionUserService
-        // ==========================================
-        if (userName is null)
-        {
-            var sessionUserSvc = context.RequestServices.GetService<ISessionUserService>();
-            var login = sessionUserSvc?.GetCurrentUser();
-
-            if (login is not null)
-            {
-                userId = login.Sub ?? login.Username;
-                userName = login.Username;
-            }
-        }
+        var userContext = userContextAccessor.GetCurrent(context);
+        var userName = userContext.UserName;
+        var userId = userContext.UserId;
 
         var remoteIp = context.Connection.RemoteIpAddress?.ToString();
         var userAgent = request.Headers["User-Agent"].FirstOrDefault();

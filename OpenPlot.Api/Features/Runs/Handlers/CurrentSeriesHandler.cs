@@ -123,7 +123,7 @@ public sealed class CurrentSeriesHandler
         var cachePayload = _seriesAssembly.BuildCachePayload(
             windowFrom,
             windowTo2,
-            (int)ctx.SelectRate,
+            ctx.SelectRate ?? 0,
             cacheSeries);
 
         var cacheId = await _cacheRepo.SaveAsync(q.RunId, cachePayload, ct);

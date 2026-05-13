@@ -29,6 +29,8 @@ Cada marco deve registrar:
 - `marco-03-runs-series-helpers.md` - extração de helpers para reduzir duplicação nos endpoints de séries de `RunsEndpoints`.
 - `marco-04-runs-endpoints-modularizacao.md` - separação física de `RunsEndpoints` em módulos menores para listagem, terminais e séries simples.
 - `marco-05-runs-endpoints-agregador-fino.md` - consolidação de `RunsEndpoints` como agregador fino com extração dos blocos fasoriais, analíticos e avançados restantes.
+- `marco-06-ingestor-fatiamento-coordenacao.md` - fatiamento do ingestor em serviços menores e redução do churn na coordenação distribuída de chunks.
+- `marco-07-export-storage-import-fission.md` - estabilização do ingestor, desacoplamento do export e quebra inicial do importador XML.
 
 ## Critério de evolução
 

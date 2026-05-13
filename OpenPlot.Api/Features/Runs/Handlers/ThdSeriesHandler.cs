@@ -113,7 +113,7 @@ public sealed class ThdSeriesHandler
         var cachePayload = _seriesAssembly.BuildCachePayload(
             windowFrom,
             windowTo,
-            (int)ctx.SelectRate,
+            ctx.SelectRate ?? 0,
             cacheSeries);
 
         var cacheId = await _cacheRepository.SaveAsync(query.RunId, cachePayload, ct);

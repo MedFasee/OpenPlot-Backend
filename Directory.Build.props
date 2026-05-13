@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+	<GemstoneVersion>1.0.168</GemstoneVersion>
+	  <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+</Project>

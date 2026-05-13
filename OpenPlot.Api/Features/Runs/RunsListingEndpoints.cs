@@ -1,6 +1,7 @@
 using Dapper;
 using Data.Sql;
 using Microsoft.AspNetCore.Mvc;
+using OpenPlot.Api.Services.Security;
 using OpenPlot.Data.Dtos;
 using static ConfigEndpoints;
 
@@ -40,15 +41,14 @@ public static class RunsListingEndpoints
     {
         group.MapGet("/runs", async (
             HttpContext http,
+            [FromServices] IUserContextAccessor userContextAccessor,
             [FromServices] IDbConnectionFactory dbf,
             [FromQuery] string? status,
             [FromServices] ITimeService time,
             [FromServices] ILabelService labels
         ) =>
         {
-            var username =
-                http.User?.FindFirst("username")?.Value
-                ?? http.User?.Identity?.Name;
+            var username = userContextAccessor.GetUsername(http);
 
             if (string.IsNullOrWhiteSpace(username))
                 return Results.Unauthorized();

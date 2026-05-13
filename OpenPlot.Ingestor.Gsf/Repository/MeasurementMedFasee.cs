@@ -151,7 +151,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
             Console.Out.Flush();
 
             var builtMeasurements = BuildInverseMeasurement(measurements);
-            Dictionary<Channel, ITimeSeries> series = null;
+            var series = new Dictionary<Channel, ITimeSeries>();
 
             try
             {
@@ -229,7 +229,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
                                     continue;
                                 }
 
-                                string measurementStr = reader.GetValue(cMeas).ToString();
+                                string measurementStr = Convert.ToString(reader.GetValue(cMeas)) ?? string.Empty;
                                 long sec = Convert.ToInt64(reader.GetValue(cSec));
                                 int ms = Convert.ToInt32(reader.GetValue(cMs));
 

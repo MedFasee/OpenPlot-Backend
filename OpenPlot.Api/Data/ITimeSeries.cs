@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace OpenPlot.Ingestor.Gsf.Data
+﻿namespace OpenPlot.Api.Data
 {
     public interface ITimeSeries
     {

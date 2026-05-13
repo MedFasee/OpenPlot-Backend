@@ -4,6 +4,8 @@ using Data.Sql;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
+using OpenPlot.Features.Export;
+using OpenPlot.Api.Services.Security;
 using OpenPlot.Data.Dtos;
 
 public static class ExportEndpoints
@@ -26,41 +28,6 @@ public static class ExportEndpoints
         status = runStatus
     };
 
-    internal static bool IsExpiredExport(DateTime? finishedAt, DateTimeOffset nowUtc) =>
-        finishedAt is not null && finishedAt.Value <= nowUtc.UtcDateTime.AddDays(-7);
-
-    internal static async Task PurgeExpiredExportsAsync(IDbConnection db, CancellationToken ct)
-    {
-        var expiredRows = await db.QueryAsync<ExpiredExportFileRow>(
-            new CommandDefinition(ExportSql.DeleteExpiredExportRuns, cancellationToken: ct)
-        );
-
-        foreach (var row in expiredRows)
-            DeleteExpiredExportFile(row.dir_path, row.file_name);
-    }
-
-    internal static void DeleteExpiredExportFile(string? dirPath, string? fileName)
-    {
-        if (string.IsNullOrWhiteSpace(dirPath) || string.IsNullOrWhiteSpace(fileName))
-            return;
-
-        var fullPath = Path.Combine(dirPath, fileName);
-
-        try
-        {
-            File.Delete(fullPath);
-
-            if (Directory.Exists(dirPath) && !Directory.EnumerateFileSystemEntries(dirPath).Any())
-                Directory.Delete(dirPath);
-        }
-        catch (IOException)
-        {
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
-    }
-
     public static IEndpointRouteBuilder MapExport(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/export")
@@ -72,15 +39,14 @@ public static class ExportEndpoints
 
         group.MapPost("", async (
             HttpContext http,
+            [FromServices] IUserContextAccessor userContextAccessor,
             [FromServices] IDbConnectionFactory dbf,
+            [FromServices] IExportFileService exportFileService,
             [FromBody] QueueExportRequest req,
             CancellationToken ct
         ) =>
         {
-            var username =
-                http.User?.FindFirst("username")?.Value
-                ?? http.User?.FindFirst("unique_name")?.Value
-                ?? http.User?.Identity?.Name;
+            var username = userContextAccessor.GetUsername(http);
 
             if (string.IsNullOrWhiteSpace(username))
                 return Results.Unauthorized();
@@ -97,7 +63,7 @@ public static class ExportEndpoints
                 return Results.BadRequest(new { error = "Formato de exportação ainda não suportado", format });
 
             using var db = dbf.Create();
-            await PurgeExpiredExportsAsync(db, ct);
+            await exportFileService.PurgeExpiredExportsAsync(db, ct);
 
             var runStatus = await db.QuerySingleOrDefaultAsync<string?>(@"
 SELECT status
@@ -132,14 +98,13 @@ LIMIT 1;", new { run_id = runId });
             string format,
             Guid id,
             HttpContext http,
+            [FromServices] IUserContextAccessor userContextAccessor,
             [FromServices] IDbConnectionFactory dbf,
+            [FromServices] IExportFileService exportFileService,
             CancellationToken ct
         ) =>
         {
-            var username =
-                http.User?.FindFirst("username")?.Value
-                ?? http.User?.FindFirst("unique_name")?.Value
-                ?? http.User?.Identity?.Name;
+            var username = userContextAccessor.GetUsername(http);
 
             if (string.IsNullOrWhiteSpace(username))
                 return Results.Unauthorized();
@@ -148,7 +113,7 @@ LIMIT 1;", new { run_id = runId });
                 return Results.BadRequest(new { error = "Formato de exportação ainda não suportado", format });
 
             using var db = dbf.Create();
-            await PurgeExpiredExportsAsync(db, ct);
+            await exportFileService.PurgeExpiredExportsAsync(db, ct);
 
             var row = await db.QuerySingleOrDefaultAsync<ExportRunStatusRow>(
                 ExportSql.GetExportRunStatus,
@@ -168,14 +133,13 @@ LIMIT 1;", new { run_id = runId });
             string format,
             Guid id,
             HttpContext http,
+            [FromServices] IUserContextAccessor userContextAccessor,
             [FromServices] IDbConnectionFactory dbf,
+            [FromServices] IExportFileService exportFileService,
             CancellationToken ct
         ) =>
         {
-            var username =
-                http.User?.FindFirst("username")?.Value
-                ?? http.User?.FindFirst("unique_name")?.Value
-                ?? http.User?.Identity?.Name;
+            var username = userContextAccessor.GetUsername(http);
 
             if (string.IsNullOrWhiteSpace(username))
                 return Results.Unauthorized();
@@ -184,7 +148,7 @@ LIMIT 1;", new { run_id = runId });
                 return Results.BadRequest(new { error = "Formato de exportação ainda não suportado", format });
 
             using var db = dbf.Create();
-            await PurgeExpiredExportsAsync(db, ct);
+            await exportFileService.PurgeExpiredExportsAsync(db, ct);
 
             var row = await db.QuerySingleOrDefaultAsync<ExportRunStatusRow>(
                 ExportSql.GetExportRunStatus,
@@ -200,18 +164,7 @@ LIMIT 1;", new { run_id = runId });
             if (!string.Equals(row.status, "done", StringComparison.OrdinalIgnoreCase))
                 return Results.BadRequest(new { error = "export ainda não concluído", status = row.status, progress = row.progress });
 
-            if (string.IsNullOrWhiteSpace(row.dir_path) || string.IsNullOrWhiteSpace(row.file_name))
-                return Results.NotFound("arquivo de exportação não localizado.");
-
-            var fullPath = Path.Combine(row.dir_path, row.file_name);
-            if (!File.Exists(fullPath))
-                return Results.NotFound("arquivo de exportação não encontrado em disco.");
-
-            var contentType = string.Equals(Path.GetExtension(row.file_name), ".zip", StringComparison.OrdinalIgnoreCase)
-                ? "application/zip"
-                : "application/octet-stream";
-
-            return Results.File(fullPath, contentType, row.file_name);
+            return exportFileService.ResolveFileResult(row);
         });
 
         return app;

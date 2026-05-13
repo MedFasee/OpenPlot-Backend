@@ -233,7 +233,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
                                 oneValid |= qualityOk;
                                 hasData = true;
 
-                                if (measurementsById.TryGetValue(historianId, out Channel key))
+                                if (measurementsById.TryGetValue(historianId, out var key) && key is not null)
                                 {
                                     double time = TimeUtils.OaDate(measureTime);
                                     series[key].Add(time, value);

@@ -93,7 +93,7 @@ public static class AuthEndpoints
                         {
                             Nome = resp.Username,
                             Email = resp.Email ?? $"{resp.Username}@medplot.com",
-                            NomePref = resp.PreferredUsername,
+                            NomePref = resp.PreferredUsername ?? resp.Username,
                             Role = MapRole(resp.Roles)
                         }
                     }

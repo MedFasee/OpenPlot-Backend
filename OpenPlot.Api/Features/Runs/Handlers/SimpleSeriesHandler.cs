@@ -119,7 +119,7 @@ public sealed class SimpleSeriesHandler : BaseSeriesHandler<SimpleSeriesQuery>
         return _seriesAssembly.BuildCachePayload(
             windowFrom,
             windowTo,
-            (int)runContext.SelectRate,
+            runContext.SelectRate ?? 0,
             cacheSeries);
     }
 

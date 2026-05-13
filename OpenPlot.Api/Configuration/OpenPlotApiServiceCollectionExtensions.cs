@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using OpenPlot.Api.Services.Security;
 using OpenPlot.Api.Services.Logging;
 using OpenPlot.Auth.Infrastructure.Auth;
 using OpenPlot.Auth.Infrastructure.Auth.Options;
@@ -14,6 +15,8 @@ using OpenPlot.Auth.Services;
 using OpenPlot.Auth.Web.Session;
 using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Auth;
+using OpenPlot.Features.Export;
+using OpenPlot.Features.Import;
 using OpenPlot.Features.PostProcessing.Handlers;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers;
@@ -98,6 +101,7 @@ internal static class OpenPlotApiServiceCollectionExtensions
         services.AddSingleton<IPmuHierarchyService, PmuHierarchyService>();
         services.AddSingleton<IPlotMetaBuilder, PlotMetaBuilder>();
         services.AddSingleton<ITimeSeriesDownsampler, TimeBucketMinMaxDownsampler>();
+        services.AddScoped<IUserContextAccessor, UserContextAccessor>();
         services.AddSingleton(new FeatureFlags(
             EnablesDFT: true,
             EnablesProny: true,
@@ -118,6 +122,9 @@ internal static class OpenPlotApiServiceCollectionExtensions
         services.AddScoped<ISeriesAssemblyService, SeriesAssemblyService>();
         services.AddScoped<IDftMetaBuilder, DftMetaBuilder>();
         services.AddScoped<IPronyMetaBuilder, PronyMetaBuilder>();
+        services.AddSingleton<IExportArtifactStore, DiskExportArtifactStore>();
+        services.AddScoped<IExportFileService, ExportFileService>();
+        services.AddScoped<IXmlImportService, XmlImportService>();
 
         return services;
     }

@@ -250,7 +250,7 @@ public sealed class UnbalanceSeriesHandler
         var cachePayload = _seriesAssembly.BuildCachePayload(
             windowFrom,
             windowTo,
-            (int)ctx.SelectRate,
+            ctx.SelectRate ?? 0,
             cacheSeries);
 
         var cacheId = await _cacheRepo.SaveAsync(q.RunId, cachePayload, ct);

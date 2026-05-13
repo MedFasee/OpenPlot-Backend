@@ -217,7 +217,7 @@ public sealed class AngleDiffSeriesHandler
             var cachePayload = _seriesAssembly.BuildCachePayload(
                 windowFrom,
                 windowTo,
-                (int)ctx.SelectRate,
+                ctx.SelectRate ?? 0,
                 cacheSeries);
 
             var cacheId = await _cacheRepo.SaveAsync(query.RunId, cachePayload, ct);
@@ -256,7 +256,7 @@ public sealed class AngleDiffSeriesHandler
         {
             return Results.StatusCode(StatusCodes.Status408RequestTimeout);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             return Results.StatusCode(StatusCodes.Status500InternalServerError);
         }

@@ -1,8 +1,7 @@
-﻿using OpenPlot.Ingestor.Gsf.Data;
-using System;
+﻿using System;
 using System.Collections.Generic;
 
-namespace OpenPlot.Ingestor.Gsf.Data
+namespace OpenPlot.Api.Data
 {
     public class TimeSeries : ITimeSeries
     {
@@ -37,20 +36,12 @@ namespace OpenPlot.Ingestor.Gsf.Data
 
         public double[] GetReadings()
         {
-            double[] result = null;
-            if (Readings != null)
-                result = Readings.ToArray();
-
-            return result;
+            return Readings.ToArray();
         }
 
         public double[] GetTimestamps()
         {
-            double[] result = null;
-            if (Timestamps != null)
-                result = Timestamps.ToArray();
-
-            return result;
+            return Timestamps.ToArray();
         }
 
         public double Timestamp(int position)
