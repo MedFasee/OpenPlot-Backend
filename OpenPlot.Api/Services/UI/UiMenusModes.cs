@@ -178,13 +178,8 @@ public sealed class UiMenuService : IUiMenuService
         var sampleCount = context.ResolveEffectivePointCount();
         if (sampleCount <= 0)
             return 300;
-        if (sampleCount <= 1)
-            return 1;
 
-        var sampleSpan = sampleCount - 1;
-        return sampleSpan > 4
-            ? Math.Min(sampleSpan / 4, 300)
-            : Math.Max(sampleSpan, 1);
+        return Math.Min(ComputeMaxAllowedPronyOrder(sampleCount), 300);
     }
 
     private static bool IsPronyEnabled(UiMenuContext context, int order)
@@ -206,11 +201,15 @@ public sealed class UiMenuService : IUiMenuService
         if (validSeriesCount <= 0)
             return false;
 
-        if (order <= 0 || order >= sampleCount || order > 300)
+        var maxAllowedOrder = Math.Min(ComputeMaxAllowedPronyOrder(sampleCount), 300);
+        if (order <= 0 || order > maxAllowedOrder)
             return false;
 
         return validSeriesCount * (sampleCount - order) >= order;
     }
+
+    private static int ComputeMaxAllowedPronyOrder(int sampleCount) =>
+        Math.Max(1, (int)Math.Round(sampleCount / 4.0, MidpointRounding.AwayFromZero));
 
     private static UiMenuSet InferSet(Dictionary<string, object?>? modes)
     {

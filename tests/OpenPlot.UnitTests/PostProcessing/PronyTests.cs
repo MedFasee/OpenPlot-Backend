@@ -102,23 +102,25 @@ public sealed class PronyTests
     }
 
     [Fact]
-    public void Compute_WhenOrderIsGreaterThanOrEqualToSampleCount_ThrowsInvalidOperationException()
+    public void Compute_WhenOrderIsGreaterThanRoundedQuarterOfSampleCount_ThrowsInvalidOperationException()
     {
         var start = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var payload = CreateOscillatoryPayload(start, sampleRate: 1, sampleCount: 4);
+        var payload = CreateOscillatoryPayload(start, sampleRate: 1, sampleCount: 313);
 
-        var ex = Assert.Throws<InvalidOperationException>(() => Prony.Compute(payload, order: 4));
+        var ex = Assert.Throws<InvalidOperationException>(() => Prony.Compute(payload, order: 79));
 
         Assert.Contains("Ordem inválida", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("79", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("78", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
     public void Compute_WhenWindowHasTooFewSamplesForRequestedOrder_ThrowsInvalidOperationException()
     {
         var start = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var payload = CreateOscillatoryPayload(start, sampleRate: 10, sampleCount: 5);
+        var payload = CreateOscillatoryPayload(start, sampleRate: 10, sampleCount: 5, seriesCount: 2);
 
-        var ex = Assert.Throws<InvalidOperationException>(() => Prony.Compute(payload, order: 3));
+        var ex = Assert.Throws<InvalidOperationException>(() => Prony.Compute(payload, order: 1));
 
         Assert.Contains("poucas amostras", ex.Message, StringComparison.OrdinalIgnoreCase);
     }

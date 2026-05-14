@@ -151,15 +151,16 @@ public sealed class PostProcessingEndpointsIntegrationTests(OpenPlotApiFactory f
         var cacheId = Guid.NewGuid();
         var start = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        factory.CacheRepository.Seed(cacheId, CreateOscillatoryPayload(start, sampleRate: 1, sampleCount: 4));
+        factory.CacheRepository.Seed(cacheId, CreateOscillatoryPayload(start, sampleRate: 1, sampleCount: 313));
 
         using var client = factory.CreateClient();
-        var response = await client.GetAsync($"/api/v1/prony?cache_id={cacheId:D}&order=4&include_points=false&include_all_modes=false");
+        var response = await client.GetAsync($"/api/v1/prony?cache_id={cacheId:D}&order=79&include_points=false&include_all_modes=false");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
 
         var body = await response.Content.ReadAsStringAsync();
         Assert.Contains("Ordem inválida para Prony", body, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("78", body, StringComparison.OrdinalIgnoreCase);
     }
 
     private static RowsCacheV2 CreateOscillatoryPayload(DateTime start, int sampleRate, int sampleCount, int seriesCount = 1)
