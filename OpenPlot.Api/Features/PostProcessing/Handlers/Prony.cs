@@ -38,6 +38,8 @@ public static class Prony
 
     private sealed record InputSeries(RowsCacheSeries Serie, double[] Y);
 
+    private sealed record PreparedSeries(RowsCacheSeries Serie, List<RawPoint> Raw);
+
     private sealed record FitResult(
         Complex[] Roots,
         Complex[] ContinuousPoles,
@@ -84,29 +86,47 @@ public static class Prony
             .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        var dtTicks = Math.Max(1L, (long)Math.Round(TimeSpan.TicksPerSecond / sr));
+        var exactToleranceTicks = Math.Max(1L, dtTicks / 4L);
+        var prepared = orderedSeries
+            .Select(serie => new PreparedSeries(
+                serie,
+                serie.Points
+                    .Where(p => p.Ts >= effectiveFrom && p.Ts <= effectiveTo)
+                    .Select(p => new RawPoint(p.Ts, p.Value))
+                    .OrderBy(p => p.Ts)
+                    .ToList()))
+            .Where(p => p.Raw.Count >= 2)
+            .ToList();
+
         var valid = new List<InputSeries>();
-        DateTime[]? commonTimes = null;
+        DateTime[] commonTimes;
 
-        foreach (var serie in orderedSeries)
+        if (TryBuildExactAlignedInputs(prepared, exactToleranceTicks, out commonTimes, out valid))
         {
-            var raw = serie.Points
-                .Where(p => p.Ts >= effectiveFrom && p.Ts <= effectiveTo)
-                .Select(p => new RawPoint(p.Ts, p.Value))
-                .ToList();
+            // Usa exatamente as amostras reais alinhadas do cache, como no MedPlot.
+        }
+        else
+        {
+            commonTimes = BuildUniformTimes(sr, effectiveFrom, effectiveTo);
 
-            if (raw.Count < 2)
-                continue;
+            foreach (var serie in prepared)
+            {
+                if (!CoversWindow(serie.Raw, commonTimes, exactToleranceTicks))
+                    continue;
 
-            var y = ResampleHoldLast(raw, sr, effectiveFrom, effectiveTo, out var times);
+                double[] y;
+                if (!TryProjectExactSamples(serie.Raw, commonTimes, exactToleranceTicks, out y))
+                    y = ResampleHoldLast(serie.Raw, commonTimes);
 
-            if (y.Length < 2)
-                continue;
+                if (y.Length < 2)
+                    continue;
 
-            commonTimes ??= times;
-            valid.Add(new InputSeries(serie, y));
+                valid.Add(new InputSeries(serie.Serie, y));
+            }
         }
 
-        if (valid.Count == 0 || commonTimes is null)
+        if (valid.Count == 0)
             throw new InvalidOperationException("Nenhuma série válida para Prony.");
 
         var n = commonTimes.Length;
@@ -254,10 +274,7 @@ public static class Prony
 
         var z = Matrix<Complex>.Build.Dense(n, order, (i, j) => Complex.Pow(roots[j], i + 1));
 
-        // Mantém a formulação do MedPlot: Z_inv = inv(Z^T Z) Z^T.
-        // Observação: é transposta simples, não transposta conjugada.
-        var zt = z.Transpose();
-        var zInv = (zt * z).Inverse() * zt;
+        var zInv = SolveLegacyPseudoInverse(z);
 
         var x = Matrix<Complex>.Build.Dense(n, numSignals, (i, k) => new Complex(signals[k][i], 0.0));
         var r = zInv * x;
@@ -335,22 +352,36 @@ public static class Prony
         }
     }
 
-    // Resample hold-last em uma grade temporal comum para todas as séries.
-    private static double[] ResampleHoldLast(
-        IReadOnlyList<RawPoint> raw,
-        double sr,
-        DateTime fromUtc,
-        DateTime toUtc,
-        out DateTime[] times)
+    private static Matrix<Complex> SolveLegacyPseudoInverse(Matrix<Complex> z)
     {
-        if (raw.Count == 0)
+        var order = z.ColumnCount;
+        var zt = z.Transpose();
+        var p = zt * z;
+
+        var q = Matrix<double>.Build.Dense(order * 2, order * 2);
+        for (int i = 0; i < order; i++)
         {
-            times = Array.Empty<DateTime>();
-            return Array.Empty<double>();
+            for (int j = 0; j < order; j++)
+            {
+                q[i, j] = p[i, j].Real;
+                q[i + order, j] = -p[i, j].Imaginary;
+                q[i, j + order] = p[i, j].Imaginary;
+                q[i + order, j + order] = p[i, j].Real;
+            }
         }
 
-        var pts = raw.OrderBy(p => p.Ts).ToList();
+        var qInv = q.Inverse();
+        var qComplex = Matrix<Complex>.Build.Dense(order, order, (i, j) =>
+            new Complex(qInv[i, j], qInv[i, j + order]));
 
+        return qComplex * zt;
+    }
+
+    private static DateTime[] BuildUniformTimes(
+        double sr,
+        DateTime fromUtc,
+        DateTime toUtc)
+    {
         var dtTicks = (long)Math.Round(TimeSpan.TicksPerSecond / sr);
         if (dtTicks <= 0) dtTicks = 1;
 
@@ -358,16 +389,120 @@ public static class Prony
         var n = (int)(spanTicks / dtTicks) + 1;
         if (n < 2) n = 2;
 
+        var times = new DateTime[n];
+        for (int i = 0; i < n; i++)
+            times[i] = fromUtc.AddTicks(i * dtTicks);
+
+        return times;
+    }
+
+    private static bool TryBuildExactAlignedInputs(
+        IReadOnlyList<PreparedSeries> prepared,
+        long toleranceTicks,
+        out DateTime[] commonTimes,
+        out List<InputSeries> valid)
+    {
+        commonTimes = Array.Empty<DateTime>();
+        valid = new List<InputSeries>();
+
+        if (prepared.Count == 0)
+            return false;
+
+        DateTime[]? bestTimes = null;
+        List<InputSeries>? bestValid = null;
+
+        foreach (var candidate in prepared.OrderByDescending(p => p.Raw.Count))
+        {
+            var times = candidate.Raw.Select(p => p.Ts).ToArray();
+            var aligned = new List<InputSeries>();
+
+            foreach (var serie in prepared)
+            {
+                if (TryProjectExactSamples(serie.Raw, times, toleranceTicks, out var y))
+                    aligned.Add(new InputSeries(serie.Serie, y));
+            }
+
+            if (aligned.Count == 0)
+                continue;
+
+            if (bestValid is null
+                || aligned.Count > bestValid.Count
+                || (aligned.Count == bestValid.Count && times.Length > bestTimes!.Length))
+            {
+                bestTimes = times;
+                bestValid = aligned;
+            }
+        }
+
+        if (bestTimes is null || bestValid is null)
+            return false;
+
+        commonTimes = bestTimes;
+        valid = bestValid;
+        return true;
+    }
+
+    private static bool TryProjectExactSamples(
+        IReadOnlyList<RawPoint> raw,
+        IReadOnlyList<DateTime> times,
+        long toleranceTicks,
+        out double[] values)
+    {
+        values = Array.Empty<double>();
+
+        if (raw.Count != times.Count)
+            return false;
+
+        var pts = raw.OrderBy(p => p.Ts).ToList();
+        var projected = new double[times.Count];
+
+        for (int i = 0; i < times.Count; i++)
+        {
+            var delta = Math.Abs((pts[i].Ts - times[i]).Ticks);
+            if (delta > toleranceTicks)
+                return false;
+
+            projected[i] = pts[i].Val;
+        }
+
+        values = projected;
+        return true;
+    }
+
+    private static bool CoversWindow(
+        IReadOnlyList<RawPoint> raw,
+        IReadOnlyList<DateTime> times,
+        long toleranceTicks)
+    {
+        if (raw.Count == 0 || times.Count == 0)
+            return false;
+
+        var firstDelta = raw[0].Ts.Ticks - times[0].Ticks;
+        if (firstDelta > toleranceTicks)
+            return false;
+
+        var lastDelta = times[^1].Ticks - raw[^1].Ts.Ticks;
+        return lastDelta <= toleranceTicks;
+    }
+
+    // Resample hold-last em uma grade temporal comum para todas as séries.
+    private static double[] ResampleHoldLast(
+        IReadOnlyList<RawPoint> raw,
+        IReadOnlyList<DateTime> times)
+    {
+        if (raw.Count == 0 || times.Count == 0)
+            return Array.Empty<double>();
+
+        var pts = raw.OrderBy(p => p.Ts).ToList();
+        var n = times.Count;
         var y = new double[n];
-        times = new DateTime[n];
 
         int j = 0;
         double last = pts[0].Val;
 
         for (int i = 0; i < n; i++)
         {
-            var ti = fromUtc.AddTicks(i * dtTicks);
-            times[i] = ti;
+            var ti = times[i];
 
             while (j < pts.Count && pts[j].Ts <= ti)
             {

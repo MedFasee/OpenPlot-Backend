@@ -16,19 +16,22 @@ public sealed class UnbalanceSeriesHandler
     private readonly ISeriesAssemblyService _seriesAssembly;
     private readonly ITimeSeriesDownsampler _down = new TimeBucketMinMaxDownsampler();
     private readonly IAnalysisCacheRepository _cacheRepo;
+    private readonly IUiMenuService _uiMenus;
 
     public UnbalanceSeriesHandler(
         IRunContextRepository runs,
         IMeasurementsRepository meas,
         IPlotMetaBuilder meta,
         ISeriesAssemblyService seriesAssembly,
-        IAnalysisCacheRepository cacheRepo)
+        IAnalysisCacheRepository cacheRepo,
+        IUiMenuService uiMenus)
     {
         _runs = runs;
         _meas = meas;
         _meta = meta;
         _seriesAssembly = seriesAssembly;
         _cacheRepo = cacheRepo;
+        _uiMenus = uiMenus;
     }
 
     // Recebe UI já resolvida no endpoint
@@ -262,10 +265,13 @@ public sealed class UnbalanceSeriesHandler
             Unit: "%"
         );
         var plotMeta = _meta.Build(w, ctx, meas);
+        var resolvedModes = _uiMenus.RebuildForRun(
+            modes,
+            UiMenuContext.FromCache(cachePayload));
 
         var response = SeriesResponseBuilderExtensions
             .BuildSeriesResponse(q.RunId, windowFrom, windowTo, series, plotMeta)
-            .WithModes(modes)
+            .WithModes(resolvedModes)
             .WithCacheId(cacheId)
             .WithResolved(ctx.PdcName, series.Count)
             .WithTypeFields(new Dictionary<string, object?>

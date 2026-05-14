@@ -7,6 +7,7 @@ using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Responses;
 using OpenPlot.Features.Runs.Repositories;
 using OpenPlot.Data.Dtos;
+using OpenPlot.Services.UI;
 
 namespace OpenPlot.Features.Runs.Handlers;
 
@@ -23,6 +24,7 @@ public sealed class PowerSeriesHandler
     private readonly IPlotMetaBuilder _metaBuilder;
     private readonly IPmuQueryHelper _pmuHelper;
     private readonly ISeriesAssemblyService _seriesAssembly;
+    private readonly IUiMenuService _uiMenus;
 
     public PowerSeriesHandler(
         IRunContextRepository runRepository,
@@ -30,7 +32,8 @@ public sealed class PowerSeriesHandler
         IAnalysisCacheRepository cacheRepo,
         IPlotMetaBuilder metaBuilder,
         IPmuQueryHelper pmuHelper,
-        ISeriesAssemblyService seriesAssembly)
+        ISeriesAssemblyService seriesAssembly,
+        IUiMenuService uiMenus)
     {
         _runRepository = runRepository ?? throw new ArgumentNullException(nameof(runRepository));
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
@@ -38,6 +41,7 @@ public sealed class PowerSeriesHandler
         _metaBuilder = metaBuilder ?? throw new ArgumentNullException(nameof(metaBuilder));
         _pmuHelper = pmuHelper ?? throw new ArgumentNullException(nameof(pmuHelper));
         _seriesAssembly = seriesAssembly ?? throw new ArgumentNullException(nameof(seriesAssembly));
+        _uiMenus = uiMenus ?? throw new ArgumentNullException(nameof(uiMenus));
     }
 
     /// <summary>
@@ -374,10 +378,13 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
         );
 
         var plotMeta = _metaBuilder.Build(window, ctx, meas);
+        var resolvedModes = _uiMenus.RebuildForRun(
+            modes,
+            UiMenuContext.FromCache(cachePayload));
 
         var response = SeriesResponseBuilderExtensions
             .BuildSeriesResponse(query.RunId, windowFrom, windowTo, seriesOut, plotMeta)
-            .WithModes(modes)
+            .WithModes(resolvedModes)
             .WithCacheId(cacheId)
             .WithResolved(ctx.PdcName, seriesOut.Count)
             .WithTypeFields(new Dictionary<string, object?>

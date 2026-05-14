@@ -17,6 +17,7 @@ public sealed class VoltageSeriesHandler
     private readonly ISeriesAssemblyService _seriesAssembly;
     private readonly ITimeSeriesDownsampler _down = new TimeBucketMinMaxDownsampler();
     private readonly IAnalysisCacheRepository _cacheRepo;
+    private readonly IUiMenuService _uiMenus;
 
     public VoltageSeriesHandler(
         IRunContextRepository runs,
@@ -24,7 +25,8 @@ public sealed class VoltageSeriesHandler
         IPlotMetaBuilder meta,
         IPhasorRequestService phasorRequest,
         ISeriesAssemblyService seriesAssembly,
-        IAnalysisCacheRepository cacheRepo)
+        IAnalysisCacheRepository cacheRepo,
+        IUiMenuService uiMenus)
     {
         _runs = runs;
         _meas = meas;
@@ -32,6 +34,7 @@ public sealed class VoltageSeriesHandler
         _phasorRequest = phasorRequest;
         _seriesAssembly = seriesAssembly;
         _cacheRepo = cacheRepo;
+        _uiMenus = uiMenus;
     }
 
     // Recebe UI já resolvida no endpoint
@@ -157,10 +160,13 @@ public sealed class VoltageSeriesHandler
 
 
         var plotMeta = _meta.Build(w, ctx, meas);
+        var resolvedModes = _uiMenus.RebuildForRun(
+            modes,
+            UiMenuContext.FromCache(cachePayload));
 
         var response = SeriesResponseBuilderExtensions
             .BuildSeriesResponse(q.RunId, windowFrom, windowTo2, series, plotMeta)
-            .WithModes(modes)
+            .WithModes(resolvedModes)
             .WithCacheId(cacheId)
             .WithResolved(ctx.PdcName, series.Select(s => s.pmu).Distinct().Count())
             .WithTypeFields(new Dictionary<string, object?>

@@ -6,6 +6,7 @@ using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Abstractions;
 using OpenPlot.Features.Runs.Repositories;
+using OpenPlot.Services.UI;
 
 namespace OpenPlot.Features.Runs.Handlers;
 
@@ -52,6 +53,7 @@ public sealed class AngleDiffSeriesHandler
     private readonly IPmuQueryHelper _pmuHelper;
     private readonly ISeriesAssemblyService _seriesAssembly;
     private readonly IPlotMetaBuilder _metaBuilder;
+    private readonly IUiMenuService _uiMenus;
 
     public AngleDiffSeriesHandler(
         IRunContextRepository runRepository,
@@ -60,7 +62,8 @@ public sealed class AngleDiffSeriesHandler
         ITimeSeriesDownsampler downsampler,
         IPmuQueryHelper pmuHelper,
         ISeriesAssemblyService seriesAssembly,
-        IPlotMetaBuilder metaBuilder)
+        IPlotMetaBuilder metaBuilder,
+        IUiMenuService uiMenus)
     {
         _runRepository = runRepository ?? throw new ArgumentNullException(nameof(runRepository));
         _cacheRepo = cacheRepo ?? throw new ArgumentNullException(nameof(cacheRepo));
@@ -69,6 +72,7 @@ public sealed class AngleDiffSeriesHandler
         _pmuHelper = pmuHelper ?? throw new ArgumentNullException(nameof(pmuHelper));
         _seriesAssembly = seriesAssembly ?? throw new ArgumentNullException(nameof(seriesAssembly));
         _metaBuilder = metaBuilder ?? throw new ArgumentNullException(nameof(metaBuilder));
+        _uiMenus = uiMenus ?? throw new ArgumentNullException(nameof(uiMenus));
     }
 
     /// <summary>
@@ -233,6 +237,9 @@ public sealed class AngleDiffSeriesHandler
                 ReferenceTerminal: refPmu
             );
             var plotMeta = _metaBuilder.Build(new WindowQuery(fromUtc, toUtc), ctx, measQuery);
+            var resolvedModes = _uiMenus.RebuildForRun(
+                modes,
+                UiMenuContext.FromCache(cachePayload));
 
             return Results.Ok(new
             {
@@ -247,7 +254,7 @@ public sealed class AngleDiffSeriesHandler
                 cache_id = cacheId.ToString(),
                 pmu_count = series.Count,
                 window = new { from = windowFrom, to = windowTo },
-                modes = modes,
+                modes = resolvedModes,
                 plot_meta = new { title = plotMeta.Title, x_label = plotMeta.XLabel, y_label = plotMeta.YLabel },
                 series
             });

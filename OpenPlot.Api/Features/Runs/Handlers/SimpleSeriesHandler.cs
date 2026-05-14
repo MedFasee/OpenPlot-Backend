@@ -4,6 +4,7 @@ using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Abstractions;
 using OpenPlot.Features.Runs.Handlers.Base;
 using OpenPlot.Features.Runs.Repositories;
+using OpenPlot.Services.UI;
 
 namespace OpenPlot.Features.Runs.Handlers;
 
@@ -24,8 +25,9 @@ public sealed class SimpleSeriesHandler : BaseSeriesHandler<SimpleSeriesQuery>
         ITimeSeriesDownsampler downsampler,
         IPlotMetaBuilder metaBuilder,
         ISeriesAssemblyService seriesAssembly,
-        IAnalysisCacheRepository cacheRepository)
-        : base(runRepository, metaBuilder, ConvertCacheRepo(cacheRepository))
+        IAnalysisCacheRepository cacheRepository,
+        IUiMenuService uiMenus)
+        : base(runRepository, metaBuilder, ConvertCacheRepo(cacheRepository), uiMenus)
     {
         _measRepository = measRepository ?? throw new ArgumentNullException(nameof(measRepository));
         _downsampler = downsampler ?? throw new ArgumentNullException(nameof(downsampler));

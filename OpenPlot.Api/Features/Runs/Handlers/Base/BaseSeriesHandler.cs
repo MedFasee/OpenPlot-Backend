@@ -3,6 +3,7 @@ using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Abstractions;
 using OpenPlot.Features.Runs.Handlers.Responses;
 using OpenPlot.Features.Runs.Repositories;
+using OpenPlot.Services.UI;
 
 namespace OpenPlot.Features.Runs.Handlers.Base;
 
@@ -18,15 +19,18 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
     protected readonly IRunContextRepository _runRepository;
     protected readonly IPlotMetaBuilder _metaBuilder;
     protected readonly ISeriesCacheService _cacheService;
+    protected readonly IUiMenuService _uiMenus;
 
     protected BaseSeriesHandler(
         IRunContextRepository runRepository,
         IPlotMetaBuilder metaBuilder,
-        ISeriesCacheService cacheService)
+        ISeriesCacheService cacheService,
+        IUiMenuService uiMenus)
     {
         _runRepository = runRepository ?? throw new ArgumentNullException(nameof(runRepository));
         _metaBuilder = metaBuilder ?? throw new ArgumentNullException(nameof(metaBuilder));
         _cacheService = cacheService ?? throw new ArgumentNullException(nameof(cacheService));
+        _uiMenus = uiMenus ?? throw new ArgumentNullException(nameof(uiMenus));
     }
 
     /// <summary>
@@ -85,11 +89,16 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
 
             // Passo 7: Construir metadados
             var plotMeta = BuildPlotMeta(runContext, query, window);
+            var resolvedModes = _uiMenus.RebuildForRun(
+                modes,
+                cachePayload is not null
+                    ? UiMenuContext.FromCache(cachePayload)
+                    : new UiMenuContext(windowFrom, windowTo, runContext.SelectRate));
 
             // Passo 8: Montar resposta final
             var response = SeriesResponseBuilderExtensions
                 .BuildSeriesResponse(query.RunId, windowFrom, windowTo, series, plotMeta)
-                .WithModes(modes)
+                .WithModes(resolvedModes)
                 .WithCacheId(cacheId)
                 .WithResolved(rows.First().PdcName, GetPmuCount(rows, series))
                 .Build();

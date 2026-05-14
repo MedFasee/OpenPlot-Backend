@@ -10,3 +10,6 @@
   - estiver completa; e
   - houver documentação de marco explicitando o que mudou e o motivo das mudanças.
 
+### Comportamento do MedPlot
+- Na reestruturação/migração do Prony, o comportamento e as fórmulas do MedPlot devem prevalecer sobre adaptações feitas no OpenPlot.
+
