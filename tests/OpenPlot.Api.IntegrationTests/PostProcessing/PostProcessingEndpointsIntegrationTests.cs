@@ -79,7 +79,7 @@ public sealed class PostProcessingEndpointsIntegrationTests(OpenPlotApiFactory f
 
         Assert.Equal(cacheId.ToString(), root.GetProperty("cache_id").GetString());
         Assert.Equal(20, root.GetProperty("selectRate").GetInt32());
-        Assert.True(root.GetProperty("modeShapeCandidatesHz").GetArrayLength() > 0);
+        Assert.Equal(0, root.GetProperty("modeShapeCandidatesHz").GetArrayLength());
         Assert.True(root.GetProperty("series").GetArrayLength() > 0);
 
         var firstSeries = root.GetProperty("series")[0];
@@ -88,7 +88,52 @@ public sealed class PostProcessingEndpointsIntegrationTests(OpenPlotApiFactory f
         Assert.True(firstSeries.GetProperty("allModes").GetArrayLength() >= firstSeries.GetProperty("modes").GetArrayLength());
         Assert.True(firstSeries.GetProperty("originalPoints").GetArrayLength() > 0);
         Assert.True(firstSeries.GetProperty("estimatedPoints").GetArrayLength() > 0);
+
         Assert.Contains("Prony", root.GetProperty("meta").GetProperty("title").GetString() ?? string.Empty);
+    }
+
+    [Fact]
+    public async Task GetProny_WhenCacheHasAtLeastTwoValidSeries_ReturnsModeShapeCandidates()
+    {
+        var cacheId = Guid.NewGuid();
+        var start = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        factory.CacheRepository.Seed(cacheId, CreateOscillatoryPayload(start, sampleRate: 20, sampleCount: 40, seriesCount: 2));
+
+        using var client = factory.CreateClient();
+        var response = await client.GetAsync($"/api/v1/prony?cache_id={cacheId:D}&order=4&include_points=true&include_all_modes=true");
+
+        response.EnsureSuccessStatusCode();
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+        var firstSeries = root.GetProperty("series")[0];
+
+        var expectedCandidates = firstSeries
+            .GetProperty("allModes")
+            .EnumerateArray()
+            .Select(mode => mode.GetProperty("frequencyHz").GetDouble())
+            .Where(freq => freq < 10.0 && freq > 1e-6)
+            .OrderBy(freq => freq)
+            .ToArray();
+
+        var returnedCandidates = root
+            .GetProperty("modeShapeCandidatesHz")
+            .EnumerateArray()
+            .Select(candidate => candidate.GetProperty("frequencyHz").GetDouble())
+            .ToArray();
+
+        var firstCandidate = root.GetProperty("modeShapeCandidatesHz")[0];
+        var vector = firstCandidate.GetProperty("vector");
+
+        Assert.NotEmpty(returnedCandidates);
+        Assert.Equal(expectedCandidates, returnedCandidates);
+        Assert.True(firstCandidate.TryGetProperty("index", out _));
+        Assert.Equal(2, vector.GetArrayLength());
+        Assert.False(string.IsNullOrWhiteSpace(vector[0].GetProperty("series").GetString()));
+        Assert.False(string.IsNullOrWhiteSpace(vector[0].GetProperty("pmu").GetString()));
+        Assert.True(vector[0].TryGetProperty("amplitude", out _));
+        Assert.True(vector[0].TryGetProperty("phaseRad", out _));
     }
 
     [Fact]
@@ -117,36 +162,41 @@ public sealed class PostProcessingEndpointsIntegrationTests(OpenPlotApiFactory f
         Assert.Contains("Ordem inválida para Prony", body, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static RowsCacheV2 CreateOscillatoryPayload(DateTime start, int sampleRate, int sampleCount)
+    private static RowsCacheV2 CreateOscillatoryPayload(DateTime start, int sampleRate, int sampleCount, int seriesCount = 1)
     {
-        var points = new List<RowsCachePoint>(sampleCount);
-        for (var i = 0; i < sampleCount; i++)
+        var series = new List<RowsCacheSeries>(seriesCount);
+
+        for (var seriesIndex = 0; seriesIndex < seriesCount; seriesIndex++)
         {
-            var t = i / (double)sampleRate;
-            points.Add(new RowsCachePoint
+            var points = new List<RowsCachePoint>(sampleCount);
+            for (var i = 0; i < sampleCount; i++)
             {
-                Ts = start.AddSeconds(t),
-                Value = Math.Cos(2.0 * Math.PI * 1.0 * t)
+                var t = i / (double)sampleRate;
+                points.Add(new RowsCachePoint
+                {
+                    Ts = start.AddSeconds(t),
+                    Value = Math.Cos(2.0 * Math.PI * 1.0 * t + (seriesIndex * Math.PI / 6.0))
+                });
+            }
+
+            series.Add(new RowsCacheSeries
+            {
+                IdName = $"PMU-{seriesIndex + 1}",
+                PdcName = "PDC-1",
+                Quantity = "frequency",
+                Component = "freq",
+                Unit = "Hz",
+                Phase = ((char)('A' + seriesIndex)).ToString(),
+                Points = points
             });
         }
 
         return new RowsCacheV2
         {
             From = start,
-            To = points[^1].Ts,
+            To = series[0].Points[^1].Ts,
             SelectRate = sampleRate,
-            Series =
-            [
-                new RowsCacheSeries
-                {
-                    IdName = "PMU-1",
-                    PdcName = "PDC-1",
-                    Quantity = "frequency",
-                    Component = "freq",
-                    Unit = "Hz",
-                    Points = points
-                }
-            ]
+            Series = series
         };
     }
 }

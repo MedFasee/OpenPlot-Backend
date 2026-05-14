@@ -136,7 +136,22 @@ public static class PostProcessingEndpoints
                     meta = plotMeta,
                     selectRate = payload.SelectRate,
                     window = new { from = prony.FromUtc, to = prony.ToUtc },
-                    modeShapeCandidatesHz = prony.ModeShapeCandidatesHz,
+                    modeShapeCandidatesHz = prony.ModeShapeCandidatesHz.Select(candidate => new
+                    {
+                        index = candidate.Index,
+                        frequencyHz = candidate.FrequencyHz,
+                        vector = candidate.Vector.Select(point => new
+                        {
+                            series = point.Series,
+                            pmu = point.Pmu,
+                            phase = point.Phase,
+                            component = point.Component,
+                            quantity = point.Quantity,
+                            unit = point.Unit,
+                            amplitude = point.Amplitude,
+                            phaseRad = point.PhaseRad
+                        }).ToList()
+                    }).ToList(),
                     series
                 });
             }

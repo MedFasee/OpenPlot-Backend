@@ -6,6 +6,21 @@ namespace OpenPlot.Features.PostProcessing.Handlers;
 
 public static class Prony
 {
+    public sealed record ModeShapeVectorPoint(
+        string Series,
+        string? Pmu,
+        double Phase,
+        string? Component,
+        string? Quantity,
+        string? Unit,
+        double Amplitude,
+        double PhaseRad);
+
+    public sealed record ModeShapeCandidate(
+        int Index,
+        double FrequencyHz,
+        IReadOnlyList<ModeShapeVectorPoint> Vector);
+
     public sealed record ModePoint(
         int Index,
         double Energy,
@@ -145,8 +160,8 @@ public static class Prony
         {
             var serie = valid[k].Serie;
 
-            var allModes = BuildModesForSeries(k, order, fit, applyLegacyFilter: false);
-            var modes = BuildModesForSeries(k, order, fit, applyLegacyFilter: true);
+            var allModes = BuildAllModesForSeries(k, order, fit);
+            var modes = BuildLegacyVisibleModesForSeries(k, order, fit);
 
             var original = new TimePoint[n];
             var estimated = new TimePoint[n];
@@ -169,12 +184,7 @@ public static class Prony
             specs[BuildSeriesName(serie)] = spec;
         }
 
-        var modeShapeCandidates = fit.FrequencyHz
-            .Where(f => f < 10.0 && f > 1e-6)
-            .Select(f => Math.Round(f, 6))
-            .Distinct()
-            .OrderBy(f => f)
-            .ToList();
+        var modeShapeCandidates = BuildLegacyModeShapeCandidates(valid, fit, order);
 
         return new PronyComputeResult
         {
@@ -185,11 +195,10 @@ public static class Prony
         };
     }
 
-    private static IReadOnlyList<ModePoint> BuildModesForSeries(
+    private static IReadOnlyList<ModePoint> BuildAllModesForSeries(
         int seriesIndex,
         int order,
-        FitResult fit,
-        bool applyLegacyFilter)
+        FitResult fit)
     {
         var modes = new List<ModePoint>();
 
@@ -205,19 +214,78 @@ public static class Prony
                 Real: fit.ContinuousPoles[i].Real,
                 Imaginary: fit.ContinuousPoles[i].Imaginary);
 
-            if (!applyLegacyFilter || IsLegacyVisibleMode(mode))
-                modes.Add(mode);
+            modes.Add(mode);
         }
 
-        return applyLegacyFilter
-            ? modes.OrderByDescending(m => m.Energy).ToList()
-            : modes;
+        return modes;
     }
+
+    private static IReadOnlyList<ModePoint> BuildLegacyVisibleModesForSeries(
+        int seriesIndex,
+        int order,
+        FitResult fit) =>
+        BuildAllModesForSeries(seriesIndex, order, fit)
+            .Where(IsLegacyVisibleMode)
+            .OrderByDescending(m => m.Energy)
+            .ToList();
+
+    private static IReadOnlyList<ModeShapeCandidate> BuildLegacyModeShapeCandidates(
+        IReadOnlyList<InputSeries> valid,
+        FitResult fit,
+        int order)
+    {
+        if (valid.Count < 2)
+            return Array.Empty<ModeShapeCandidate>();
+
+        return Enumerable.Range(0, order)
+            .Where(modeIndex => IsLegacyModeShapeCandidate(fit.FrequencyHz[modeIndex]))
+            .Select(modeIndex => new ModeShapeCandidate(
+                Index: modeIndex,
+                FrequencyHz: fit.FrequencyHz[modeIndex],
+                Vector: BuildModeShapeVector(valid, fit, modeIndex)))
+            .OrderBy(candidate => candidate.FrequencyHz)
+            .ToList();
+    }
+
+    private static IReadOnlyList<ModeShapeVectorPoint> BuildModeShapeVector(
+        IReadOnlyList<InputSeries> valid,
+        FitResult fit,
+        int modeIndex)
+    {
+        var vector = new List<ModeShapeVectorPoint>(valid.Count);
+
+        for (int seriesIndex = 0; seriesIndex < valid.Count; seriesIndex++)
+        {
+            var serie = valid[seriesIndex].Serie;
+            vector.Add(new ModeShapeVectorPoint(
+                Series: BuildModeShapeSeriesName(serie),
+                Pmu: serie.IdName,
+                Phase: RadiansToDegrees(fit.Phases[modeIndex, seriesIndex]),
+                Component: serie.Component,
+                Quantity: serie.Quantity,
+                Unit: serie.Unit,
+                Amplitude: fit.Amplitudes[modeIndex, seriesIndex],
+                PhaseRad: fit.Phases[modeIndex, seriesIndex]));
+        }
+
+        return vector;
+    }
+
+    private static string BuildModeShapeSeriesName(RowsCacheSeries s) =>
+        (s.IdName ?? string.Empty).Trim();
+
+    private static double RadiansToDegrees(double radians) =>
+        radians * (180.0 / Math.PI);
 
     // Mesmo filtro usado na tabela do MedPlot:
     // frequência positiva abaixo de 10 Hz e energia acima de 1e-3.
     private static bool IsLegacyVisibleMode(ModePoint m) =>
         m.FrequencyHz < 10.0 && m.FrequencyHz > 1e-6 && m.Energy > 1e-3;
+
+    // No MedPlot, as possibilidades de mode shape são montadas apenas pelo critério
+    // de frequência positiva abaixo de 10 Hz, preservando repetições e ordenando.
+    private static bool IsLegacyModeShapeCandidate(double frequencyHz) =>
+        frequencyHz < 10.0 && frequencyHz > 1e-6;
 
     private static FitResult FitMultiSignal(IReadOnlyList<double[]> signals, double sr, int order)
     {
@@ -535,7 +603,7 @@ public static class Prony
 public sealed class PronyComputeResult
 {
     public Dictionary<string, Prony.Spec> Specs { get; init; } = new(StringComparer.OrdinalIgnoreCase);
-    public IReadOnlyList<double> ModeShapeCandidatesHz { get; init; } = Array.Empty<double>();
+    public IReadOnlyList<Prony.ModeShapeCandidate> ModeShapeCandidatesHz { get; init; } = Array.Empty<Prony.ModeShapeCandidate>();
     public DateTime FromUtc { get; init; }
     public DateTime ToUtc { get; init; }
 }

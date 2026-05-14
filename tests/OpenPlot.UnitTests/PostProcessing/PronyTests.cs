@@ -16,9 +16,8 @@ public sealed class PronyTests
         Assert.Equal(start, result.FromUtc);
         Assert.Equal(start.AddSeconds((40 - 1) / 20d), result.ToUtc);
         Assert.NotEmpty(result.Specs);
-        Assert.NotEmpty(result.ModeShapeCandidatesHz);
-        Assert.Equal(result.ModeShapeCandidatesHz.OrderBy(x => x), result.ModeShapeCandidatesHz);
-        Assert.All(result.ModeShapeCandidatesHz, candidate => Assert.InRange(candidate, 0.000001, 10.0));
+        Assert.Empty(result.ModeShapeCandidatesHz);
+        Assert.Equal(result.ModeShapeCandidatesHz.OrderBy(x => x.FrequencyHz), result.ModeShapeCandidatesHz);
 
         var first = Assert.Single(result.Specs.Values);
         Assert.Equal(20, first.Sr, precision: 10);
@@ -32,7 +31,49 @@ public sealed class PronyTests
         Assert.Equal(first.N, first.EstimatedPoints.Count);
         Assert.Equal(4, first.AllModes.Count);
         Assert.True(first.Modes.Count <= first.AllModes.Count);
-        Assert.Contains(result.ModeShapeCandidatesHz, candidate => Math.Abs(candidate - 1.0) < 0.25);
+
+        var expectedModeOrder = first.AllModes
+            .Where(m => m.FrequencyHz < 10.0 && m.FrequencyHz > 1e-6 && m.Energy > 1e-3)
+            .OrderByDescending(m => m.Energy)
+            .Select(m => m.Index)
+            .ToArray();
+
+        Assert.Equal(expectedModeOrder, first.Modes.Select(m => m.Index).ToArray());
+    }
+
+    [Fact]
+    public void Compute_WhenPayloadHasAtLeastTwoValidSeries_ReturnsModeShapeCandidates()
+    {
+        var start = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var payload = CreateOscillatoryPayload(start, sampleRate: 20, sampleCount: 40, seriesCount: 2);
+
+        var result = Prony.Compute(payload, order: 4);
+
+        Assert.NotEmpty(result.ModeShapeCandidatesHz);
+        Assert.Equal(result.ModeShapeCandidatesHz.OrderBy(x => x.FrequencyHz), result.ModeShapeCandidatesHz);
+        Assert.All(result.ModeShapeCandidatesHz, candidate => Assert.InRange(candidate.FrequencyHz, 0.000001, 10.0));
+        Assert.Contains(result.ModeShapeCandidatesHz, candidate => Math.Abs(candidate.FrequencyHz - 1.0) < 0.25);
+        Assert.All(result.ModeShapeCandidatesHz, candidate => Assert.Equal(2, candidate.Vector.Count));
+        Assert.All(result.ModeShapeCandidatesHz.SelectMany(candidate => candidate.Vector), point =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(point.Series));
+            Assert.False(string.IsNullOrWhiteSpace(point.Pmu));
+        });
+
+        var first = result.Specs.Values.First();
+        var expectedCandidates = first.AllModes
+            .Where(m => m.FrequencyHz < 10.0 && m.FrequencyHz > 1e-6)
+            .Select(m => m.Index)
+            .ToArray();
+
+        var expectedFrequencies = first.AllModes
+            .Select(m => m.FrequencyHz)
+            .Where(f => f < 10.0 && f > 1e-6)
+            .OrderBy(f => f)
+            .ToArray();
+
+        Assert.Equal(expectedFrequencies, result.ModeShapeCandidatesHz.Select(candidate => candidate.FrequencyHz).ToArray());
+        Assert.Equal(expectedCandidates, result.ModeShapeCandidatesHz.OrderBy(candidate => candidate.FrequencyHz).Select(candidate => candidate.Index).ToArray());
     }
 
     [Fact]
@@ -82,36 +123,41 @@ public sealed class PronyTests
         Assert.Contains("poucas amostras", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static RowsCacheV2 CreateOscillatoryPayload(DateTime start, int sampleRate, int sampleCount)
+    private static RowsCacheV2 CreateOscillatoryPayload(DateTime start, int sampleRate, int sampleCount, int seriesCount = 1)
     {
-        var points = new List<RowsCachePoint>(sampleCount);
-        for (var i = 0; i < sampleCount; i++)
+        var series = new List<RowsCacheSeries>(seriesCount);
+
+        for (var seriesIndex = 0; seriesIndex < seriesCount; seriesIndex++)
         {
-            var t = i / (double)sampleRate;
-            points.Add(new RowsCachePoint
+            var points = new List<RowsCachePoint>(sampleCount);
+            for (var i = 0; i < sampleCount; i++)
             {
-                Ts = start.AddSeconds(t),
-                Value = Math.Cos(2.0 * Math.PI * 1.0 * t)
+                var t = i / (double)sampleRate;
+                points.Add(new RowsCachePoint
+                {
+                    Ts = start.AddSeconds(t),
+                    Value = Math.Cos(2.0 * Math.PI * 1.0 * t + (seriesIndex * Math.PI / 6.0))
+                });
+            }
+
+            series.Add(new RowsCacheSeries
+            {
+                IdName = $"PMU-{seriesIndex + 1}",
+                PdcName = "PDC-1",
+                Quantity = "frequency",
+                Component = "freq",
+                Unit = "Hz",
+                Phase = ((char)('A' + seriesIndex)).ToString(),
+                Points = points
             });
         }
 
         return new RowsCacheV2
         {
             From = start,
-            To = points[^1].Ts,
+            To = series[0].Points[^1].Ts,
             SelectRate = sampleRate,
-            Series =
-            [
-                new RowsCacheSeries
-                {
-                    IdName = "PMU-1",
-                    PdcName = "PDC-1",
-                    Quantity = "frequency",
-                    Component = "freq",
-                    Unit = "Hz",
-                    Points = points
-                }
-            ]
+            Series = series
         };
     }
 }
