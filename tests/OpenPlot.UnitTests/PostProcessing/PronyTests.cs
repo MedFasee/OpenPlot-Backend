@@ -102,10 +102,10 @@ public sealed class PronyTests
     }
 
     [Fact]
-    public void Compute_WhenOrderIsGreaterThanRoundedQuarterOfSampleCount_ThrowsInvalidOperationException()
+    public void Compute_WhenOrderIsGreaterThanFlooredQuarterOfSampleCount_ThrowsInvalidOperationException()
     {
         var start = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var payload = CreateOscillatoryPayload(start, sampleRate: 1, sampleCount: 313);
+        var payload = CreateOscillatoryPayload(start, sampleRate: 1, sampleCount: 314);
 
         var ex = Assert.Throws<InvalidOperationException>(() => Prony.Compute(payload, order: 79));
 
@@ -125,7 +125,41 @@ public sealed class PronyTests
         Assert.Contains("poucas amostras", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static RowsCacheV2 CreateOscillatoryPayload(DateTime start, int sampleRate, int sampleCount, int seriesCount = 1)
+    [Fact]
+    public void Compute_WhenOneSeriesHasDifferentSampleCount_KeepsAllSeriesUsingUniformFallback()
+    {
+        var start = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var payload = CreateOscillatoryPayload(start, sampleRate: 20, sampleCount: 40, seriesCount: 2);
+
+        payload.Series[1].Points.RemoveAt(20);
+
+        var result = Prony.Compute(payload, order: 4);
+
+        Assert.Equal(2, result.Specs.Count);
+        Assert.All(result.ModeShapeCandidatesHz, candidate => Assert.Equal(2, candidate.Vector.Count));
+        Assert.Contains(result.Specs.Values, spec => spec.Pmu == "PMU-2");
+    }
+
+    [Fact]
+    public void Compute_WhenSignalStartsAtPeak_ReconstructsFirstSampleWithoutOneSampleShift()
+    {
+        var start = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var payload = CreateOscillatoryPayload(start, sampleRate: 50, sampleCount: 100, frequencyHz: 5.0);
+
+        var result = Prony.Compute(payload, order: 2);
+
+        var spec = Assert.Single(result.Specs.Values);
+        Assert.Equal(spec.OriginalPoints.Count, spec.EstimatedPoints.Count);
+        Assert.Equal(spec.OriginalPoints[0].Ts, spec.EstimatedPoints[0].Ts);
+        Assert.Equal(spec.OriginalPoints[0].Value, spec.EstimatedPoints[0].Value, precision: 6);
+    }
+
+    private static RowsCacheV2 CreateOscillatoryPayload(
+        DateTime start,
+        int sampleRate,
+        int sampleCount,
+        int seriesCount = 1,
+        double frequencyHz = 1.0)
     {
         var series = new List<RowsCacheSeries>(seriesCount);
 
@@ -138,7 +172,7 @@ public sealed class PronyTests
                 points.Add(new RowsCachePoint
                 {
                     Ts = start.AddSeconds(t),
-                    Value = Math.Cos(2.0 * Math.PI * 1.0 * t + (seriesIndex * Math.PI / 6.0))
+                    Value = Math.Cos(2.0 * Math.PI * frequencyHz * t + (seriesIndex * Math.PI / 6.0))
                 });
             }
 

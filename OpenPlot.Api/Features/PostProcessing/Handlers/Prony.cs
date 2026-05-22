@@ -148,7 +148,7 @@ public static class Prony
 
         var maxAllowedOrder = ComputeMaxAllowedOrder(n);
         if (order > maxAllowedOrder)
-            throw new InvalidOperationException($"Ordem inválida para Prony. A ordem ({order}) deve ser menor ou igual a {maxAllowedOrder} (número de amostras / 4 arredondado para {n} amostras).");
+            throw new InvalidOperationException($"Ordem inválida para Prony. A ordem ({order}) deve ser menor ou igual a {maxAllowedOrder} (número de amostras / 4 arredondado para baixo para {n} amostras).");
 
         if (valid.Count * (n - order) < order)
             throw new InvalidOperationException("A janela possui poucas amostras para a ordem de Prony solicitada.");
@@ -279,7 +279,7 @@ public static class Prony
         radians * (180.0 / Math.PI);
 
     private static int ComputeMaxAllowedOrder(int sampleCount) =>
-        Math.Max(1, (int)Math.Round(sampleCount / 4.0, MidpointRounding.AwayFromZero));
+        Math.Max(1, sampleCount / 4);
 
     // Mesmo filtro usado na tabela do MedPlot:
     // frequência positiva abaixo de 10 Hz e energia acima de 1e-3.
@@ -344,7 +344,7 @@ public static class Prony
                 : 0.0;
         }
 
-        var z = Matrix<Complex>.Build.Dense(n, order, (i, j) => Complex.Pow(roots[j], i + 1));
+        var z = Matrix<Complex>.Build.Dense(n, order, (i, j) => Complex.Pow(roots[j], i));
 
         var zInv = SolveLegacyPseudoInverse(z);
 
@@ -359,7 +359,7 @@ public static class Prony
 
         var t = new double[n];
         for (int i = 0; i < n; i++)
-            t[i] = dt * (i + 1);
+            t[i] = dt * i;
 
         for (int k = 0; k < numSignals; k++)
         {
@@ -506,7 +506,7 @@ public static class Prony
             }
         }
 
-        if (bestTimes is null || bestValid is null)
+        if (bestTimes is null || bestValid is null || bestValid.Count != prepared.Count)
             return false;
 
         commonTimes = bestTimes;

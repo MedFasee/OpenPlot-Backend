@@ -209,7 +209,7 @@ public sealed class UiMenuService : IUiMenuService
     }
 
     private static int ComputeMaxAllowedPronyOrder(int sampleCount) =>
-        Math.Max(1, (int)Math.Round(sampleCount / 4.0, MidpointRounding.AwayFromZero));
+        Math.Max(1, sampleCount / 4);
 
     private static UiMenuSet InferSet(Dictionary<string, object?>? modes)
     {

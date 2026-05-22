@@ -151,7 +151,7 @@ public sealed class PostProcessingEndpointsIntegrationTests(OpenPlotApiFactory f
         var cacheId = Guid.NewGuid();
         var start = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        factory.CacheRepository.Seed(cacheId, CreateOscillatoryPayload(start, sampleRate: 1, sampleCount: 313));
+        factory.CacheRepository.Seed(cacheId, CreateOscillatoryPayload(start, sampleRate: 1, sampleCount: 314));
 
         using var client = factory.CreateClient();
         var response = await client.GetAsync($"/api/v1/prony?cache_id={cacheId:D}&order=79&include_points=false&include_all_modes=false");
