@@ -1,0 +1,194 @@
+[
+  {
+    "sub": "7b8a9c10-5a1e-4d82-91b2-08b3e4afbd11",
+    "username": "beatriz.dev",
+    "password": "Bea@1234",
+    "preferred_username": "Marcia Beatriz",
+    "email": "beatriz@openplot.dev",
+    "roles": ["admin"],
+    "claims": {
+      "organization": "LabPlan",
+      "tenant": "UFSC_lab"
+    }
+  },
+  {
+    "sub": "2e51d8f7-8c44-47e3-9ad0-2db7d210bbf4",
+    "username": "tatiana.dev",
+    "password": "Tati@1234",
+    "preferred_username": "tatiana.dev",
+    "email": "tatiana@openplot.dev",
+    "roles": ["editor"],
+    "claims": {
+      "organization": "ONS",
+      "tenant": "SIN_prod"
+    }
+  },
+  {
+    "sub": "e6f7e6c1-0e3c-4e5e-9b30-a2e2f0d91f11",
+    "username": "renan.dev",
+    "password": "Renan@1234",
+    "preferred_username": "Renan Pires",
+    "email": "renan@openplot.dev",
+    "roles": ["reader"],
+    "claims": {
+      "organization": "UFSC",
+      "tenant": "UFSC_dev"
+    }
+  },
+  {
+    "sub": "e6f7e6c1-0e3c-4e5e-9b30-a2e2f0d91d12",
+    "username": "openplot",
+    "password": "Medfaseefasor25!",
+    "preferred_username": "OpenPlot_Test",
+    "email": "no_email@gmail.com",
+    "roles": ["reader"],
+    "claims": {
+      "organization": "UFSC",
+      "tenant": "UFSC_dev"
+    }
+  },
+    {
+        "sub": "e6fe56c1-0e3c-4e5e-9b30-a2e2f0d91d12",
+        "username": "I.C.Decker",
+        "password": "Medfasee25!",
+        "preferred_username": "Ildemar C. Decker",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "UFSC",
+            "tenant": "UFSC_dev"
+        }
+    },
+    {
+        "sub": "e6fe56c1-0e3c-4e5e-9b30-a2e2f0d9fd12",
+        "username": "G.R.Moraes",
+        "password": "Medfasee25!",
+        "preferred_username": "Guido R. Moraes",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "UFSC",
+            "tenant": "UFSC_dev"
+        }
+    },
+    {
+        "sub": "e6fe56c1-0e3c-4e5e-9b50-a2e2f0d9fd12",
+        "username": "G.Effting",
+        "password": "Medfasee25!",
+        "preferred_username": "Gabriel Effting",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "UFSC",
+            "tenant": "UFSC_dev"
+        }
+    },
+    {
+        "sub": "e6fe56c1-0e6c-4e5e-9b50-a2e2f0d9fd12",
+        "username": "VIEWER",
+        "password": "VIEWER1",
+        "preferred_username": "Usuário Teste",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "UFSC",
+            "tenant": "UFSC_dev"
+        }
+    },
+	{
+        "sub": "e6fe57c1-0e6c-4e5e-9c50-a2e2f0d9fd12",
+        "username": "valmor",
+        "password": "ValmorLabPlan26!",
+        "preferred_username": "Valmor Zimmer",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "UFSC",
+            "tenant": "UFSC_qa"
+        }
+    },
+	{
+        "sub": "e6se57c1-0e1c-4e5e-9c50-a2e2f0d9fad12",
+        "username": "MarioE",
+        "password": "maioneseverde123!",
+        "preferred_username": "Mario Eduardo",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "UFSC",
+            "tenant": "UFSC_user"
+        }
+    },
+	{
+        "sub": "e6sa57c1-0e1c-4e5e-9c50-a1e2f0d9fad92",
+        "username": "ONS_OpenPlot",
+        "password": "OpenPlot_2026_1",
+        "preferred_username": "ONS TESTE",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "ONS",
+            "tenant": "ONS_tester"
+        }
+    },
+	{
+        "sub": "easw7c1-0e1c-4e5e-9c50-a1e2f0d9fad92",
+        "username": "MIF_robo",
+        "password": "MIF_robo",
+        "preferred_username": "MIF_robo",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "ONS",
+            "tenant": "ONS_tester_1"
+        }
+    },
+	{
+        "sub": "e6aa57c1-0e1c-4e5e-8c50-u1e2f0d9fad92",
+        "username": "suelaine",
+        "password": "suelaine_2026",
+        "preferred_username": "Suelaine",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "ONS",
+            "tenant": "ONS_tester_2"
+        }
+    },
+	{
+        "sub": "e5aa57c1-0e1c-4e5e-8c50-u1e2f0d9fad92",
+        "username": "lucasZ",
+        "password": "lucas_2026",
+        "preferred_username": "Lucas Zanella",
+        "email": "no_email@gmail.com",
+        "roles": [ "reader" ],
+        "claims": {
+            "organization": "UFSC",
+            "tenant": "ONS_tester_2"
+        }
+    },
+	{
+		"sub": "e6f7e6c2-0e3c-4e5e-9b30-a2e2f0d91f11",
+		"username": "idiego",
+		"password": "Diego@2027",
+		"preferred_username": "Diego Issicaba",
+		"email": "-",
+		"roles": ["reader"],
+		"claims": {
+		  "organization": "UFSC",
+		  "tenant": "UFSC_tester"
+		}
+	  },
+	{
+		"sub": "e6f7e3c2-0e3c-4e5e-9b30-a2e2f0d91f11",
+		"username": "emaria",
+		"password": "Maria@2027",
+		"preferred_username": "Maria Eduarda",
+		"email": "-",
+		"roles": ["reader"],
+		"claims": {
+		  "organization": "UFSC",
+		  "tenant": "UFSC_dev"
+		}
+	  }
+]

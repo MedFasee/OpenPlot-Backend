@@ -5,5 +5,10 @@
 **/.github
 **/*.user
 **/*.suo
+**/.idea
+**/node_modules
+*.cache
 packages/
 Config/
+docker-data/
+OpenPlot.Api/logs/
