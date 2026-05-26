@@ -2,6 +2,7 @@ using OpenPlot.Api.Services.Logging;
 using OpenPlot.Features.Auth;
 using OpenPlot.Features.Import;
 using OpenPlot.Features.PostProcessing.Handlers;
+using OpenPlot.Features.Sso;
 
 namespace OpenPlot.Api.Configuration;
 
@@ -25,6 +26,7 @@ internal static class OpenPlotApiApplicationBuilderExtensions
         var apiV1 = app.MapGroup("/api/v1");
 
         apiV1.MapAuth();
+        apiV1.MapSso();
         apiV1.MapConfig();
         apiV1.MapExport();
         apiV1.MapSearch();

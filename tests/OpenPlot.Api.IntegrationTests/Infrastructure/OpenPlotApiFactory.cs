@@ -15,12 +15,14 @@ using OpenPlot.Auth.Contracts.Requests;
 using OpenPlot.Auth.Contracts.Responses;
 using OpenPlot.Auth.Services;
 using OpenPlot.Features.Runs.Contracts;
+using OpenPlot.Features.Sso.Repositories;
 
 namespace OpenPlot.Api.IntegrationTests.Infrastructure;
 
 public sealed class OpenPlotApiFactory : WebApplicationFactory<Program>
 {
     public TestAnalysisCacheRepository CacheRepository { get; } = new();
+    public TestSsoAuthRepository SsoRepository { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -31,10 +33,12 @@ public sealed class OpenPlotApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<IAuthService>();
             services.RemoveAll<IAnalysisCacheRepository>();
             services.RemoveAll<IApiRequestLogRepository>();
+            services.RemoveAll<ISsoAuthRepository>();
 
             services.AddSingleton<IAuthService, FakeAuthService>();
             services.AddSingleton<IAnalysisCacheRepository>(CacheRepository);
             services.AddSingleton<IApiRequestLogRepository, NoOpApiRequestLogRepository>();
+            services.AddSingleton<ISsoAuthRepository>(SsoRepository);
 
             services.AddAuthentication(options =>
             {
@@ -72,6 +76,45 @@ public sealed class OpenPlotApiFactory : WebApplicationFactory<Program>
                 return Task.FromResult<T?>(typed);
 
             return Task.FromResult<T?>(default);
+        }
+    }
+
+    public sealed class TestSsoAuthRepository : ISsoAuthRepository
+    {
+        private readonly ConcurrentDictionary<string, DateTime> _nonces = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, ConsumedSsoLoginToken> _tokens = new(StringComparer.OrdinalIgnoreCase);
+
+        public void SeedLoginToken(string token, string consultaId, string originClient, DateTime? createdAtUtc = null, DateTime? expiresAtUtc = null)
+        {
+            var created = createdAtUtc ?? DateTime.UtcNow;
+            _tokens[token] = new ConsumedSsoLoginToken
+            {
+                Id = Guid.NewGuid(),
+                ConsultaId = consultaId,
+                OriginClient = originClient,
+                CreatedAtUtc = created,
+                ExpiresAtUtc = expiresAtUtc ?? created.AddMinutes(5)
+            };
+        }
+
+        public Task<bool> TryRegisterNonceAsync(string clientId, string nonce, DateTime createdAtUtc, DateTime expiresAtUtc, CancellationToken ct = default)
+            => Task.FromResult(_nonces.TryAdd($"{clientId}:{nonce}", expiresAtUtc));
+
+        public Task CreateLoginTokenAsync(string token, string consultaId, string originClient, DateTime createdAtUtc, DateTime expiresAtUtc, CancellationToken ct = default)
+        {
+            SeedLoginToken(token, consultaId, originClient, createdAtUtc, expiresAtUtc);
+            return Task.CompletedTask;
+        }
+
+        public Task<ConsumedSsoLoginToken?> ConsumeLoginTokenAsync(string token, CancellationToken ct = default)
+        {
+            if (!_tokens.TryRemove(token, out var consumedToken))
+                return Task.FromResult<ConsumedSsoLoginToken?>(null);
+
+            if (consumedToken.ExpiresAtUtc <= DateTime.UtcNow)
+                return Task.FromResult<ConsumedSsoLoginToken?>(null);
+
+            return Task.FromResult<ConsumedSsoLoginToken?>(consumedToken);
         }
     }
 

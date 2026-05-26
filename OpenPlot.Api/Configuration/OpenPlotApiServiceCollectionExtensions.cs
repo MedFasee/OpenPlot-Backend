@@ -10,6 +10,7 @@ using Microsoft.OpenApi.Models;
 using OpenPlot.Api.Services.Security;
 using OpenPlot.Api.Services.Logging;
 using OpenPlot.Auth.Infrastructure.Auth;
+using OpenPlot.Auth.Infrastructure.Auth.Models;
 using OpenPlot.Auth.Infrastructure.Auth.Options;
 using OpenPlot.Auth.Services;
 using OpenPlot.Auth.Web.Session;
@@ -17,6 +18,9 @@ using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Auth;
 using OpenPlot.Features.Export;
 using OpenPlot.Features.Import;
+using OpenPlot.Features.Sso;
+using OpenPlot.Features.Sso.Repositories;
+using OpenPlot.Features.Sso.Services;
 using OpenPlot.Features.PostProcessing.Handlers;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers;
@@ -82,6 +86,7 @@ internal static class OpenPlotApiServiceCollectionExtensions
         services.AddScoped<IRunContextRepository, RunContextRepository>();
         services.AddScoped<IMeasurementsRepository, MeasurementsRepository>();
         services.AddScoped<IAnalysisCacheRepository, AnalysisCacheRepository>();
+        services.AddScoped<ISsoAuthRepository, SsoAuthRepository>();
 
         return services;
     }
@@ -96,6 +101,7 @@ internal static class OpenPlotApiServiceCollectionExtensions
 
     private static IServiceCollection AddOpenPlotDomainServices(this IServiceCollection services)
     {
+        services.AddSingleton<IOpenPlotLoginTokenService, OpenPlotLoginTokenService>();
         services.AddSingleton<ITimeService, TimeService>();
         services.AddSingleton<ILabelService, LabelService>();
         services.AddSingleton<IPmuHierarchyService, PmuHierarchyService>();
@@ -147,7 +153,15 @@ internal static class OpenPlotApiServiceCollectionExtensions
 
     private static IServiceCollection AddOpenPlotAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
+        services.Configure<AuthOptions>(configuration.GetSection("Auth"));
+        services.Configure<UserStoreOptions>(configuration.GetSection("Auth:UserStore"));
+        services.Configure<SsoOptions>(configuration.GetSection("Sso"));
+        services.Configure<List<SsoClientOptions>>(configuration.GetSection("SsoClients"));
+
         services.AddSingleton<IUserStore, JsonUserStore>();
+        services.AddSingleton<ISsoClientRegistry, SsoClientRegistry>();
+        services.AddScoped<ISsoIdentityService, SsoIdentityService>();
+        services.AddScoped<ISsoRequestValidator, SsoRequestValidator>();
         services.AddScoped<IAuthService>(serviceProvider =>
         {
             var authOptions = serviceProvider.GetRequiredService<IOptions<AuthOptions>>().Value;
