@@ -8,6 +8,7 @@
 # Build output
 bin/
 obj/
+docs/Refatoracao/
 
 # Logs e temporários
 *.log
