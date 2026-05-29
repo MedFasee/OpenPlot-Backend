@@ -1,4 +1,10 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Metadata;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace OpenPlot.UnitTests.Export;
 
@@ -36,48 +42,61 @@ public sealed class ExportEndpointsValidationTests
     }
 
     [Fact]
-    public void IsExpiredExport_WhenFinishedAtIsOlderThanSevenDays_ReturnsTrue()
+    public void MapExport_RegistersExpectedRoutes()
     {
-        var nowUtc = new DateTimeOffset(2025, 1, 8, 12, 0, 0, TimeSpan.Zero);
-        var finishedAt = nowUtc.AddDays(-8).UtcDateTime;
+        var app = CreateApp();
 
-        var expired = ExportEndpoints.IsExpiredExport(finishedAt, nowUtc);
+        var routes = GetExportEndpoints(app)
+            .Select(endpoint => endpoint.RoutePattern.RawText)
+            .ToArray();
 
-        Assert.True(expired);
+        Assert.Contains("/export/", routes, StringComparer.Ordinal);
+        Assert.Contains("/export/{format}/{id:guid}", routes, StringComparer.Ordinal);
+        Assert.Contains("/export/{format}/{id:guid}/file", routes, StringComparer.Ordinal);
     }
 
     [Fact]
-    public void IsExpiredExport_WhenFinishedAtIsWithinSevenDays_ReturnsFalse()
+    public void MapExport_RequiresAuthorizationOnAllRoutes()
     {
-        var nowUtc = new DateTimeOffset(2025, 1, 8, 12, 0, 0, TimeSpan.Zero);
-        var finishedAt = nowUtc.AddDays(-6).UtcDateTime;
+        var app = CreateApp();
 
-        var expired = ExportEndpoints.IsExpiredExport(finishedAt, nowUtc);
+        var endpoints = GetExportEndpoints(app);
 
-        Assert.False(expired);
+        Assert.NotEmpty(endpoints);
+        Assert.All(endpoints, endpoint =>
+            Assert.Contains(endpoint.Metadata, metadata => metadata is IAuthorizeData));
     }
 
     [Fact]
-    public void DeleteExpiredExportFile_WhenFileWasCreatedMoreThanSevenDaysAgo_DeletesFileAndEmptyDirectory()
+    public void MapExport_AssignsExportTagToAllRoutes()
     {
-        var rootDir = Path.Combine(Path.GetTempPath(), "openplot-export-tests", Guid.NewGuid().ToString("N"));
-        var dirPath = Path.Combine(rootDir, "comtrade", "2025-01-01");
-        var fileName = "expired-export.zip";
-        var fullPath = Path.Combine(dirPath, fileName);
+        var app = CreateApp();
 
-        Directory.CreateDirectory(dirPath);
-        File.WriteAllText(fullPath, "expired export");
+        var endpoints = GetExportEndpoints(app);
 
-        var oldTimestamp = DateTime.UtcNow.AddDays(-8);
-        File.SetCreationTimeUtc(fullPath, oldTimestamp);
-        File.SetLastWriteTimeUtc(fullPath, oldTimestamp);
-
-        ExportEndpoints.DeleteExpiredExportFile(dirPath, fileName);
-
-        Assert.False(File.Exists(fullPath));
-        Assert.False(Directory.Exists(dirPath));
-
-        if (Directory.Exists(rootDir))
-            Directory.Delete(rootDir, recursive: true);
+        Assert.NotEmpty(endpoints);
+        Assert.All(endpoints, endpoint =>
+        {
+            var tagsMetadata = endpoint.Metadata.OfType<ITagsMetadata>().SingleOrDefault();
+            Assert.NotNull(tagsMetadata);
+            Assert.Contains("Export", tagsMetadata!.Tags, StringComparer.Ordinal);
+        });
     }
+
+    private static WebApplication CreateApp()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddAuthorization();
+
+        var app = builder.Build();
+        app.MapExport();
+        return app;
+    }
+
+    private static RouteEndpoint[] GetExportEndpoints(WebApplication app) =>
+        ((IEndpointRouteBuilder)app).DataSources
+            .SelectMany(dataSource => dataSource.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Where(endpoint => endpoint.RoutePattern.RawText?.StartsWith("/export", StringComparison.Ordinal) == true)
+            .ToArray();
 }

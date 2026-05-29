@@ -95,9 +95,71 @@ Referencias principais:
 - `docs/Features/runsEndpoints.md` - endpoints de runs, terminais e series.
 - `docs/Features/postProcessingEndpoints.md` - arquitetura e contratos de DFT e Prony sobre `cache_id`.
 
+## 3. Execucao com Docker Compose
+
+O material base desta secao foi consolidado a partir de `docs/docker_compose/doc.pdf`.
+
+### Ambiente recomendado
+
+- Em servidor Windows 2022 ou superior, a topologia recomendada e:
+  - Windows Server 2022;
+  - Hyper-V;
+  - uma VM Ubuntu Server ou Debian;
+  - Docker Engine executando containers Linux.
+- Em ambiente local, foi utilizado `Docker Desktop 4.75.0`.
+- Antes de subir os containers, garantir que o Docker esteja em execucao.
+
+### Ajustes previos
+
+#### Backend
+
+- Manter `ASPNETCORE_ENVIRONMENT` como `Development` no `docker-compose.yml`.
+- Ajustar o diretorio raiz dos arquivos externos por meio da variavel `OPENPLOT_DATA_ROOT` no arquivo `.env`.
+
+Exemplo atual do workspace:
+
+```env
+OPENPLOT_DATA_ROOT=C:\Users\Win 10\OneDrive\Documentos\OpenPlot
+```
+
+Com essa configuracao, o compose monta automaticamente:
+
+- `${OPENPLOT_DATA_ROOT}/xml` em `/data/xml`;
+- `${OPENPLOT_DATA_ROOT}/exports` em `/data/exports`;
+- `${OPENPLOT_DATA_ROOT}/logs/...` para os logs dos servicos.
+
+Tambem e necessario copiar o conteudo de `Config` para `openplot-data/xml` antes da execucao quando esse diretório for a fonte dos XMLs consumidos pela aplicacao.
+
+#### Frontend
+
+- No projeto de frontend, alterar o campo `env_file` do `docker-compose` para a configuracao de producao, conforme documentado em `docs/docker_compose/doc.pdf`.
+
+### Subida dos containers
+
+Abrir um terminal na pasta do `docker-compose` de cada projeto envolvido:
+
+- frontend;
+- backend + persistencia.
+
+Executar:
+
+```powershell
+docker compose up -d --build
+```
+
+O comando constroi as imagens e sobe os containers em background.
+
+### Limpeza do ambiente
+
+Para derrubar os containers e remover volumes e orfaos:
+
+```powershell
+docker compose down -v --remove-orphans
+```
+
 ---
 
-## 3. Execução dos testes
+## 4. Execução dos testes
 
 Na raiz do repositório:
 

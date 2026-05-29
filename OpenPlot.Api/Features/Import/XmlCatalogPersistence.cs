@@ -6,6 +6,7 @@ namespace OpenPlot.Features.Import;
 internal interface IXmlCatalogPersistence
 {
     Task<XmlCatalogImporter.ImportSummary> PersistAsync(ParsedCatalogFile file, NpgsqlConnection conn, CancellationToken ct);
+    Task RefreshPdcPmuKindsAsync(NpgsqlConnection conn, CancellationToken ct);
 }
 
 internal sealed class XmlCatalogPersistence : IXmlCatalogPersistence
@@ -57,6 +58,60 @@ internal sealed class XmlCatalogPersistence : IXmlCatalogPersistence
         }
 
         return summary;
+    }
+
+    public async Task RefreshPdcPmuKindsAsync(NpgsqlConnection conn, CancellationToken ct)
+    {
+        const string sql = @"
+WITH pmu_grandezas AS (
+    SELECT
+        p.pdc_pmu_id,
+        ARRAY(
+            SELECT g.grandeza
+            FROM (
+                SELECT DISTINCT
+                    CASE
+                        WHEN s.component::text ILIKE '%THD%' THEN 'THD'
+                        ELSE s.quantity::text
+                    END AS grandeza
+                FROM openplot.signal s
+                WHERE s.pdc_pmu_id = p.pdc_pmu_id
+                  AND (
+                        s.quantity IS NOT NULL
+                        OR s.component IS NOT NULL
+                  )
+            ) g
+            WHERE g.grandeza IS NOT NULL
+            ORDER BY g.grandeza
+        ) AS grandezas_distintas
+    FROM openplot.pdc_pmu p
+),
+mapeamento AS (
+    SELECT
+        pdc_pmu_id,
+        grandezas_distintas,
+        CASE grandezas_distintas
+            WHEN ARRAY['Frequency','Voltage']::text[] THEN 'FV'
+            WHEN ARRAY['Current','Frequency','Voltage']::text[] THEN 'FVI'
+            WHEN ARRAY['Current','Frequency']::text[] THEN 'FI'
+            WHEN ARRAY['Current','Voltage']::text[] THEN 'VI'
+            WHEN ARRAY['Current','Digital','Frequency']::text[] THEN 'FID'
+            WHEN ARRAY['Current','Frequency','THD','Voltage']::text[] THEN 'FVIH'
+            WHEN ARRAY['Frequency','THD','Voltage']::text[] THEN 'FVH'
+            WHEN ARRAY['Current','Frequency','THD']::text[] THEN 'FIH'
+            WHEN ARRAY['Current','Digital','Frequency','THD']::text[] THEN 'FIDH'
+            ELSE NULL
+        END AS novo_kind
+    FROM pmu_grandezas
+)
+UPDATE openplot.pdc_pmu p
+SET kind = m.novo_kind
+FROM mapeamento m
+WHERE p.pdc_pmu_id = m.pdc_pmu_id
+  AND m.novo_kind IS NOT NULL;";
+
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     private static string NormalizeQty(string? value) =>

@@ -53,6 +53,9 @@ internal sealed class XmlCatalogImporter
             }
         }
 
+        if (summaries.Count > 0)
+            await _persistence.RefreshPdcPmuKindsAsync(conn, ct);
+
         return summaries;
     }
 

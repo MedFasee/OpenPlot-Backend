@@ -1,5 +1,4 @@
 services:
-  # Banco compartilhado pela stack local. Mantido como serviço separado para desacoplar persistência dos processos .NET.
   postgres:
     image: postgres:17-alpine
     container_name: openplot-postgres
@@ -11,96 +10,55 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+      - ./database/dumps:/dumps:ro
     networks:
       - openplot-network
 
-  # API exposta externamente. Compartilha volumes de XML e exports porque lê ambos em tempo de execução.
   openplot-api:
     build:
       context: .
       dockerfile: OpenPlot.Api/Dockerfile
     container_name: openplot-api
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
-      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:7011
       ConnectionStrings__Db: Host=postgres;Port=5432;Database=postgres;Username=postgres;Password=postgres
       XmlFolder: /data/xml
     ports:
       - "7011:7011"
     volumes:
-      - ./docker-data/xml:/data/xml
-      - ./docker-data/exports:/data/exports
-      - ./OpenPlot.Api/logs:/app/logs
-    restart: unless-stopped
+      - ${OPENPLOT_DATA_ROOT}/xml:/data/xml
+      - ${OPENPLOT_DATA_ROOT}/exports:/data/exports
+      - ${OPENPLOT_DATA_ROOT}/logs/api:/app/logs
+      - ./OpenPlot.Api/Auth:/app/auth:ro
     networks:
       - openplot-network
 
-  # Worker de exportação sem porta pública. Compartilha o mesmo volume de export da API para download dos artefatos.
   openplot-export-worker:
     build:
       context: .
       dockerfile: OpenPlot.ExportWorker/Dockerfile
     container_name: openplot-export-worker
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
       ConnectionStrings__OpenPlotDb: Host=postgres;Port=5432;Database=postgres;Username=postgres;Password=postgres
       Exports__RootDir: /data/exports
     volumes:
-      - ./docker-data/exports:/data/exports
-    restart: unless-stopped
+      - ${OPENPLOT_DATA_ROOT}/exports:/data/exports
+      - ${OPENPLOT_DATA_ROOT}/logs/export-worker:/app/logs
     networks:
       - openplot-network
 
-  # Worker de ingestão em .NET 9. Recebe parâmetros por env para não depender exclusivamente do App.config publicado.
   openplot-ingestor-gsf:
     build:
       context: .
       dockerfile: OpenPlot.Ingestor.Gsf/Dockerfile
     container_name: openplot-ingestor-gsf
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
       OPENPLOT_INGESTOR__DB: Host=postgres;Port=5432;Database=postgres;SearchPath=openplot;Username=postgres;Password=postgres
-      OPENPLOT_INGESTOR__POLL_INTERVAL_SECONDS: "2"
-      OPENPLOT_INGESTOR__CHUNK_MINUTES: "10"
-      OPENPLOT_INGESTOR__MAX_PARALLEL_CHUNKS: "2"
-      OPENPLOT_INGESTOR__MAX_PARALLEL_JOBS: "2"
-      OPENPLOT_INGESTOR__GLOBAL_MAX_PARALLEL_CHUNKS: "4"
     volumes:
-      - ./docker-data/xml:/data/xml
-    restart: unless-stopped
-    networks:
-      - openplot-network
-
-  # Importador tratado como job utilitário. Fica em profile separado porque executa e encerra, ao invés de permanecer como daemon.
-  openplot-xml-importer:
-    build:
-      context: .
-      dockerfile: OpenPlot.XmlImporter/Dockerfile
-    container_name: openplot-xml-importer
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      OPENPLOT_XMLIMPORTER__CONNECTION_STRING: Host=postgres;Port=5432;Database=postgres;Username=postgres;Password=postgres
-      OPENPLOT_XMLIMPORTER__PATH: /data/xml
-    volumes:
-      - ./docker-data/xml:/data/xml
-    profiles:
-      - tools
-    restart: "no"
+      - ${OPENPLOT_DATA_ROOT}/xml:/data/xml
+      - ${OPENPLOT_DATA_ROOT}/logs/ingestor-gsf:/app/logs
     networks:
       - openplot-network
 

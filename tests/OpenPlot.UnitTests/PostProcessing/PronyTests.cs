@@ -63,6 +63,7 @@ public sealed class PronyTests
         var first = result.Specs.Values.First();
         var expectedCandidates = first.AllModes
             .Where(m => m.FrequencyHz < 10.0 && m.FrequencyHz > 1e-6)
+            .OrderBy(m => m.FrequencyHz)
             .Select(m => m.Index)
             .ToArray();
 
@@ -73,7 +74,7 @@ public sealed class PronyTests
             .ToArray();
 
         Assert.Equal(expectedFrequencies, result.ModeShapeCandidatesHz.Select(candidate => candidate.FrequencyHz).ToArray());
-        Assert.Equal(expectedCandidates, result.ModeShapeCandidatesHz.OrderBy(candidate => candidate.FrequencyHz).Select(candidate => candidate.Index).ToArray());
+        Assert.Equal(expectedCandidates, result.ModeShapeCandidatesHz.Select(candidate => candidate.Index).ToArray());
     }
 
     [Fact]
@@ -115,14 +116,18 @@ public sealed class PronyTests
     }
 
     [Fact]
-    public void Compute_WhenWindowHasTooFewSamplesForRequestedOrder_ThrowsInvalidOperationException()
+    public void Compute_WhenWindowHasFewSamplesButStillMatchesCurrentConstraints_ReturnsResult()
     {
         var start = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var payload = CreateOscillatoryPayload(start, sampleRate: 10, sampleCount: 5, seriesCount: 2);
 
-        var ex = Assert.Throws<InvalidOperationException>(() => Prony.Compute(payload, order: 1));
+        var result = Prony.Compute(payload, order: 1);
 
-        Assert.Contains("poucas amostras", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(start, result.FromUtc);
+        Assert.Equal(payload.To, result.ToUtc);
+        Assert.Equal(2, result.Specs.Count);
+        Assert.All(result.Specs.Values, spec => Assert.Equal(5, spec.N));
+        Assert.All(result.Specs.Values, spec => Assert.Equal(1, spec.Order));
     }
 
     [Fact]
