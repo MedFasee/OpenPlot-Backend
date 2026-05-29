@@ -1,6 +1,7 @@
 using System.Data;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Cors.Infrastructure;
 // Evitar starvation
 using System.Threading;
 using MathNet.Numerics;
@@ -63,19 +64,45 @@ builder.WebHost.ConfigureKestrel(options =>
 
 // ======================================================================
 // CORS — versão que funciona na LAN (dev-friendly)
-// Aceita QUALQUER origem, mas sem wildcard '*' (compatível com cookies)
+// Controlado por configuração para permitir LAN em development
 // ======================================================================
+var corsAllowedOrigins = builder.Configuration
+    .GetSection("Cors:AllowedOrigins")
+    .Get<string[]>()?
+    .Where(origin => !string.IsNullOrWhiteSpace(origin))
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray() ?? [];
+
+var corsAllowAnyOrigin = builder.Configuration.GetValue<bool>("Cors:AllowAnyOrigin");
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("DevCors", policy =>
     {
-        policy
-            .SetIsOriginAllowed(_ => true)  // <-- QUALQUER origem aceita
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials();
+        ConfigureCorsPolicy(policy, corsAllowedOrigins, corsAllowAnyOrigin);
     });
 });
+
+static void ConfigureCorsPolicy(CorsPolicyBuilder policy, string[] allowedOrigins, bool allowAnyOrigin)
+{
+    if (allowAnyOrigin)
+    {
+        policy.SetIsOriginAllowed(_ => true);
+    }
+    else if (allowedOrigins.Length > 0)
+    {
+        policy.WithOrigins(allowedOrigins);
+    }
+    else
+    {
+        policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173");
+    }
+
+    policy
+        .AllowAnyHeader()
+        .AllowAnyMethod()
+        .AllowCredentials();
+}
 
 // ======================================================================
 // Conexão com banco
