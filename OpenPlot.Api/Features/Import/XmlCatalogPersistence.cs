@@ -5,12 +5,23 @@ namespace OpenPlot.Features.Import;
 
 internal interface IXmlCatalogPersistence
 {
+    Task EnsureSignalUpsertSupportAsync(NpgsqlConnection conn, CancellationToken ct);
     Task<XmlCatalogImporter.ImportSummary> PersistAsync(ParsedCatalogFile file, NpgsqlConnection conn, CancellationToken ct);
     Task RefreshPdcPmuKindsAsync(NpgsqlConnection conn, CancellationToken ct);
 }
 
 internal sealed class XmlCatalogPersistence : IXmlCatalogPersistence
 {
+    public async Task EnsureSignalUpsertSupportAsync(NpgsqlConnection conn, CancellationToken ct)
+    {
+        const string sql = @"
+CREATE UNIQUE INDEX IF NOT EXISTS ux_signal_pdc_pmu_name_phase_component
+ON openplot.signal (pdc_pmu_id, name, phase, component);";
+
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     public async Task<XmlCatalogImporter.ImportSummary> PersistAsync(ParsedCatalogFile file, NpgsqlConnection conn, CancellationToken ct)
     {
         var summary = new XmlCatalogImporter.ImportSummary { File = file.FilePath };
@@ -265,7 +276,7 @@ RETURNING pdc_pmu_id;";
 
         const string sql = @"
 INSERT INTO openplot.signal (pdc_pmu_id, name, quantity, phase, component, historian_point)
-VALUES (@pdc_pmu_id, @name, @quantity::qty_kind, @phase::phase_kind, @component::comp_kind, @historian_point)
+VALUES (@pdc_pmu_id, @name, @quantity::openplot.qty_kind, @phase::openplot.phase_kind, @component::openplot.comp_kind, @historian_point)
 ON CONFLICT (pdc_pmu_id, name, phase, component) DO UPDATE
 SET quantity        = EXCLUDED.quantity,
     historian_point = EXCLUDED.historian_point

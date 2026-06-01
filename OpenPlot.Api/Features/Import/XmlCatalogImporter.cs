@@ -36,6 +36,7 @@ internal sealed class XmlCatalogImporter
 
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
+        await _persistence.EnsureSignalUpsertSupportAsync(conn, ct);
 
         foreach (var path in files)
         {

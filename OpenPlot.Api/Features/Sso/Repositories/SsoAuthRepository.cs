@@ -5,40 +5,13 @@ namespace OpenPlot.Features.Sso.Repositories;
 
 public sealed class SsoAuthRepository : ISsoAuthRepository
 {
-    private const string EnsureTablesSql = @"
-CREATE SCHEMA IF NOT EXISTS openplot;
-
-CREATE TABLE IF NOT EXISTS openplot.sso_request_nonce (
-    id UUID PRIMARY KEY,
-    client_id VARCHAR(100) NOT NULL,
-    nonce VARCHAR(200) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL,
-    expires_at TIMESTAMPTZ NOT NULL
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS ux_sso_request_nonce_client_nonce
-    ON openplot.sso_request_nonce (client_id, nonce);
-
-CREATE TABLE IF NOT EXISTS openplot.sso_login_token (
-    id UUID PRIMARY KEY,
-    token VARCHAR(500) NOT NULL,
-    consulta_id VARCHAR(100) NOT NULL,
-    origin_client VARCHAR(100) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL,
-    expires_at TIMESTAMPTZ NOT NULL,
-    used BOOLEAN NOT NULL DEFAULT FALSE,
-    used_at TIMESTAMPTZ NULL
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS ux_sso_login_token_token
-    ON openplot.sso_login_token (token);
-";
-
     private readonly IDbConnectionFactory _dbf;
+    private readonly IOpenPlotDatabaseBootstrapper _bootstrapper;
 
-    public SsoAuthRepository(IDbConnectionFactory dbf)
+    public SsoAuthRepository(IDbConnectionFactory dbf, IOpenPlotDatabaseBootstrapper bootstrapper)
     {
         _dbf = dbf;
+        _bootstrapper = bootstrapper;
     }
 
     public async Task<bool> TryRegisterNonceAsync(
@@ -48,9 +21,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_sso_login_token_token
         DateTime expiresAtUtc,
         CancellationToken ct = default)
     {
+        await _bootstrapper.EnsureInitializedAsync(ct);
+
         await using var conn = (DbConnection)_dbf.Create();
         await conn.OpenAsync(ct);
-        await EnsureTablesAsync(conn, ct);
         await PurgeExpiredNoncesAsync(conn, ct);
 
         const string sql = @"
@@ -81,9 +55,10 @@ ON CONFLICT (client_id, nonce) DO NOTHING;";
         DateTime expiresAtUtc,
         CancellationToken ct = default)
     {
+        await _bootstrapper.EnsureInitializedAsync(ct);
+
         await using var conn = (DbConnection)_dbf.Create();
         await conn.OpenAsync(ct);
-        await EnsureTablesAsync(conn, ct);
         await PurgeExpiredLoginTokensAsync(conn, ct);
 
         const string sql = @"
@@ -106,9 +81,10 @@ VALUES (@Id, @Token, @ConsultaId, @OriginClient, @CreatedAtUtc, @ExpiresAtUtc, F
 
     public async Task<ConsumedSsoLoginToken?> ConsumeLoginTokenAsync(string token, CancellationToken ct = default)
     {
+        await _bootstrapper.EnsureInitializedAsync(ct);
+
         await using var conn = (DbConnection)_dbf.Create();
         await conn.OpenAsync(ct);
-        await EnsureTablesAsync(conn, ct);
         await PurgeExpiredLoginTokensAsync(conn, ct);
 
         const string sql = @"
@@ -136,9 +112,6 @@ RETURNING token_row.id,
             new { Token = token },
             cancellationToken: ct));
     }
-
-    private static Task EnsureTablesAsync(DbConnection conn, CancellationToken ct)
-        => conn.ExecuteAsync(new CommandDefinition(EnsureTablesSql, cancellationToken: ct));
 
     private static Task PurgeExpiredNoncesAsync(DbConnection conn, CancellationToken ct)
         => conn.ExecuteAsync(new CommandDefinition(

@@ -12,6 +12,18 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./database/init:/docker-entrypoint-initdb.d:ro
       - ./database/dumps:/dumps:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" &&
+          psql -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" -tAc
+          "SELECT 1 FROM information_schema.tables WHERE table_schema = 'openplot' AND table_name = 'signal'"
+          | grep -q 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
     networks:
       - openplot-network
 
@@ -32,6 +44,9 @@ services:
       - ${OPENPLOT_DATA_ROOT}/exports:/data/exports
       - ${OPENPLOT_DATA_ROOT}/logs/api:/app/logs
       - ./OpenPlot.Api/Auth:/app/auth:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - openplot-network
 
@@ -46,6 +61,9 @@ services:
     volumes:
       - ${OPENPLOT_DATA_ROOT}/exports:/data/exports
       - ${OPENPLOT_DATA_ROOT}/logs/export-worker:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - openplot-network
 
@@ -55,10 +73,13 @@ services:
       dockerfile: OpenPlot.Ingestor.Gsf/Dockerfile
     container_name: openplot-ingestor-gsf
     environment:
-      OPENPLOT_INGESTOR__DB: Host=postgres;Port=5432;Database=postgres;SearchPath=openplot;Username=postgres;Password=postgres
+      OPENPLOT_INGESTOR__DB: Host=postgres;Port=5432;Database=postgres;Username=postgres;Password=postgres
     volumes:
       - ${OPENPLOT_DATA_ROOT}/xml:/data/xml
       - ${OPENPLOT_DATA_ROOT}/logs/ingestor-gsf:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - openplot-network
 
