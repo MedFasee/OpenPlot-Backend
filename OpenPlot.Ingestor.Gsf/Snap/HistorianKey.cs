@@ -34,8 +34,11 @@ public class HistorianKey : TimestampPointIDBase<HistorianKey>
         destination.EntryNumber = EntryNumber;
     }
 
-    public override int CompareTo(HistorianKey other)
+    public override int CompareTo(HistorianKey? other)
     {
+        if (other is null)
+            return 1;
+
         if (Timestamp != other.Timestamp)
             return Timestamp < other.Timestamp ? -1 : 1;
         if (PointID != other.PointID)
@@ -63,8 +66,8 @@ public class HistorianKey : TimestampPointIDBase<HistorianKey>
         return EntryNumber < right.EntryNumber;
     }
 
-    public override bool IsEqualTo(HistorianKey right) =>
-        Timestamp == right.Timestamp && PointID == right.PointID && EntryNumber == right.EntryNumber;
+    public override bool IsEqualTo(HistorianKey? right) =>
+        right is not null && Timestamp == right.Timestamp && PointID == right.PointID && EntryNumber == right.EntryNumber;
 
     public override bool IsGreaterThan(HistorianKey right)
     {

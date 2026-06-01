@@ -6,7 +6,7 @@ using System.Data;
 using Data.Sql;
 using System.Text.Json;
 using OpenPlot.Data.Dtos;
-using System.Security.Claims;
+using OpenPlot.Api.Services.Security;
 
 public static class SearchEndpoints
 {
@@ -18,7 +18,8 @@ public static class SearchEndpoints
         // POST /search (legado)
         group.MapPost("", async (
             SearchRequest req,                                    // body
-            ClaimsPrincipal user,
+            HttpContext http,
+            [FromServices] IUserContextAccessor userContextAccessor,
             [FromServices] IDbConnectionFactory dbf               // serviço
         ) =>
         {
@@ -36,7 +37,7 @@ public static class SearchEndpoints
             }
 
             var id = Guid.NewGuid();
-            var username = user.Identity?.Name ?? "unknown";
+            var username = userContextAccessor.GetUsername(http) ?? "unknown";
 
             using var db = dbf.Create();
             const string sql = @"
@@ -63,13 +64,12 @@ VALUES
 
         group.MapPost("/share", async (
         HttpContext http,
+        [FromServices] IUserContextAccessor userContextAccessor,
         [FromServices] IDbConnectionFactory dbf,
         [FromBody] ShareRunRequest req
     ) =>
             {
-                var username =
-                    http.User?.FindFirst("username")?.Value
-                    ?? http.User?.Identity?.Name;
+                var username = userContextAccessor.GetUsername(http);
 
                 if (string.IsNullOrWhiteSpace(username))
                     return Results.Unauthorized();
@@ -97,12 +97,12 @@ VALUES
 
         group.MapPost("/soft-delete", async (
         HttpContext http,
+        [FromServices] IUserContextAccessor userContextAccessor,
         [FromServices] IDbConnectionFactory dbf,
         [FromBody] SoftDeleteRun req
     ) =>
             {
-                var username = http.User?.FindFirst("unique_name")?.Value
-                               ?? http.User?.Identity?.Name;
+                var username = userContextAccessor.GetUsername(http);
 
                 if (string.IsNullOrWhiteSpace(username))
                     return Results.Unauthorized();
@@ -123,12 +123,41 @@ VALUES
                 return Results.Ok(new { status = 200, data = updated });
             });
 
+        group.MapPost("/cancel", async (
+        HttpContext http,
+        [FromServices] IUserContextAccessor userContextAccessor,
+        [FromServices] IDbConnectionFactory dbf,
+        [FromBody] CancelSearchRun req
+    ) =>
+            {
+                var username = userContextAccessor.GetUsername(http);
+
+                if (string.IsNullOrWhiteSpace(username))
+                    return Results.Unauthorized();
+
+                if (req.id == Guid.Empty)
+                    return Results.BadRequest("id inválido");
+
+                using var db = dbf.Create();
+
+                var updated = await db.QuerySingleOrDefaultAsync(
+                    SearchSql.CancelRun,
+                    new { id = req.id, username }
+                );
+
+                if (updated is null)
+                    return Results.NotFound("run não encontrada, não pertence ao usuário ou não está mais em execução.");
+
+                return Results.Ok(new { status = 200, data = updated });
+            });
+
 
         // POST /search/all (multi-PMU)
         group.MapPost("/all", async (
             SearchReq req,                                       // body
-            ClaimsPrincipal user,
+            HttpContext http,
             [FromServices] IDbConnectionFactory dbf,
+            [FromServices] IUserContextAccessor userContextAccessor,
             [FromServices] ILabelService labels
         ) =>
             {
@@ -198,7 +227,7 @@ VALUES
                 // 4) cria run
                 var label = labels.BuildLabel(fromUtc, toUtc, rate, source, null);
                 var id = Guid.NewGuid();
-                var username = user.Identity?.Name ?? "unknown";
+                var username = userContextAccessor.GetUsername(http) ?? "unknown";
 
                 var affected = await db.ExecuteAsync(SearchSql.InsertRunBlind, new
                 {

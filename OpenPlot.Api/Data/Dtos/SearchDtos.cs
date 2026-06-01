@@ -66,6 +66,7 @@ namespace OpenPlot.Data.Dtos
         public bool owner { get; set; }
         public string conv_comtrade { get; set; } = "absent";
     }
+    public sealed record CancelSearchRun(Guid id);
     public sealed record SoftDeleteRun(Guid id, bool is_visible);
 
     public sealed record ShareRunRequest(

@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
+using OpenPlot.Features.Runs.Contracts;
 
 namespace OpenPlot.Services.UI;
 
@@ -18,10 +20,59 @@ public sealed record FeatureFlags(
     bool EnablesEventsAnalyzer
 );
 
+public sealed record UiMenuContext(
+    DateTime WindowFromUtc,
+    DateTime WindowToUtc,
+    int? SelectRate,
+    int? EffectivePointCount = null,
+    int? TotalSeriesCount = null,
+    int? ValidSeriesCount = null)
+{
+    public static UiMenuContext FromCache(RowsCacheV2 payload)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+
+        var totalSeriesCount = payload.Series?.Count ?? 0;
+        var validSeriesCount = payload.Series?.Count(s => s.Points.Count >= 2) ?? 0;
+
+        return new UiMenuContext(
+            WindowFromUtc: payload.From,
+            WindowToUtc: payload.To,
+            SelectRate: payload.SelectRate,
+            EffectivePointCount: ComputeUniformPointCount(payload.From, payload.To, payload.SelectRate),
+            TotalSeriesCount: totalSeriesCount,
+            ValidSeriesCount: validSeriesCount);
+    }
+
+    public int ResolveEffectivePointCount()
+    {
+        if (EffectivePointCount is > 0)
+            return EffectivePointCount.Value;
+
+        return ComputeUniformPointCount(WindowFromUtc, WindowToUtc, SelectRate);
+    }
+
+    private static int ComputeUniformPointCount(DateTime fromUtc, DateTime toUtc, int? selectRate)
+    {
+        if (selectRate is null || selectRate <= 0)
+            return 0;
+
+        var duration = toUtc - fromUtc;
+        if (duration < TimeSpan.Zero)
+            return 0;
+
+        return (int)Math.Floor(duration.TotalSeconds * selectRate.Value) + 1;
+    }
+}
+
 public interface IUiMenuService
 {
     // Retorno simples (pra /runs): dicionário com defaults
     Dictionary<string, object?>? Build(UiMenuSet set);
+
+    Dictionary<string, object?>? Build(UiMenuSet set, UiMenuContext context);
+
+    Dictionary<string, object?>? RebuildForRun(Dictionary<string, object?>? modes, UiMenuContext context);
 
     // Opcional (pra /runs inferir automatico quando você quiser)
     UiMenuSet ResolveFromPlot(string quantity, string? component, string? kind);
@@ -33,6 +84,20 @@ public sealed class UiMenuService : IUiMenuService
     public UiMenuService(FeatureFlags flags) => _flags = flags;
 
     public Dictionary<string, object?>? Build(UiMenuSet set)
+        => BuildInternal(set, null);
+
+    public Dictionary<string, object?>? Build(UiMenuSet set, UiMenuContext context)
+        => BuildInternal(set, context);
+
+    public Dictionary<string, object?>? RebuildForRun(Dictionary<string, object?>? modes, UiMenuContext context)
+    {
+        var set = InferSet(modes);
+        return set == UiMenuSet.None
+            ? null
+            : BuildInternal(set, context);
+    }
+
+    private Dictionary<string, object?>? BuildInternal(UiMenuSet set, UiMenuContext? context)
     {
         if (set == UiMenuSet.None) return null;
 
@@ -40,7 +105,7 @@ public sealed class UiMenuService : IUiMenuService
 
         if (set.HasFlag(UiMenuSet.Oscillations))
         {
-            var osc = BuildOscillations();
+            var osc = BuildOscillations(context);
             if (osc.Count > 0) modes["oscillations"] = osc;
         }
 
@@ -53,16 +118,16 @@ public sealed class UiMenuService : IUiMenuService
         return modes.Count == 0 ? null : modes;
     }
 
-    private Dictionary<string, object?> BuildOscillations()
+    private Dictionary<string, object?> BuildOscillations(UiMenuContext? context)
     {
         var oscillations = new Dictionary<string, object?>();
 
         var transient = new Dictionary<string, object?>();
-        if (_flags.EnablesDFT) transient["DFT"] = true;
-        if (_flags.EnablesProny) transient["Prony"] = new Dictionary<string, object?> { ["Ordem"] = 300 };
+        transient["DFT"] = BuildDftSettings(_flags.EnablesDFT);
+        transient["Prony"] = BuildPronySettings(context);
 
         var environment = new Dictionary<string, object?>();
-        if (_flags.EnablesDFT) environment["DFT"] = true;
+        environment["DFT"] = BuildDftSettings(_flags.EnablesDFT);
         if (_flags.EnablesCCA)
         {
             environment["CVA"] = new Dictionary<string, object?>
@@ -80,6 +145,82 @@ public sealed class UiMenuService : IUiMenuService
         if (environment.Count > 0) oscillations["Ambiente"] = environment;
 
         return oscillations;
+    }
+
+    private static Dictionary<string, object?> BuildDftSettings(bool enabled) => new()
+    {
+        ["enabled"] = enabled
+    };
+
+    private Dictionary<string, object?> BuildPronySettings(UiMenuContext? context)
+    {
+        if (context is null)
+        {
+            return new Dictionary<string, object?>
+            {
+                ["enabled"] = _flags.EnablesProny,
+                ["Ordem"] = 300
+            };
+        }
+
+        var order = ComputePronyDefaultOrder(context);
+        var enabled = _flags.EnablesProny && IsPronyEnabled(context, order);
+
+        return new Dictionary<string, object?>
+        {
+            ["enabled"] = enabled,
+            ["Ordem"] = order
+        };
+    }
+
+    private static int ComputePronyDefaultOrder(UiMenuContext context)
+    {
+        var sampleCount = context.ResolveEffectivePointCount();
+        if (sampleCount <= 0)
+            return 300;
+
+        return Math.Min(ComputeMaxAllowedPronyOrder(sampleCount), 300);
+    }
+
+    private static bool IsPronyEnabled(UiMenuContext context, int order)
+    {
+        if (context.SelectRate is null || context.SelectRate <= 0)
+            return false;
+
+        var sampleCount = context.ResolveEffectivePointCount();
+        if (sampleCount < 4)
+            return false;
+
+        if ((double)sampleCount / context.SelectRate.Value > 60.0)
+            return false;
+
+        if (context.TotalSeriesCount is > 25)
+            return false;
+
+        var validSeriesCount = context.ValidSeriesCount ?? context.TotalSeriesCount ?? 0;
+        if (validSeriesCount <= 0)
+            return false;
+
+        var maxAllowedOrder = Math.Min(ComputeMaxAllowedPronyOrder(sampleCount), 300);
+        if (order <= 0 || order > maxAllowedOrder)
+            return false;
+
+        return validSeriesCount * (sampleCount - order) >= order;
+    }
+
+    private static int ComputeMaxAllowedPronyOrder(int sampleCount) =>
+        Math.Max(1, sampleCount / 4);
+
+    private static UiMenuSet InferSet(Dictionary<string, object?>? modes)
+    {
+        if (modes is null || modes.Count == 0)
+            return UiMenuSet.None;
+
+        var set = UiMenuSet.None;
+        if (modes.ContainsKey("oscillations")) set |= UiMenuSet.Oscillations;
+        if (modes.ContainsKey("events")) set |= UiMenuSet.Events;
+
+        return set;
     }
 
     private Dictionary<string, object?> BuildEvents()

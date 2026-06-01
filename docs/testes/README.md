@@ -1,78 +1,141 @@
-# Testes automatizados
+Ôªø# Testes automatizados
 
-## Vis„o geral
+## Vis√£o geral
 
-A suÌte de testes est· centralizada no diretÛrio `tests/` e atualmente possui dois projetos focados nos pontos mais sensÌveis do backend:
+A su√≠te de testes est√° centralizada no diret√≥rio `tests/` e atualmente possui dois projetos focados nos pontos mais sens√≠veis do backend:
 
 - `tests/OpenPlot.UnitTests`
 - `tests/OpenPlot.Api.IntegrationTests`
 
-O objetivo È cobrir regras puras, composiÁ„o de metadados, escrita de artefatos, contratos de resposta e fluxos HTTP principais sem depender de infraestrutura externa desnecess·ria.
+O objetivo √© cobrir regras puras, composi√ß√£o de metadados, escrita de artefatos, contratos de resposta e fluxos HTTP principais sem depender de infraestrutura externa desnecess√°ria.
 
 ## Escopo atual
 
 ### `tests/OpenPlot.UnitTests`
 
-Cobertura unit·ria para:
+Cobertura unit√°ria para:
 
 - `OpenPlot.Features.PostProcessing.Handlers.Dft`
-  - c·lculo de `ZoomBounds`;
+  - c√°lculo de `ZoomBounds`;
   - reamostragem `hold-last`;
   - FFT single-sided;
   - montagem do resultado de `Compute`.
+- `OpenPlot.Features.PostProcessing.Handlers.Prony`
+  - montagem do resultado de `Compute` com s√©ries v√°lidas;
+  - preenchimento de `Specs`, `ModeShapeCandidatesHz`, `OriginalPoints` e `EstimatedPoints`;
+  - erro para ordem n√£o positiva;
+  - erro para janela inv√°lida;
+  - erro para ordem maior ou igual ao n√∫mero de amostras;
+  - erro para janela com poucas amostras para a ordem solicitada.
 - `OpenPlot.Features.Runs.Contracts.PlotMetaBuilder`
-  - `title`, `xLabel` e `yLabel` para frequÍncia, `dfreq`, THD e diferenÁa angular.
+  - `title`, `xLabel` e `yLabel` para frequ√™ncia, `dfreq`, THD e diferen√ßa angular.
 - `OpenPlot.Features.PostProcessing.Handlers.DftMetaBuilder`
-  - fallback sem sÈries;
-  - composiÁ„o de metadados para sequÍncia positiva.
+  - fallback sem s√©ries;
+  - composi√ß√£o de metadados para sequ√™ncia positiva.
+- `OpenPlot.Features.PostProcessing.Handlers.PronyMetaBuilder`
+  - fallback sem s√©ries;
+  - composi√ß√£o de metadados para sequ√™ncia positiva.
 - `OpenPlot.ExportWorker.Storage.DiskExportStore`
-  - resoluÁ„o do diretÛrio di·rio em `comtrade/yyyy-MM-dd`;
-  - sanitizaÁ„o do nome final do `.zip`;
-  - escrita atÙmica do arquivo;
-  - c·lculo de `sha256`.
+  - resolu√ß√£o do diret√≥rio di√°rio em `comtrade/yyyy-MM-dd`;
+  - sanitiza√ß√£o do nome final do `.zip`;
+  - escrita at√¥mica do arquivo;
+  - c√°lculo de `sha256`.
+- `ExportEndpoints`
+  - decis√£o de convers√£o por status (`CanConvertSearchRun`);
+  - payload de erro para consulta incompleta (`BuildIncompleteRunError`);
+  - expira√ß√£o por data (`IsExpiredExport`);
+  - remo√ß√£o de arquivo expirado e limpeza de diret√≥rio (`DeleteExpiredExportFile`).
 - `RunsEndpoints`
-  - propagaÁ„o e valor padr„o de `conv_comtrade`;
-  - projeÁ„o SQL de `conv_comtrade` em `SearchSql.ListRuns`.
-- handlers e utilit·rios de sÈries
-  - validaÁ„o base de `BaseSeriesHandler`;
+  - propaga√ß√£o e valor padr√£o de `conv_comtrade`;
+  - proje√ß√£o SQL de `conv_comtrade` em `SearchSql.ListRuns`.
+- handlers e utilit√°rios de s√©ries
+  - valida√ß√£o base de `BaseSeriesHandler`;
   - fluxo de downsampling e cache em `SimpleSeriesHandler`;
-  - normalizaÁ„o de PMUs em `PmuQueryHelper`;
-  - composiÁ„o de payload em `SeriesResponseBuilder`;
+  - normaliza√ß√£o de PMUs em `PmuQueryHelper`;
+  - composi√ß√£o de payload em `SeriesResponseBuilder`;
   - contratos de `ISeriesQuery`, `AngleDiffQuery`, `ByRunQuery` e `PowerPlotQuery`.
 
 ### `tests/OpenPlot.Api.IntegrationTests`
 
-Cobertura de integraÁ„o HTTP com `WebApplicationFactory<Program>` para:
+Cobertura de integra√ß√£o HTTP com `WebApplicationFactory<Program>` para:
 
 - `POST /api/v1/auth/login`;
 - `POST /api/v1/auth/logout`;
-- `GET /api/v1/dft`.
+- `GET /api/v1/dft`;
+- `GET /api/v1/prony` com sucesso;
+- `GET /api/v1/prony` com `404` para `cache_id` inexistente;
+- `GET /api/v1/prony` com `400` para ordem inv√°lida ou indispon√≠vel na janela.
 
-Nesses testes, a aplicaÁ„o sobe com pipeline real de Minimal API, sess„o, autenticaÁ„o e middleware, mas com dependÍncias externas substituÌdas por doubles de teste para manter a execuÁ„o r·pida e determinÌstica.
+Nesses testes, a aplica√ß√£o sobe com pipeline real de Minimal API, sess√£o, autentica√ß√£o e middleware, mas com depend√™ncias externas substitu√≠das por doubles de teste para manter a execu√ß√£o r√°pida e determin√≠stica.
+
+## Relat√≥rio consolidado por feature e projeto
+
+### `OpenPlot.Api`
+
+Cobertura observada por feature:
+
+- `Auth`
+  - integra√ß√£o para login e logout.
+- `Export`
+  - testes unit√°rios para helpers/valida√ß√µes de `ExportEndpoints`;
+  - n√£o h√°, no estado atual, cobertura de integra√ß√£o HTTP para o fluxo completo de exporta√ß√£o.
+- `PostProcessing`
+  - unit√°rios para `Dft`, `Prony`, `DftMetaBuilder`, `PronyMetaBuilder` e `PlotMetaBuilder`;
+  - integra√ß√£o para `GET /api/v1/dft` e `GET /api/v1/prony`.
+- `Runs`
+  - unit√°rios para `RunsEndpoints`, `BaseSeriesHandler`, `SimpleSeriesHandler`, `PmuQueryHelper`, `SeriesResponseBuilder` e contratos de query.
+
+Lacunas ainda vis√≠veis em `OpenPlot.Api`:
+
+- aus√™ncia de testes de integra√ß√£o para `Search`, `Import`, `Catalog/Config` e parte do fluxo de `Runs`;
+- aus√™ncia de cobertura automatizada espec√≠fica para reposit√≥rios com acesso real a banco (`RunContextRepository`, `MeasurementsRepository`, `AnalysisCacheRepository`);
+- n√£o existe hoje cen√°rio test√°vel de entrada para `modeshape` em Prony, porque a API atual apenas retorna `modeShapeCandidatesHz` e n√£o recebe esse valor como par√¢metro.
+
+### `OpenPlot.ExportWorker`
+
+Cobertura observada:
+
+- testes unit√°rios para `DiskExportStore`.
+
+Lacunas atuais:
+
+- sem cobertura automatizada observada para `worker.cs`, `ComtradeBuildService`, writers COMTRADE e orquestra√ß√£o completa do job de exporta√ß√£o.
+
+### `OpenPlot.XmlImporter`
+
+Cobertura observada:
+
+- n√£o foi identificado projeto de teste espec√≠fico nem testes automatizados direcionados ao importador XML no workspace atual.
+
+### `OpenPlot.Ingestor.Gsf`
+
+Cobertura observada:
+
+- n√£o foi identificado projeto de teste espec√≠fico nem testes automatizados direcionados ao ingestor GSF no workspace atual.
 
 ## Infra de teste
 
-Os testes unit·rios usam `xUnit`, `Moq` e helpers compartilhados em `tests/OpenPlot.UnitTests/Infrastructure` para padronizar mocks e asserÁıes de resultados HTTP.
+Os testes unit√°rios usam `xUnit`, `Moq` e helpers compartilhados em `tests/OpenPlot.UnitTests/Infrastructure` para padronizar mocks e asser√ß√µes de resultados HTTP.
 
-Os testes de integraÁ„o usam:
+Os testes de integra√ß√£o usam:
 
 - `WebApplicationFactory<Program>`;
-- esquema de autenticaÁ„o de teste;
-- repositÛrio de cache analÌtico em memÛria;
-- repositÛrio de log de requests no-op;
-- serviÁo de autenticaÁ„o fake.
+- esquema de autentica√ß√£o de teste;
+- reposit√≥rio de cache anal√≠tico em mem√≥ria;
+- reposit√≥rio de log de requests no-op;
+- servi√ßo de autentica√ß√£o fake.
 
-Para suportar esse cen·rio, `OpenPlot.Api/Program.cs` expıe `public partial class Program`.
+Para suportar esse cen√°rio, `OpenPlot.Api/Program.cs` exp√µe `public partial class Program`.
 
 ## Como executar
 
-Na raiz do repositÛrio:
+Na raiz do reposit√≥rio:
 
 ```powershell
-# unit·rios
+# unit√°rios
 dotnet test tests/OpenPlot.UnitTests/OpenPlot.UnitTests.csproj
 
-# integraÁ„o HTTP
+# integra√ß√£o HTTP
 dotnet test tests/OpenPlot.Api.IntegrationTests/OpenPlot.Api.IntegrationTests.csproj
 
 # todos os testes
@@ -80,8 +143,10 @@ dotnet test tests/OpenPlot.UnitTests/OpenPlot.UnitTests.csproj
 dotnet test tests/OpenPlot.Api.IntegrationTests/OpenPlot.Api.IntegrationTests.csproj
 ```
 
-## ObservaÁıes
+## Observa√ß√µes
 
-- Os testes atuais n„o dependem de PostgreSQL real.
-- Os projetos de teste podem ser executados diretamente por `dotnet test`, mesmo quando n„o estiverem carregados na `openplot.sln` principal.
-- Uma prÛxima etapa natural È criar um projeto de integraÁ„o com banco para `RunContextRepository`, `MeasurementsRepository` e `AnalysisCacheRepository`.
+- Os testes atuais n√£o dependem de PostgreSQL real.
+- Os projetos de teste podem ser executados diretamente por `dotnet test`, mesmo quando n√£o estiverem carregados na `openplot.sln` principal.
+- H√° avisos de depend√™ncias/pacotes durante o build de teste, mas a su√≠te validada nesta tarefa passou integralmente (`69/69` unit√°rios e `18/18` integra√ß√£o).
+- Uma pr√≥xima etapa natural √© criar um projeto de integra√ß√£o com banco para `RunContextRepository`, `MeasurementsRepository` e `AnalysisCacheRepository`.
+

@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "Nqwki1nB9zw=",
+  "dgSpecHash": "jM97Gy9U3+M=",
   "success": true,
   "projectFilePath": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.XmlImporter\\OpenPlot.XmlImporter.csproj",
   "expectedPackageFiles": [
@@ -16,5 +16,15 @@
     "C:\\Users\\Win 10\\.nuget\\packages\\npgsql\\9.0.3\\npgsql.9.0.3.nupkg.sha512",
     "C:\\Users\\Win 10\\.nuget\\packages\\system.identitymodel.tokens.jwt\\8.18.0\\system.identitymodel.tokens.jwt.8.18.0.nupkg.sha512"
   ],
-  "logs": []
+  "logs": [
+    {
+      "code": "Undefined",
+      "level": "Warning",
+      "message": "Problema ao ler o arquivo de cache C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.XmlImporter\\obj\\project.nuget.cache: '<' is an invalid start of a property name. Expected a '\"'. Path: $ | LineNumber: 2 | BytePositionInLine: 0.",
+      "projectPath": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.XmlImporter\\OpenPlot.XmlImporter.csproj",
+      "warningLevel": 1,
+      "filePath": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.XmlImporter\\OpenPlot.XmlImporter.csproj",
+      "targetGraphs": []
+    }
+  ]
 }

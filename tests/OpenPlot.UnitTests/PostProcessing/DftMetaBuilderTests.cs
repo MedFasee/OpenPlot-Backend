@@ -1,4 +1,4 @@
-using OpenPlot.Features.PostProcessing.Handlers;
+ï»¿using OpenPlot.Features.PostProcessing.Handlers;
 using OpenPlot.Features.Runs.Contracts;
 using Xunit;
 
@@ -54,8 +54,9 @@ public sealed class DftMetaBuilderTests
 
         var meta = sut.Build(payload);
 
-        Assert.Equal("Espectro de Freq. do Módulo da Tensão - Sequência Positiva - 60 fasores/s", meta.Title);
+        Assert.Equal("Espectro de Freq. do MÃ³dulo da TensÃ£o - SequÃªncia Positiva - 60 fasores/s", meta.Title);
         Assert.Equal("Tempo (UTC) - Dia 01/01/2025", meta.XLabel);
         Assert.Contains("Freq", meta.YLabel, StringComparison.OrdinalIgnoreCase);
     }
 }
+

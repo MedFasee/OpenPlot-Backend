@@ -4,6 +4,7 @@ using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Abstractions;
 using OpenPlot.Features.Runs.Handlers.Base;
 using OpenPlot.Features.Runs.Repositories;
+using OpenPlot.Services.UI;
 using OpenPlot.UnitTests.Infrastructure;
 
 namespace OpenPlot.UnitTests.Features.Runs.Handlers;
@@ -13,7 +14,8 @@ public sealed class BaseSeriesHandlerTests
     private sealed class TestSeriesHandler(
         IRunContextRepository runRepository,
         IPlotMetaBuilder metaBuilder,
-        ISeriesCacheService cacheService) : BaseSeriesHandler<SimpleSeriesQuery>(runRepository, metaBuilder, cacheService)
+        ISeriesCacheService cacheService,
+        IUiMenuService uiMenus) : BaseSeriesHandler<SimpleSeriesQuery>(runRepository, metaBuilder, cacheService, uiMenus)
     {
         public IReadOnlyList<MeasurementRow> RowsToReturn { get; set; } = [];
 
@@ -40,11 +42,12 @@ public sealed class BaseSeriesHandlerTests
     private readonly Mock<IRunContextRepository> _runRepository = new();
     private readonly Mock<IPlotMetaBuilder> _metaBuilder = new();
     private readonly Mock<ISeriesCacheService> _cacheService = new();
+    private readonly Mock<IUiMenuService> _uiMenus = new();
     private readonly TestSeriesHandler _sut;
 
     public BaseSeriesHandlerTests()
     {
-        _sut = new TestSeriesHandler(_runRepository.Object, _metaBuilder.Object, _cacheService.Object);
+        _sut = new TestSeriesHandler(_runRepository.Object, _metaBuilder.Object, _cacheService.Object, _uiMenus.Object);
     }
 
     [Fact]

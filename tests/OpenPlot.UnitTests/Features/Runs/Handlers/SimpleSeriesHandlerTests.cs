@@ -4,6 +4,7 @@ using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers;
 using OpenPlot.Features.Runs.Repositories;
+using OpenPlot.Services.UI;
 using OpenPlot.UnitTests.Infrastructure;
 
 namespace OpenPlot.UnitTests.Features.Runs.Handlers;
@@ -15,6 +16,7 @@ public sealed class SimpleSeriesHandlerTests
     private readonly Mock<ITimeSeriesDownsampler> _downsampler = new();
     private readonly Mock<IPlotMetaBuilder> _metaBuilder = new();
     private readonly Mock<IAnalysisCacheRepository> _cacheRepository = new();
+    private readonly Mock<IUiMenuService> _uiMenus = new();
     private readonly SeriesAssemblyService _seriesAssembly = new();
     private readonly SimpleSeriesHandler _sut;
 
@@ -26,7 +28,8 @@ public sealed class SimpleSeriesHandlerTests
             _downsampler.Object,
             _metaBuilder.Object,
             _seriesAssembly,
-            _cacheRepository.Object);
+            _cacheRepository.Object,
+            _uiMenus.Object);
     }
 
     [Fact]

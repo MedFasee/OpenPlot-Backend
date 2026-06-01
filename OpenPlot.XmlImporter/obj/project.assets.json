@@ -550,6 +550,9 @@
           "NU1605"
         ]
       },
+      "restoreLockProperties": {
+        "restorePackagesWithLockFile": "true"
+      },
       "restoreAuditProperties": {
         "enableAudit": "true",
         "auditLevel": "low",
@@ -868,5 +871,13 @@
         }
       }
     }
-  }
+  },
+  "logs": [
+    {
+      "code": "Undefined",
+      "level": "Warning",
+      "warningLevel": 1,
+      "message": "Problema ao ler o arquivo de cache C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.XmlImporter\\obj\\project.nuget.cache: '<' is an invalid start of a property name. Expected a '\"'. Path: $ | LineNumber: 2 | BytePositionInLine: 0."
+    }
+  ]
 }

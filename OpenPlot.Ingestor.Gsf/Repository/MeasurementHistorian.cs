@@ -16,7 +16,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
         private static readonly HttpClient httpClient = new HttpClient();
 
         readonly string connectionString;
-        readonly string connectionStringHTTPS;
+        readonly string connectionStringHTTPS = string.Empty;
 
         public MeasurementHistorian(string ip, int port, string user, string pass) : base(ip, user, pass)
         {
@@ -216,7 +216,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
                                 oneValid |= qualityOk;
                                 hasData = true;
 
-                                if (measurementsById.TryGetValue(historianId, out Channel key))
+                                if (measurementsById.TryGetValue(historianId, out var key) && key is not null)
                                 {
                                     double time = TimeUtils.OaDate(measureTime);
                                     series[key].Add(time, value);

@@ -1,75 +1,70 @@
 services:
-  db:
-    image: postgres:16
+  postgres:
+    image: postgres:17-alpine
+    container_name: openplot-postgres
     environment:
-      POSTGRES_DB: openplot
-      POSTGRES_USER: openplot
-      POSTGRES_PASSWORD: openplot
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./init_SQL:/docker-entrypoint-initdb.d/init.sql:ro
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+      - ./database/dumps:/dumps:ro
+    networks:
+      - openplot-network
 
-  api:
+  openplot-api:
     build:
       context: .
       dockerfile: OpenPlot.Api/Dockerfile
+    container_name: openplot-api
     environment:
-      ASPNETCORE_URLS: http://+:8080
-      ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__Default: Host=db;Port=5432;Database=openplot;Username=openplot;Password=openplot
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:7011
+      ConnectionStrings__Db: Host=postgres;Port=5432;Database=postgres;Username=postgres;Password=postgres
+      XmlFolder: /data/xml
     ports:
-      - "8080:8080"
-    depends_on:
-      - db
-    restart: unless-stopped
-
-  web:
-    build:
-      context: ../medplotweb-main_14112025/medplotweb-main/medplot-web
-      dockerfile: ../Dockerfile
-    env_file:
-      - ../medplotweb-main_14112025/medplotweb-main/medplot-web/.env.development
-    ports:
-      - "5173:5173"
+      - "7011:7011"
     volumes:
-      - ../medplotweb-main_14112025/medplotweb-main/medplot-web/src:/app/src
-      - ../medplotweb-main_14112025/medplotweb-main/medplot-web/public:/app/public
-      - /app/node_modules
-    depends_on:
-      - api
-    restart: unless-stopped
+      - ${OPENPLOT_DATA_ROOT}/xml:/data/xml
+      - ${OPENPLOT_DATA_ROOT}/exports:/data/exports
+      - ${OPENPLOT_DATA_ROOT}/logs/api:/app/logs
+      - ./OpenPlot.Api/Auth:/app/auth:ro
+    networks:
+      - openplot-network
 
-  ingestor:
-    build:
-      context: .
-      dockerfile: OpenPlot.Ingestor.Gsf/Dockerfile
-    environment:
-      ConnectionStrings__Default: Host=db;Port=5432;Database=openplot;Username=openplot;Password=openplot
-    depends_on:
-      - db
-    restart: unless-stopped
-
-  exportworker:
+  openplot-export-worker:
     build:
       context: .
       dockerfile: OpenPlot.ExportWorker/Dockerfile
+    container_name: openplot-export-worker
     environment:
-      ConnectionStrings__Default: Host=db;Port=5432;Database=openplot;Username=openplot;Password=openplot
-    depends_on:
-      - db
-    restart: unless-stopped
+      ConnectionStrings__OpenPlotDb: Host=postgres;Port=5432;Database=postgres;Username=postgres;Password=postgres
+      Exports__RootDir: /data/exports
+    volumes:
+      - ${OPENPLOT_DATA_ROOT}/exports:/data/exports
+      - ${OPENPLOT_DATA_ROOT}/logs/export-worker:/app/logs
+    networks:
+      - openplot-network
 
-  xmlimporter:
+  openplot-ingestor-gsf:
     build:
       context: .
-      dockerfile: OpenPlot.XmlImporter/Dockerfile
+      dockerfile: OpenPlot.Ingestor.Gsf/Dockerfile
+    container_name: openplot-ingestor-gsf
     environment:
-      ConnectionStrings__Default: Host=db;Port=5432;Database=openplot;Username=openplot;Password=openplot
-    depends_on:
-      - db
-    restart: "no"
+      OPENPLOT_INGESTOR__DB: Host=postgres;Port=5432;Database=postgres;SearchPath=openplot;Username=postgres;Password=postgres
+    volumes:
+      - ${OPENPLOT_DATA_ROOT}/xml:/data/xml
+      - ${OPENPLOT_DATA_ROOT}/logs/ingestor-gsf:/app/logs
+    networks:
+      - openplot-network
 
 volumes:
-  pgdata:
+  postgres-data:
+
+networks:
+  openplot-network:
+    driver: bridge

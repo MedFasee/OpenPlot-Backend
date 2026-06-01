@@ -107,12 +107,12 @@ namespace OpenPlot.Ingestor.Gsf
     FROM openplot.pdc
     WHERE pdc_id = @pdc_id;";
 
-            string name = null;
-            string kind = null;
+            string name = string.Empty;
+            string kind = string.Empty;
             int fps = 0;
-            string addr = null;
-            string user = null;
-            string pass = null;
+            string? addr = null;
+            string user = string.Empty;
+            string pass = string.Empty;
             string dbName = "";   // 👈 NOVO
 
             using (var cmd = new NpgsqlCommand(sqlPdc, conn))

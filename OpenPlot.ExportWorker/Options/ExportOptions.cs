@@ -2,7 +2,7 @@
 
 public sealed class ExportOptions
 {
-    public string RootDir { get; set; } = "C:\\OpenPlot\\exports";
+    public string RootDir { get; set; } = "/data/exports";
     public int PollIntervalMs { get; set; } = 1500;
     public int MaxParallelJobs { get; set; } = 0;
     public int MaxCpuUsagePercent { get; set; } = 75;

@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
 	<ServerGarbageCollection>true</ServerGarbageCollection>
-	<TargetFramework>net10.0</TargetFramework>
+	<TargetFramework>net9.0</TargetFramework>
 	<OutputType>Exe</OutputType>
 	<RootNamespace>OpenPlot.Ingestor.Gsf</RootNamespace>
 	<AssemblyName>OpenPlot.Ingestor.Gsf</AssemblyName>
@@ -14,21 +14,28 @@
 	<Platforms>AnyCPU;x64;x86</Platforms>
 	<RunAnalyzersDuringLiveAnalysis>False</RunAnalyzersDuringLiveAnalysis>
 	<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+	<Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Gemstone.SnapDB" Version="1.0.103" />
+	<PackageReference Include="Gemstone.Common" Version="$(GemstoneVersion)" />
+	<PackageReference Include="Gemstone.Communication" Version="$(GemstoneVersion)" />
+	<PackageReference Include="Gemstone.Configuration" Version="$(GemstoneVersion)" />
+	<PackageReference Include="Gemstone.Diagnostics" Version="$(GemstoneVersion)" />
+	<PackageReference Include="Gemstone.Expressions" Version="$(GemstoneVersion)" />
+	<PackageReference Include="Gemstone.IO" Version="$(GemstoneVersion)" />
+	<PackageReference Include="Gemstone.Numeric" Version="$(GemstoneVersion)" />
+	<PackageReference Include="Gemstone.Security" Version="$(GemstoneVersion)" />
+	<PackageReference Include="Gemstone.SnapDB" Version="1.0.103" />
+	<PackageReference Include="Gemstone.Threading" Version="$(GemstoneVersion)" />
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.1" />
-    <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
+	<PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.3" />
     <PackageReference Include="MySql.Data" Version="6.10.9" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Npgsql" Version="5.0.18" />
     <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
     <PackageReference Include="System.Data.DataSetExtensions" Version="4.5.0" />
     <PackageReference Include="System.Management" Version="10.0.1" />
-    <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.1.2" />
-    <PackageReference Include="System.Text.Encodings.Web" Version="10.0.1" />
-    <PackageReference Include="System.Text.Json" Version="10.0.1" />
-    <PackageReference Include="System.Threading.Channels" Version="10.0.1" />
     <PackageReference Include="System.Configuration.ConfigurationManager" Version="10.0.1" />
+	<PackageReference Include="System.Security.Cryptography.Xml" Version="8.0.3" />
   </ItemGroup>
 </Project>

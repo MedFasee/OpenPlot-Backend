@@ -41,8 +41,11 @@ public class HistorianValue : SnapTypeBase<HistorianValue>
         destination.Value3 = Value3;
     }
 
-    public override int CompareTo(HistorianValue other)
+    public override int CompareTo(HistorianValue? other)
     {
+        if (other is null)
+            return 1;
+
         if (Value1 != other.Value1) return Value1 < other.Value1 ? -1 : 1;
         if (Value2 != other.Value2) return Value2 < other.Value2 ? -1 : 1;
         if (Value3 != other.Value3) return Value3 < other.Value3 ? -1 : 1;
@@ -67,8 +70,8 @@ public class HistorianValue : SnapTypeBase<HistorianValue>
         return Value3 < right.Value3;
     }
 
-    public override bool IsEqualTo(HistorianValue right) =>
-        Value1 == right.Value1 && Value2 == right.Value2 && Value3 == right.Value3;
+    public override bool IsEqualTo(HistorianValue? right) =>
+        right is not null && Value1 == right.Value1 && Value2 == right.Value2 && Value3 == right.Value3;
 
     public override bool IsGreaterThan(HistorianValue right)
     {

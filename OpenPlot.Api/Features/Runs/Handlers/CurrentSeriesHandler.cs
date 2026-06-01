@@ -4,6 +4,7 @@ using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Responses;
 using OpenPlot.Features.Runs.Repositories;
 using OpenPlot.Core.TimeSeries;
+using OpenPlot.Services.UI;
 
 namespace OpenPlot.Features.Runs.Handlers;
 
@@ -16,6 +17,7 @@ public sealed class CurrentSeriesHandler
     private readonly ISeriesAssemblyService _seriesAssembly;
     private readonly ITimeSeriesDownsampler _down = new TimeBucketMinMaxDownsampler();
     private readonly IAnalysisCacheRepository _cacheRepo;
+    private readonly IUiMenuService _uiMenus;
 
     public CurrentSeriesHandler(
         IRunContextRepository runs,
@@ -23,7 +25,8 @@ public sealed class CurrentSeriesHandler
         IPlotMetaBuilder meta,
         IPhasorRequestService phasorRequest,
         ISeriesAssemblyService seriesAssembly,
-        IAnalysisCacheRepository cacheRepo)
+        IAnalysisCacheRepository cacheRepo,
+        IUiMenuService uiMenus)
     {
         _runs = runs;
         _meas = meas;
@@ -31,6 +34,7 @@ public sealed class CurrentSeriesHandler
         _phasorRequest = phasorRequest;
         _seriesAssembly = seriesAssembly;
         _cacheRepo = cacheRepo;
+        _uiMenus = uiMenus;
     }
 
     // Recebe modes já resolvidos no endpoint
@@ -123,7 +127,7 @@ public sealed class CurrentSeriesHandler
         var cachePayload = _seriesAssembly.BuildCachePayload(
             windowFrom,
             windowTo2,
-            (int)ctx.SelectRate,
+            ctx.SelectRate ?? 0,
             cacheSeries);
 
         var cacheId = await _cacheRepo.SaveAsync(q.RunId, cachePayload, ct);
@@ -158,10 +162,13 @@ public sealed class CurrentSeriesHandler
             .ToList();
 
         var plotMeta = _meta.Build(w, ctx, meas);
+        var resolvedModes = _uiMenus.RebuildForRun(
+            modes,
+            UiMenuContext.FromCache(cachePayload));
 
         var response = SeriesResponseBuilderExtensions
             .BuildSeriesResponse(q.RunId, windowFrom, windowTo2, series, plotMeta)
-            .WithModes(modes)
+            .WithModes(resolvedModes)
             .WithCacheId(cacheId)
             .WithResolved(ctx.PdcName, series.Select(s => s.pmu).Distinct(StringComparer.OrdinalIgnoreCase).Count())
             .WithTypeFields(new Dictionary<string, object?>

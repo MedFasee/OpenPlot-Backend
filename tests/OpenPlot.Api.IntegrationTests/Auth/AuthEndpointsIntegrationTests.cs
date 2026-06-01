@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -51,6 +51,7 @@ public sealed class AuthEndpointsIntegrationTests(OpenPlotApiFactory factory) : 
         Assert.Equal(HttpStatusCode.OK, logoutResponse.StatusCode);
 
         using var json = JsonDocument.Parse(await logoutResponse.Content.ReadAsStringAsync());
-        Assert.Equal("Sess�o encerrada", json.RootElement.GetProperty("message").GetString());
+        Assert.Equal("Sessão encerrada", json.RootElement.GetProperty("message").GetString());
     }
 }
+

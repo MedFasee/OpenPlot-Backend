@@ -30,10 +30,10 @@ namespace OpenPlot.Ingestor.Gsf.Repository
 
         public class TimeSeriesDataWrapper
         {
-            public List<MeasurementData> TimeSeriesDataPoints { get; set; }
+            public List<MeasurementData> TimeSeriesDataPoints { get; set; } = new();
         }
 
-        public IEnumerable<MeasurementData> FetchHistorianData(string historianServer, string instanceName, DateTime startTime, DateTime stopTime, int dataRate, int equipmentRate, string measurementIDs = null, TimeSpan interval = default(TimeSpan))
+        public IEnumerable<MeasurementData> FetchHistorianData(string historianServer, string instanceName, DateTime startTime, DateTime stopTime, int dataRate, int equipmentRate, string? measurementIDs = null, TimeSpan interval = default)
         {
             int DefaultHistorianPort = 38402;
 
@@ -54,7 +54,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
                 port = DefaultHistorianPort;
 
             using (SnapClient client = SnapClient.Connect(hostName, port))
-            using (ClientDatabaseBase<HistorianKey, HistorianValue> reader = client.GetDatabase<HistorianKey, HistorianValue>(instanceName))
+            using (ClientDatabaseBase<HistorianKey, HistorianValue> reader = client.GetDatabase<HistorianKey, HistorianValue>(instanceName) ?? throw new InvalidOperationException($"Instância do historian '{instanceName}' não encontrada."))
             {
                 SeekFilterBase<HistorianKey> timeFilter;
 
@@ -65,7 +65,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
                 else
                     timeFilter = TimestampSeekFilter.CreateFromRange<HistorianKey>((ulong)startTime.Ticks, (ulong)stopTime.Ticks);
 
-                MatchFilterBase<HistorianKey, HistorianValue> pointFilter = null;
+                MatchFilterBase<HistorianKey, HistorianValue>? pointFilter = null;
                 HistorianKey key = new HistorianKey();
                 HistorianValue value = new HistorianValue();
 
@@ -82,7 +82,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
             }
         }
 
-        public string FetchHistorianDataAsString(string historianServer, string instanceName, DateTime startTime, DateTime stopTime, int dataRate, int equipmentRate, string measurementIDs = null, TimeSpan interval = default(TimeSpan))
+        public string FetchHistorianDataAsString(string historianServer, string instanceName, DateTime startTime, DateTime stopTime, int dataRate, int equipmentRate, string? measurementIDs = null, TimeSpan interval = default)
         {
             IEnumerable<MeasurementData> historianData = FetchHistorianData(historianServer, "PPA", startTime, stopTime, dataRate, equipmentRate, measurementIDs, interval);
 
