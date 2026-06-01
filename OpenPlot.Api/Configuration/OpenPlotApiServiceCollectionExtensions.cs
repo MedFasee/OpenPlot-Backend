@@ -2,6 +2,7 @@ using System.Data;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -47,7 +48,7 @@ internal static class OpenPlotApiServiceCollectionExtensions
 
     internal static WebApplicationBuilder AddOpenPlotApiServices(this WebApplicationBuilder builder)
     {
-        builder.Services.AddOpenPlotCors();
+        builder.Services.AddOpenPlotCors(builder.Configuration);
         builder.Services.AddOpenPlotDataAccess(builder.Configuration);
         builder.Services.AddOpenPlotLogging();
         builder.Services.AddOpenPlotDomainServices();
@@ -59,21 +60,57 @@ internal static class OpenPlotApiServiceCollectionExtensions
         return builder;
     }
 
-    private static IServiceCollection AddOpenPlotCors(this IServiceCollection services)
+    private static IServiceCollection AddOpenPlotCors(this IServiceCollection services, IConfiguration configuration)
     {
+        var corsSettings = CorsSettings.FromConfiguration(configuration);
+
         services.AddCors(options =>
         {
             options.AddPolicy(DevCorsPolicyName, policy =>
             {
-                policy
-                    .SetIsOriginAllowed(_ => true)
-                    .AllowAnyHeader()
-                    .AllowAnyMethod()
-                    .AllowCredentials();
+                ConfigureCorsPolicy(policy, corsSettings);
             });
         });
 
         return services;
+    }
+
+    private static void ConfigureCorsPolicy(CorsPolicyBuilder policy, CorsSettings settings)
+    {
+        if (settings.AllowAnyOrigin)
+        {
+            policy.SetIsOriginAllowed(_ => true);
+        }
+        else
+        {
+            if (settings.AllowedOrigins.Length == 0)
+                throw new InvalidOperationException("Configure ao menos uma origem válida em Cors:AllowedOrigins.");
+
+            policy.WithOrigins(settings.AllowedOrigins);
+        }
+
+        policy
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    }
+
+    private sealed record CorsSettings(bool AllowAnyOrigin, string[] AllowedOrigins)
+    {
+        public static CorsSettings FromConfiguration(IConfiguration configuration)
+        {
+            var corsSection = configuration.GetSection("Cors");
+            var allowAnyOrigin = corsSection.GetValue<bool>("AllowAnyOrigin");
+            var allowedOrigins = corsSection
+                .GetSection("AllowedOrigins")
+                .Get<string[]>()?
+                .Where(origin => !string.IsNullOrWhiteSpace(origin))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray()
+                ?? [];
+
+            return new CorsSettings(allowAnyOrigin, allowedOrigins);
+        }
     }
 
     private static IServiceCollection AddOpenPlotDataAccess(this IServiceCollection services, IConfiguration configuration)
