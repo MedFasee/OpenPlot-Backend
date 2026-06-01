@@ -13,7 +13,9 @@ public sealed class ExportEndpointsValidationTests
     [Theory]
     [InlineData("done")]
     [InlineData("DONE")]
-    public void CanConvertSearchRun_WhenStatusIsDone_ReturnsTrue(string status)
+    [InlineData("completed")]
+    [InlineData("COMPLETED")]
+    public void CanConvertSearchRun_WhenStatusIsCompletedOrDone_ReturnsTrue(string status)
     {
         Assert.True(ExportEndpoints.CanConvertSearchRun(status));
     }
@@ -22,9 +24,8 @@ public sealed class ExportEndpointsValidationTests
     [InlineData("queued")]
     [InlineData("running")]
     [InlineData("failed")]
-    [InlineData("completed")]
     [InlineData(null)]
-    public void CanConvertSearchRun_WhenStatusIsNotDone_ReturnsFalse(string? status)
+    public void CanConvertSearchRun_WhenStatusIsIncomplete_ReturnsFalse(string? status)
     {
         Assert.False(ExportEndpoints.CanConvertSearchRun(status));
     }
