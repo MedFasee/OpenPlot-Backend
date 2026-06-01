@@ -99,13 +99,13 @@ internal sealed class IngestorJobProcessor : IIngestorJobProcessor
                         conn,
                         tx2,
                         job.Id,
-                         "completed",
+                        "no_data",
                         100,
                         "Consulta executada com sucesso, porém sem dados no intervalo solicitado");
                 }
                 else
                 {
-                     DbOps.MarkFinished(conn, tx2, job.Id, "completed", 100, "Concluído");
+                    DbOps.MarkFinished(conn, tx2, job.Id, "done", 100, "Concluído");
                 }
 
                 tx2.Commit();
@@ -209,7 +209,7 @@ internal sealed class IngestorJobProcessor : IIngestorJobProcessor
         try
         {
             using var tx = conn.BeginTransaction();
-            DbOps.MarkFinished(conn, tx, id, "failed", 0, msg);
+            DbOps.MarkFinished(conn, tx, id, "bad_connection", 0, msg);
             tx.Commit();
         }
         catch

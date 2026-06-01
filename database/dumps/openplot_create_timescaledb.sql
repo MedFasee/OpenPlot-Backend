@@ -251,7 +251,7 @@ CREATE TABLE IF NOT EXISTS openplot.search_runs (
         REFERENCES openplot.pdc (pdc_id)
         ON DELETE SET NULL,
     CONSTRAINT search_runs_status_check CHECK (
-        status IN ('queued', 'running', 'completed', 'failed', 'canceled')
+        status IN ('queued', 'running', 'done', 'failed', 'canceled')
     ),
     CONSTRAINT search_runs_progress_check CHECK (progress >= 0 AND progress <= 100),
     CONSTRAINT search_runs_select_rate_check CHECK (select_rate >= 0),
@@ -321,7 +321,7 @@ CREATE TABLE IF NOT EXISTS openplot.comtrade_runs (
         REFERENCES openplot.search_runs (id)
         ON DELETE RESTRICT,
     CONSTRAINT comtrade_runs_status_check CHECK (
-        status IN ('queued', 'running', 'completed', 'failed', 'canceled')
+        status IN ('queued', 'running', 'done', 'failed', 'canceled')
     ),
     CONSTRAINT comtrade_runs_progress_check CHECK (progress >= 0 AND progress <= 100),
     CONSTRAINT comtrade_runs_size_bytes_check CHECK (size_bytes IS NULL OR size_bytes >= 0),

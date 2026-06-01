@@ -44,49 +44,20 @@ CREATE TABLE IF NOT EXISTS openplot.search_runs (
   id           uuid         PRIMARY KEY,
   source       text         NOT NULL,
   terminal_id  text         NULL,
-  pmus         jsonb        NULL,
   signals      jsonb        NOT NULL,
   from_ts      timestamptz  NOT NULL,
   to_ts        timestamptz  NOT NULL,
   select_rate  int          NOT NULL DEFAULT 0,
-  status       text         NOT NULL DEFAULT 'queued',
+  status       text         NOT NULL,
   progress     int          NOT NULL DEFAULT 0,
   message      text         NULL,
   created_at   timestamptz  NOT NULL DEFAULT now(),
-  pdc_id       int          NULL REFERENCES openplot.pdc(pdc_id) ON DELETE SET NULL,
-  signal_count int          NULL DEFAULT 0,
-  pmu_count    int          NULL DEFAULT 0,
-  label        text         NULL,
-  pmus_ok      jsonb        NULL,
-  username     text         NULL,
-  shared       boolean      NOT NULL DEFAULT false,
-  is_visible   boolean      NOT NULL DEFAULT true,
-  deleted_at   timestamptz  NULL,
   started_at   timestamptz  NULL,
-  finished_at  timestamptz  NULL
+  finished_at     timestamptz  NULL
 );
 
-ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS pmus jsonb NULL;
-ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS pdc_id int NULL REFERENCES openplot.pdc(pdc_id) ON DELETE SET NULL;
-ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS signal_count int NULL DEFAULT 0;
-ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS pmu_count int NULL DEFAULT 0;
-ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS label text NULL;
-ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS pmus_ok jsonb NULL;
-ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS username text NULL;
-ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS shared boolean NOT NULL DEFAULT false;
-ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS is_visible boolean NOT NULL DEFAULT true;
-ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS deleted_at timestamptz NULL;
 ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS started_at timestamptz NULL;
 ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS finished_at timestamptz NULL;
-
-UPDATE openplot.search_runs
-   SET status = CASE LOWER(status)
-       WHEN 'done' THEN 'completed'
-       WHEN 'no_data' THEN 'completed'
-       WHEN 'bad_connection' THEN 'failed'
-       ELSE LOWER(status)
-   END
- WHERE LOWER(status) IN ('queued', 'running', 'completed', 'failed', 'canceled', 'done', 'no_data', 'bad_connection');
 
 CREATE TABLE IF NOT EXISTS openplot.ingest_chunks (
   id          bigserial      PRIMARY KEY,
