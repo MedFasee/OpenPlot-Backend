@@ -168,13 +168,13 @@ WHERE p.pdc_pmu_id = m.pdc_pmu_id
         CancellationToken ct)
     {
         const string sql = @"
-INSERT INTO openplot.pdc (name, kind, fps, address, user_name, password, db_name)
-VALUES (@name, @kind, @fps, @addr, @user_name, @password, @db_name)
+INSERT INTO openplot.pdc (name, kind, fps, address, username, password, db_name)
+VALUES (@name, @kind, @fps, @addr, @username, @password, @db_name)
 ON CONFLICT (name) DO UPDATE
 SET kind      = EXCLUDED.kind,
     fps       = EXCLUDED.fps,
     address   = EXCLUDED.address,
-    user_name = EXCLUDED.user_name,
+    username  = EXCLUDED.username,
     password  = EXCLUDED.password,
     db_name   = EXCLUDED.db_name
 RETURNING pdc_id;";
@@ -184,7 +184,7 @@ RETURNING pdc_id;";
         cmd.Parameters.AddWithValue("kind", kind);
         cmd.Parameters.AddWithValue("fps", fps);
         cmd.Parameters.AddWithValue("addr", addr ?? string.Empty);
-        cmd.Parameters.AddWithValue("user_name", (object?)userName ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("username", (object?)userName ?? DBNull.Value);
         cmd.Parameters.AddWithValue("password", (object?)password ?? DBNull.Value);
         cmd.Parameters.AddWithValue("db_name", (object?)dbName ?? DBNull.Value);
 

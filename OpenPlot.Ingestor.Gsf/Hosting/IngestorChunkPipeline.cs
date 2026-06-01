@@ -214,7 +214,7 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                     }
 
                     using (var upsert = new NpgsqlCommand(@"
-                        INSERT INTO openplot.measurements (ts, pdc_pmu_id, signal_id, value)
+                        INSERT INTO openplot.measurements_ht (ts, pdc_pmu_id, signal_id, value)
                         SELECT ts, pdc_pmu_id, signal_id, value
                           FROM measurements_stage_tmp
                         ON CONFLICT (pdc_pmu_id, signal_id, ts) DO NOTHING;", connCopy, txCopy))
@@ -418,7 +418,7 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
         conn.Open();
         using var cmd = new NpgsqlCommand(@"
             SELECT COUNT(DISTINCT signal_id)
-              FROM openplot.measurements
+              FROM openplot.measurements_ht
              WHERE pdc_pmu_id = @pp
                AND signal_id   = ANY(@sids)
                AND ts >= @from AND ts < @to;", conn);

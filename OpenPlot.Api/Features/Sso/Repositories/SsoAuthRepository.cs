@@ -6,12 +6,10 @@ namespace OpenPlot.Features.Sso.Repositories;
 public sealed class SsoAuthRepository : ISsoAuthRepository
 {
     private readonly IDbConnectionFactory _dbf;
-    private readonly IOpenPlotDatabaseBootstrapper _bootstrapper;
 
-    public SsoAuthRepository(IDbConnectionFactory dbf, IOpenPlotDatabaseBootstrapper bootstrapper)
+    public SsoAuthRepository(IDbConnectionFactory dbf)
     {
         _dbf = dbf;
-        _bootstrapper = bootstrapper;
     }
 
     public async Task<bool> TryRegisterNonceAsync(
@@ -21,8 +19,6 @@ public sealed class SsoAuthRepository : ISsoAuthRepository
         DateTime expiresAtUtc,
         CancellationToken ct = default)
     {
-        await _bootstrapper.EnsureInitializedAsync(ct);
-
         await using var conn = (DbConnection)_dbf.Create();
         await conn.OpenAsync(ct);
         await PurgeExpiredNoncesAsync(conn, ct);
@@ -55,8 +51,6 @@ ON CONFLICT (client_id, nonce) DO NOTHING;";
         DateTime expiresAtUtc,
         CancellationToken ct = default)
     {
-        await _bootstrapper.EnsureInitializedAsync(ct);
-
         await using var conn = (DbConnection)_dbf.Create();
         await conn.OpenAsync(ct);
         await PurgeExpiredLoginTokensAsync(conn, ct);
@@ -81,8 +75,6 @@ VALUES (@Id, @Token, @ConsultaId, @OriginClient, @CreatedAtUtc, @ExpiresAtUtc, F
 
     public async Task<ConsumedSsoLoginToken?> ConsumeLoginTokenAsync(string token, CancellationToken ct = default)
     {
-        await _bootstrapper.EnsureInitializedAsync(ct);
-
         await using var conn = (DbConnection)_dbf.Create();
         await conn.OpenAsync(ct);
         await PurgeExpiredLoginTokensAsync(conn, ct);

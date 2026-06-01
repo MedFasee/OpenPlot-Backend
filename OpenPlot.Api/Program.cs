@@ -1,5 +1,4 @@
 using System.Threading;
-using Microsoft.Extensions.DependencyInjection;
 using OpenPlot.Api.Configuration;
 using Serilog;
 using Serilog.Events;
@@ -31,12 +30,6 @@ builder
 // PIPELINE
 // ======================================================================
 var app = builder.Build();
-
-await using (var scope = app.Services.CreateAsyncScope())
-{
-    var bootstrapper = scope.ServiceProvider.GetRequiredService<IOpenPlotDatabaseBootstrapper>();
-    await bootstrapper.EnsureInitializedAsync();
-}
 
 app.UseOpenPlotApiPipeline()
    .MapOpenPlotApiEndpoints();

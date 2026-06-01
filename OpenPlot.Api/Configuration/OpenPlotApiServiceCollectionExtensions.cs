@@ -116,10 +116,9 @@ internal static class OpenPlotApiServiceCollectionExtensions
     private static IServiceCollection AddOpenPlotDataAccess(this IServiceCollection services, IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString("Db")
-            ?? "Host=postgres;Port=5432;Database=postgres;Username=postgres;Password=postgres";
+            ?? "Host=postgres;Port=5432;Database=openplot;Username=postgres;Password=postgres";
 
         services.AddScoped<IDbConnectionFactory>(_ => new NpgsqlConnectionFactory(connectionString));
-        services.AddSingleton<IOpenPlotDatabaseBootstrapper, OpenPlotDatabaseBootstrapper>();
         services.AddScoped<IApiRequestLogRepository, ApiRequestLogRepository>();
         services.AddScoped<IRunContextRepository, RunContextRepository>();
         services.AddScoped<IMeasurementsRepository, MeasurementsRepository>();

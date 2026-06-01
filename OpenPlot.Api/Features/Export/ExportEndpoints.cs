@@ -20,7 +20,8 @@ public static class ExportEndpoints
     private const string ExportFileNotFoundOnDiskMessage = "arquivo de exporta\u00E7\u00E3o n\u00E3o encontrado em disco.";
 
     internal static bool CanConvertSearchRun(string? runStatus) =>
-        string.Equals(runStatus, "done", StringComparison.OrdinalIgnoreCase);
+        string.Equals(runStatus, "completed", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(runStatus, "done", StringComparison.OrdinalIgnoreCase);
 
     internal static object BuildIncompleteRunError(string? runStatus) => new
     {

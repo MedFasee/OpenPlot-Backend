@@ -19,11 +19,11 @@ public sealed class ApiRequestLogRepository : IApiRequestLogRepository
         const string sql = @"
             INSERT INTO openplot.api_request_log
             (timestamp_utc, method, path, status_code, elapsed_ms,
-             user_name, user_id, ip, correlation_id, user_agent,
+             username, user_id, ip, correlation_id, user_agent,
              protocol, content_type, content_length, request_body, query_string)
             VALUES
             (@timestamp_utc, @method, @path, @status_code, @elapsed_ms,
-             @user_name, @user_id, @ip, @correlation_id, @user_agent,
+             @username, @user_id, @ip, @correlation_id, @user_agent,
              @protocol, @content_type, @content_length, @request_body, @query_string);";
 
         await using var conn = (DbConnection)_dbf.Create();
@@ -37,7 +37,7 @@ public sealed class ApiRequestLogRepository : IApiRequestLogRepository
         AddParam(cmd, "path", entry.Path);
         AddParam(cmd, "status_code", entry.StatusCode);
         AddParam(cmd, "elapsed_ms", entry.ElapsedMs);
-        AddParam(cmd, "user_name", (object?)entry.UserName ?? DBNull.Value);
+        AddParam(cmd, "username", (object?)entry.UserName ?? DBNull.Value);
         AddParam(cmd, "user_id", (object?)entry.UserId ?? DBNull.Value);
         AddParam(cmd, "ip", (object?)entry.Ip ?? DBNull.Value);
         AddParam(cmd, "correlation_id", (object?)entry.CorrelationId ?? DBNull.Value);

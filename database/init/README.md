@@ -1,14 +1,15 @@
 # Bootstrap do banco OpenPlot
 
 ## Estado atual
-- O restore inicial do banco é feito por `01-restore.sh`.
-- Após o restore, o script já garante de forma idempotente o índice único `ux_signal_pdc_pmu_name_phase_component` em `openplot.signal`.
-- A API também garante esse índice na inicialização para complementar o bootstrap do ambiente.
-- O sistema não depende mais de `search_path` para executar o upsert de sinais.
+- O bootstrap do banco no Docker Compose não usa mais restore de dump.
+- O serviço `postgres` monta diretamente `database/dumps/openplot_create_timescaledb.sql` em `/docker-entrypoint-initdb.d`.
+- O banco sobe em uma imagem `timescale/timescaledb` já preparada para habilitar a extensão TimescaleDB.
+- O script principal também concentra as tabelas auxiliares do sistema, incluindo logs da API e SSO.
 
 ## Impacto operacional
-- Não é mais necessário executar manualmente um script de `search_path` após criar o banco.
-- Os fluxos de importação (`OpenPlot.XmlImporter` e importação XML da API) também garantem o índice antes de usar `ON CONFLICT` em `openplot.signal`.
+- Em ambiente novo, o schema é criado do zero a partir do script SQL principal.
+- O volume do PostgreSQL precisa estar vazio na primeira subida para que o `docker-entrypoint-initdb.d` execute o bootstrap.
+- Os serviços da aplicação continuam se conectando ao database `postgres`, usando o schema `openplot`.
 
 ## Observação
-- Se o banco for recriado pelo fluxo padrão do projeto, o índice será provisionado automaticamente durante o restore.
+- Se o volume `postgres-data` já existir com dados antigos, remova-o antes de recriar o ambiente para reaplicar o bootstrap inicial.

@@ -60,7 +60,7 @@ SELECT
 
   CASE
     WHEN c.run_id IS NULL THEN 'absent'
-    WHEN LOWER(c.status) IN ('queued', 'running', 'failed', 'done') THEN LOWER(c.status)
+    WHEN LOWER(c.status) IN ('queued', 'running', 'failed', 'completed', 'done') THEN LOWER(c.status)
     ELSE 'absent'
   END AS conv_comtrade
 
@@ -84,7 +84,7 @@ FROM openplot.search_runs WHERE id=@id LIMIT 1;";
         public const string ListRecentDone = @"
 SELECT id, source, terminal_id, signals::text, from_ts, to_ts, select_rate, status, created_at
 FROM openplot.search_runs
-WHERE status IN ('done','completed','finished')
+WHERE status IN ('completed','done','finished')
 ORDER BY created_at DESC
 LIMIT 5000;";
     }

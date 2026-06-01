@@ -99,6 +99,8 @@ Referencias principais:
 
 O material base desta secao foi consolidado a partir de `docs/docker_compose/doc.pdf`.
 
+O compose do backend foi ajustado para subir o banco em Linux com TimescaleDB.
+
 ### Ambiente recomendado
 
 - Em servidor Windows 2022 ou superior, a topologia recomendada e:
@@ -115,11 +117,15 @@ O material base desta secao foi consolidado a partir de `docs/docker_compose/doc
 
 - Manter `ASPNETCORE_ENVIRONMENT` como `Development` no `docker-compose.yml`.
 - Ajustar o diretorio raiz dos arquivos externos por meio da variavel `OPENPLOT_DATA_ROOT` no arquivo `.env`.
+- O servico `postgres` utiliza a imagem `timescale/timescaledb:latest-pg17`.
+- O banco inicializado pelo compose continua sendo `postgres`.
+- O bootstrap completo do schema acontece a partir de `database/dumps/openplot_create_timescaledb.sql`.
+- Esse script concentra a criacao das estruturas do OpenPlot, incluindo TimescaleDB, hypertable `openplot.measurements_ht`, view de compatibilidade `openplot.measurements`, logs da API e tabelas de SSO.
 
-Exemplo atual do workspace:
+Exemplo para ambiente Linux:
 
 ```env
-OPENPLOT_DATA_ROOT=C:\Users\Win 10\OneDrive\Documentos\OpenPlot
+OPENPLOT_DATA_ROOT=/srv/openplot
 ```
 
 Com essa configuracao, o compose monta automaticamente:
@@ -127,6 +133,13 @@ Com essa configuracao, o compose monta automaticamente:
 - `${OPENPLOT_DATA_ROOT}/xml` em `/data/xml`;
 - `${OPENPLOT_DATA_ROOT}/exports` em `/data/exports`;
 - `${OPENPLOT_DATA_ROOT}/logs/...` para os logs dos servicos.
+
+Observacoes sobre o banco:
+
+- O container carrega a extensao TimescaleDB no startup do PostgreSQL.
+- O bootstrap automatico so roda na primeira inicializacao do volume `postgres-data`.
+- O schema da aplicacao continua sendo `openplot`, mesmo com o database nomeado como `postgres`.
+- Para recriar o banco do zero com o novo schema, remova o volume antes de subir novamente.
 
 Tambem e necessario copiar o conteudo de `Config` para `openplot-data/xml` antes da execucao quando esse diretório for a fonte dos XMLs consumidos pela aplicacao.
 

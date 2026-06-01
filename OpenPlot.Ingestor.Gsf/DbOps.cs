@@ -19,12 +19,12 @@ CREATE TABLE IF NOT EXISTS openplot.signal_points (
   UNIQUE (signal_id, role)
 );
 
-CREATE TABLE IF NOT EXISTS openplot.measurements (
+CREATE TABLE IF NOT EXISTS openplot.measurements_ht (
   ts        timestamptz      NOT NULL,
   pdc_pmu_id int             NOT NULL REFERENCES openplot.pdc_pmu(pdc_pmu_id) ON DELETE CASCADE,
   signal_id int              NOT NULL REFERENCES openplot.signal(signal_id) ON DELETE CASCADE,
   value     double precision NOT NULL,
-  PRIMARY KEY (signal_id, ts)
+  PRIMARY KEY (pdc_pmu_id, signal_id, ts)
 );
 
 CREATE TABLE IF NOT EXISTS openplot.measurements_raw (
@@ -32,8 +32,12 @@ CREATE TABLE IF NOT EXISTS openplot.measurements_raw (
   pdc_pmu_id int             NOT NULL REFERENCES openplot.pdc_pmu(pdc_pmu_id) ON DELETE CASCADE,
   point_id  bigint           NOT NULL,
   value     double precision NOT NULL,
-  PRIMARY KEY (pdc_id, point_id, ts)
+  PRIMARY KEY (pdc_pmu_id, point_id, ts)
 );
+
+CREATE OR REPLACE VIEW openplot.measurements AS
+SELECT ts, pdc_pmu_id, signal_id, value
+  FROM openplot.measurements_ht;
 
 -- fila / jobs
 CREATE TABLE IF NOT EXISTS openplot.search_runs (

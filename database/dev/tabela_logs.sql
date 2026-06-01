@@ -9,7 +9,7 @@ CREATE TABLE openplot.api_request_log (
     path            VARCHAR(512)    NOT NULL,
     status_code     INT             NOT NULL,
     elapsed_ms      INT             NOT NULL,
-    user_name       VARCHAR(255)    NULL,
+    username        VARCHAR(255)    NULL,
     user_id         VARCHAR(255)    NULL,
     ip              VARCHAR(45)     NULL,
     correlation_id  VARCHAR(64)     NULL,
@@ -24,7 +24,7 @@ CREATE INDEX idx_api_request_log_path
     ON openplot.api_request_log (path);
 
 CREATE INDEX idx_api_request_log_user 
-    ON openplot.api_request_log (user_name);
+    ON openplot.api_request_log (username);
 
 CREATE INDEX idx_api_request_log_corr 
     ON openplot.api_request_log (correlation_id);

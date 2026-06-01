@@ -1,7 +1,8 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: timescale/timescaledb:latest-pg17
     container_name: openplot-postgres
+    command: postgres -c shared_preload_libraries=timescaledb
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres
@@ -10,15 +11,17 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./database/init:/docker-entrypoint-initdb.d:ro
-      - ./database/dumps:/dumps:ro
+      - ./database/dumps/openplot_create_timescaledb.sql:/docker-entrypoint-initdb.d/01-openplot-create-timescaledb.sql:ro
     healthcheck:
       test:
         - CMD-SHELL
         - >-
           pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" &&
           psql -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" -tAc
-          "SELECT 1 FROM information_schema.tables WHERE table_schema = 'openplot' AND table_name = 'signal'"
+          "SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'"
+          | grep -q 1 &&
+          psql -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" -tAc
+          "SELECT 1 FROM information_schema.tables WHERE table_schema = 'openplot' AND table_name = 'measurements_ht'"
           | grep -q 1
       interval: 10s
       timeout: 5s
@@ -40,9 +43,9 @@ services:
     ports:
       - "7011:7011"
     volumes:
-      - ${OPENPLOT_DATA_ROOT}/xml:/data/xml
-      - ${OPENPLOT_DATA_ROOT}/exports:/data/exports
-      - ${OPENPLOT_DATA_ROOT}/logs/api:/app/logs
+      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/xml:/data/xml
+      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/exports:/data/exports
+      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/logs/api:/app/logs
       - ./OpenPlot.Api/Auth:/app/auth:ro
     depends_on:
       postgres:
@@ -59,8 +62,8 @@ services:
       ConnectionStrings__OpenPlotDb: Host=postgres;Port=5432;Database=postgres;Username=postgres;Password=postgres
       Exports__RootDir: /data/exports
     volumes:
-      - ${OPENPLOT_DATA_ROOT}/exports:/data/exports
-      - ${OPENPLOT_DATA_ROOT}/logs/export-worker:/app/logs
+      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/exports:/data/exports
+      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/logs/export-worker:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,8 +78,8 @@ services:
     environment:
       OPENPLOT_INGESTOR__DB: Host=postgres;Port=5432;Database=postgres;Username=postgres;Password=postgres
     volumes:
-      - ${OPENPLOT_DATA_ROOT}/xml:/data/xml
-      - ${OPENPLOT_DATA_ROOT}/logs/ingestor-gsf:/app/logs
+      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/xml:/data/xml
+      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/logs/ingestor-gsf:/app/logs
     depends_on:
       postgres:
         condition: service_healthy

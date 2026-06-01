@@ -123,7 +123,7 @@ CREATE TABLE IF NOT EXISTS openplot.pdc (
     kind        text NOT NULL,
     fps         integer NOT NULL,
     address     text NOT NULL,
-    user_name   text,
+    username    text,
     password    text,
     db_name     text,
     active      boolean NOT NULL DEFAULT true,
@@ -417,7 +417,7 @@ CREATE TABLE IF NOT EXISTS openplot.api_request_log (
     path            character varying(512) NOT NULL,
     status_code     integer NOT NULL,
     elapsed_ms      integer NOT NULL,
-    user_name       character varying(255),
+    username        character varying(255),
     user_id         character varying(255),
     ip              character varying(45),
     correlation_id  character varying(64),
@@ -432,6 +432,33 @@ CREATE TABLE IF NOT EXISTS openplot.api_request_log (
     CONSTRAINT api_request_log_status_code_check CHECK (status_code >= 100 AND status_code <= 599),
     CONSTRAINT api_request_log_elapsed_ms_check CHECK (elapsed_ms >= 0),
     CONSTRAINT api_request_log_content_length_check CHECK (content_length IS NULL OR content_length >= 0)
+);
+
+-- -----------------------------------------------------------------------------
+-- SSO
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS openplot.sso_request_nonce (
+    id          uuid NOT NULL,
+    client_id   character varying(100) NOT NULL,
+    nonce       character varying(200) NOT NULL,
+    created_at  timestamp with time zone NOT NULL,
+    expires_at  timestamp with time zone NOT NULL,
+
+    CONSTRAINT sso_request_nonce_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS openplot.sso_login_token (
+    id             uuid NOT NULL,
+    token          character varying(500) NOT NULL,
+    consulta_id    character varying(100) NOT NULL,
+    origin_client  character varying(100) NOT NULL,
+    created_at     timestamp with time zone NOT NULL,
+    expires_at     timestamp with time zone NOT NULL,
+    used           boolean NOT NULL DEFAULT false,
+    used_at        timestamp with time zone,
+
+    CONSTRAINT sso_login_token_pkey PRIMARY KEY (id)
 );
 
 -- -----------------------------------------------------------------------------
@@ -461,8 +488,8 @@ ON openplot.api_request_log USING btree (path);
 CREATE INDEX IF NOT EXISTS ix_api_request_log_timestamp_utc
 ON openplot.api_request_log USING btree (timestamp_utc);
 
-CREATE INDEX IF NOT EXISTS ix_api_request_log_user_name
-ON openplot.api_request_log USING btree (user_name);
+CREATE INDEX IF NOT EXISTS ix_api_request_log_username
+ON openplot.api_request_log USING btree (username);
 
 CREATE INDEX IF NOT EXISTS ix_analysis_cache_job_id
 ON openplot.analysis_cache USING btree (job_id);
@@ -518,17 +545,23 @@ ON openplot.measurements_raw USING btree (ts);
 CREATE INDEX IF NOT EXISTS ix_measurements_raw_point_ts
 ON openplot.measurements_raw USING btree (point_id, ts);
 
+CREATE UNIQUE INDEX IF NOT EXISTS ux_sso_request_nonce_client_nonce
+ON openplot.sso_request_nonce USING btree (client_id, nonce);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_sso_login_token_token
+ON openplot.sso_login_token USING btree (token);
+
 -- -----------------------------------------------------------------------------
 -- Compressao TimescaleDB
 -- -----------------------------------------------------------------------------
 --
- ALTER TABLE openplot.measurements_ht SET (
+ALTER TABLE openplot.measurements_ht SET (
      timescaledb.compress,
      timescaledb.compress_segmentby = 'pdc_pmu_id, signal_id',
      timescaledb.compress_orderby = 'ts DESC'
  );
 --
--SELECT add_compression_policy(
+SELECT add_compression_policy(
      'openplot.measurements_ht',
      INTERVAL '7 days',
      if_not_exists => TRUE

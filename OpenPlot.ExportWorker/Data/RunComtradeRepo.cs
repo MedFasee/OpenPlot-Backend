@@ -48,7 +48,7 @@ public sealed class RunComtradeRepo
     {
         const string sql = """
         UPDATE openplot.comtrade_runs
-        SET status = 'done',
+        SET status = 'completed',
             progress = 100,
             message = 'Concluído',
             dir_path = @dirPath,

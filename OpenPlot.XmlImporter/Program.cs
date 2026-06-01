@@ -8,7 +8,7 @@ namespace OpenPlot.XmlImporter;
 
 internal static class Program
 {
-    private const string DefaultConnectionString = "Host=postgres;Port=5432;Database=postgres;Username=postgres;Password=postgres";
+    private const string DefaultConnectionString = "Host=postgres;Port=5432;Database=openplot;Username=postgres;Password=postgres";
     private const string DefaultImportPath = "/data/xml";
 
     private static async Task<int> Main(string[] args)

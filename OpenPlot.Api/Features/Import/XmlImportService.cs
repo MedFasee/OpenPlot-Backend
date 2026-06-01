@@ -26,7 +26,7 @@ public sealed class XmlImportService : IXmlImportService
     public async Task<IReadOnlyList<ImportSummaryDto>> ImportAsync(string path, CancellationToken ct)
     {
         var connectionString = _configuration.GetConnectionString("Db")
-            ?? "Host=postgres;Port=5432;Database=postgres;Username=postgres;Password=postgres";
+            ?? "Host=postgres;Port=5432;Database=openplot;Username=postgres;Password=postgres";
 
         var importer = new XmlCatalogImporter(connectionString);
         var summaries = await importer.RunAsync(path, ct);
