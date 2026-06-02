@@ -117,12 +117,12 @@ WITH matched AS (
     FROM openplot.sso_login_token
     WHERE token = @Token
       AND used = FALSE
-      AND expires_at >= timezone('utc', now())
+      AND expires_at >= now()
     FOR UPDATE
 )
 UPDATE openplot.sso_login_token token_row
 SET used = TRUE,
-    used_at = timezone('utc', now())
+    used_at = now()
 FROM matched
 WHERE token_row.id = matched.id
 RETURNING token_row.id,
@@ -142,11 +142,11 @@ RETURNING token_row.id,
 
     private static Task PurgeExpiredNoncesAsync(DbConnection conn, CancellationToken ct)
         => conn.ExecuteAsync(new CommandDefinition(
-            "DELETE FROM openplot.sso_request_nonce WHERE expires_at < timezone('utc', now());",
+            "DELETE FROM openplot.sso_request_nonce WHERE expires_at < now();",
             cancellationToken: ct));
 
     private static Task PurgeExpiredLoginTokensAsync(DbConnection conn, CancellationToken ct)
         => conn.ExecuteAsync(new CommandDefinition(
-            "DELETE FROM openplot.sso_login_token WHERE expires_at < timezone('utc', now()) OR used = TRUE;",
+            "DELETE FROM openplot.sso_login_token WHERE expires_at < now() OR used = TRUE;",
             cancellationToken: ct));
 }

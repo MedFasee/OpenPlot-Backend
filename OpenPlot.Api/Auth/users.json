@@ -190,5 +190,17 @@
 		  "organization": "UFSC",
 		  "tenant": "UFSC_dev"
 		}
-	  }
+	},
+	{
+		"sub": "e6f7e3c2-1e3c-4e5e-9b30-a2e2f0d91f11",
+		"username": "MAntonia",
+		"password": "Maria@2027",
+		"preferred_username": "Maria Antônia",
+		"email": "-",
+		"roles": ["reader"],
+		"claims": {
+		  "organization": "UFSC",
+		  "tenant": "UFSC_user"
+		}
+	}
 ]

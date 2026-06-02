@@ -69,7 +69,11 @@ public sealed class SsoRequestValidator : ISsoRequestValidator
             return SsoRequestValidationResult.Fail("Cliente SSO sem secret configurado.");
 
         if (string.IsNullOrWhiteSpace(timestamp)
-            || !DateTimeOffset.TryParse(timestamp, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var timestampUtc))
+            || !DateTimeOffset.TryParse(
+                timestamp,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal,
+                out var timestampUtc))
         {
             return SsoRequestValidationResult.Fail("Header X-Timestamp inválido.");
         }
@@ -84,7 +88,16 @@ public sealed class SsoRequestValidator : ISsoRequestValidator
         if (requestAge > TimeSpan.FromSeconds(Math.Max(_options.Value.RequestTtlSeconds, 30)))
             return SsoRequestValidationResult.Fail("Timestamp do request SSO expirado.");
 
-        var canonical = BuildCanonicalMessage(httpMethod, requestPath, timestampUtc, nonce, rawBody);
+        // Importante:
+        // Para validação HMAC, o canonical deve usar o timestamp exatamente como veio no header.
+        // Não reformatar com timestampUtc.ToString("O"), pois isso pode trocar "Z" por "+00:00".
+        var canonical = BuildCanonicalMessage(
+            httpMethod,
+            requestPath,
+            timestamp,
+            nonce,
+            rawBody);
+
         var expectedSignature = ComputeHmac(client.Secret, canonical);
 
         if (!MatchesSignature(expectedSignature, signature))
@@ -96,15 +109,17 @@ public sealed class SsoRequestValidator : ISsoRequestValidator
     public static string BuildCanonicalMessage(
         string httpMethod,
         string requestPath,
-        DateTimeOffset timestampUtc,
+        string timestamp,
         string nonce,
         string rawBody)
     {
-        var bodyHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(rawBody ?? string.Empty)));
+        var bodyHash = Convert.ToHexStringLower(
+            SHA256.HashData(Encoding.UTF8.GetBytes(rawBody ?? string.Empty)));
+
         return string.Join('\n',
             httpMethod.ToUpperInvariant(),
             requestPath,
-            timestampUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+            timestamp,
             nonce,
             bodyHash);
     }
@@ -120,7 +135,8 @@ public sealed class SsoRequestValidator : ISsoRequestValidator
         if (TryDecodeBase64(providedSignature, out var providedBytes)
             || TryDecodeHex(providedSignature, out providedBytes))
         {
-            return CryptographicOperations.FixedTimeEquals(expectedSignature, providedBytes);
+            return expectedSignature.Length == providedBytes.Length
+                && CryptographicOperations.FixedTimeEquals(expectedSignature, providedBytes);
         }
 
         return false;
