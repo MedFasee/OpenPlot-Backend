@@ -1,0 +1,12 @@
+services:
+  postgres:
+    restart: unless-stopped
+
+  openplot-api:
+    restart: unless-stopped
+
+  openplot-export-worker:
+    restart: unless-stopped
+
+  openplot-ingestor-gsf:
+    restart: unless-stopped

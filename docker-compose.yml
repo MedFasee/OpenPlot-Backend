@@ -1,14 +1,13 @@
 services:
   postgres:
-    image: timescale/timescaledb:latest-pg17
-    container_name: openplot-postgres
+    image: ${OPENPLOT_POSTGRES_IMAGE:-timescale/timescaledb:latest-pg17}
     command: postgres -c shared_preload_libraries=timescaledb
     environment:
-      POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${OPENPLOT_POSTGRES_DB:-postgres}
+      POSTGRES_USER: ${OPENPLOT_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${OPENPLOT_POSTGRES_PASSWORD:-postgres}
     ports:
-      - "5432:5432"
+      - "${OPENPLOT_POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./database/dumps/openplot_create_timescaledb.sql:/docker-entrypoint-initdb.d/01-openplot-create-timescaledb.sql:ro
@@ -31,17 +30,14 @@ services:
       - openplot-network
 
   openplot-api:
-    build:
-      context: .
-      dockerfile: OpenPlot.Api/Dockerfile
-    container_name: openplot-api
+    image: ${OPENPLOT_API_IMAGE:-openplot-api:${OPENPLOT_VERSION:-dev}}
     environment:
-      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_ENVIRONMENT: ${OPENPLOT_API_ENVIRONMENT:-Development}
       ASPNETCORE_URLS: http://+:7011
-      ConnectionStrings__Db: Host=postgres;Port=5432;Database=postgres;Username=postgres;Password=postgres
+      ConnectionStrings__Db: Host=postgres;Port=5432;Database=${OPENPLOT_POSTGRES_DB:-postgres};Username=${OPENPLOT_POSTGRES_USER:-postgres};Password=${OPENPLOT_POSTGRES_PASSWORD:-postgres}
       XmlFolder: /data/xml
     ports:
-      - "7011:7011"
+      - "${OPENPLOT_API_PORT:-7011}:7011"
     volumes:
       - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/xml:/data/xml
       - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/exports:/data/exports
@@ -54,12 +50,9 @@ services:
       - openplot-network
 
   openplot-export-worker:
-    build:
-      context: .
-      dockerfile: OpenPlot.ExportWorker/Dockerfile
-    container_name: openplot-export-worker
+    image: ${OPENPLOT_EXPORT_WORKER_IMAGE:-openplot-export-worker:${OPENPLOT_VERSION:-dev}}
     environment:
-      ConnectionStrings__OpenPlotDb: Host=postgres;Port=5432;Database=postgres;Username=postgres;Password=postgres
+      ConnectionStrings__OpenPlotDb: Host=postgres;Port=5432;Database=${OPENPLOT_POSTGRES_DB:-postgres};Username=${OPENPLOT_POSTGRES_USER:-postgres};Password=${OPENPLOT_POSTGRES_PASSWORD:-postgres}
       Exports__RootDir: /data/exports
     volumes:
       - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/exports:/data/exports
@@ -71,12 +64,9 @@ services:
       - openplot-network
 
   openplot-ingestor-gsf:
-    build:
-      context: .
-      dockerfile: OpenPlot.Ingestor.Gsf/Dockerfile
-    container_name: openplot-ingestor-gsf
+    image: ${OPENPLOT_INGESTOR_GSF_IMAGE:-openplot-ingestor-gsf:${OPENPLOT_VERSION:-dev}}
     environment:
-      OPENPLOT_INGESTOR__DB: Host=postgres;Port=5432;Database=postgres;Username=postgres;Password=postgres
+      OPENPLOT_INGESTOR__DB: Host=postgres;Port=5432;Database=${OPENPLOT_POSTGRES_DB:-postgres};Username=${OPENPLOT_POSTGRES_USER:-postgres};Password=${OPENPLOT_POSTGRES_PASSWORD:-postgres}
     volumes:
       - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/xml:/data/xml
       - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/logs/ingestor-gsf:/app/logs

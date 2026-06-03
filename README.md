@@ -97,9 +97,14 @@ Referencias principais:
 
 ## 3. Execucao com Docker Compose
 
-O material base desta secao foi consolidado a partir de `docs/docker_compose/doc.pdf`.
+O backend agora possui separacao explicita entre desenvolvimento e producao usando:
 
-O compose do backend foi ajustado para subir o banco em Linux com TimescaleDB.
+- `docker-compose.yml` como base comum;
+- `docker-compose.dev.yml` para override de desenvolvimento;
+- `docker-compose.prod.yml` para override de producao;
+- `.env.dev` e `.env.prod` para variaveis de cada ambiente.
+
+O compose segue preparado para Linux, com TimescaleDB e bootstrap automatico do schema a partir de `database/dumps/openplot_create_timescaledb.sql`.
 
 ### Ambiente recomendado
 
@@ -111,22 +116,13 @@ O compose do backend foi ajustado para subir o banco em Linux com TimescaleDB.
 - Em ambiente local, foi utilizado `Docker Desktop 4.75.0`.
 - Antes de subir os containers, garantir que o Docker esteja em execucao.
 
-### Ajustes previos
+### Estrutura dos ambientes
 
-#### Backend
-
-- Manter `ASPNETCORE_ENVIRONMENT` como `Development` no `docker-compose.yml`.
-- Ajustar o diretorio raiz dos arquivos externos por meio da variavel `OPENPLOT_DATA_ROOT` no arquivo `.env`.
-- O servico `postgres` utiliza a imagem `timescale/timescaledb:latest-pg17`.
-- O banco inicializado pelo compose continua sendo `postgres`.
-- O bootstrap completo do schema acontece a partir de `database/dumps/openplot_create_timescaledb.sql`.
-- Esse script concentra a criacao das estruturas do OpenPlot, incluindo TimescaleDB, hypertable `openplot.measurements_ht`, view de compatibilidade `openplot.measurements`, logs da API e tabelas de SSO.
-
-Exemplo para ambiente Linux:
-
-```env
-OPENPLOT_DATA_ROOT=/srv/openplot
-```
+- O servico `postgres` continua usando a imagem `timescale/timescaledb:latest-pg17`.
+- O database no ambiente Docker continua sendo `postgres`.
+- O schema da aplicacao continua sendo `openplot`.
+- Cada ambiente usa `COMPOSE_PROJECT_NAME` proprio para evitar conflito entre rede, containers e volumes nomeados.
+- Cada ambiente usa `OPENPLOT_DATA_ROOT` proprio para separar XMLs, exports e logs.
 
 Com essa configuracao, o compose monta automaticamente:
 
@@ -137,38 +133,58 @@ Com essa configuracao, o compose monta automaticamente:
 Observacoes sobre o banco:
 
 - O container carrega a extensao TimescaleDB no startup do PostgreSQL.
-- O bootstrap automatico so roda na primeira inicializacao do volume `postgres-data`.
-- O schema da aplicacao continua sendo `openplot`, mesmo com o database nomeado como `postgres`.
-- Para recriar o banco do zero com o novo schema, remova o volume antes de subir novamente.
+- O bootstrap automatico so roda na primeira inicializacao do volume nomeado do ambiente.
+- Para recriar o banco do zero com o novo schema, remova o volume do ambiente antes de subir novamente.
 
-Tambem e necessario copiar o conteudo de `Config` para `openplot-data/xml` antes da execucao quando esse diretório for a fonte dos XMLs consumidos pela aplicacao.
+### Desenvolvimento
 
-#### Frontend
+O ambiente de desenvolvimento usa build local das imagens e configuracoes do arquivo `.env.dev`.
 
-- No projeto de frontend, alterar o campo `env_file` do `docker-compose` para a configuracao de producao, conforme documentado em `docs/docker_compose/doc.pdf`.
-
-### Subida dos containers
-
-Abrir um terminal na pasta do `docker-compose` de cada projeto envolvido:
-
-- frontend;
-- backend + persistencia.
-
-Executar:
+Subida:
 
 ```powershell
-docker compose up -d --build
+docker compose --env-file .env.dev -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 ```
 
-O comando constroi as imagens e sobe os containers em background.
+Por padrao, esse ambiente sobe com:
+
+- `ASPNETCORE_ENVIRONMENT=Development`;
+- API publicada na porta definida em `.env.dev`;
+- dados bindados em um root separado de desenvolvimento.
+
+### Producao
+
+O ambiente de producao usa o compose base com `docker-compose.prod.yml` e imagens versionadas definidas em `.env.prod`.
+
+Subida:
+
+```powershell
+docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+Antes da subida em producao, revisar obrigatoriamente os valores de `.env.prod`, especialmente:
+
+- `OPENPLOT_POSTGRES_PASSWORD`;
+- tags das imagens `OPENPLOT_API_IMAGE`, `OPENPLOT_EXPORT_WORKER_IMAGE` e `OPENPLOT_INGESTOR_GSF_IMAGE`;
+- paths de `OPENPLOT_DATA_ROOT`.
 
 ### Limpeza do ambiente
 
-Para derrubar os containers e remover volumes e orfaos:
+Desenvolvimento:
 
 ```powershell
-docker compose down -v --remove-orphans
+docker compose --env-file .env.dev -f docker-compose.yml -f docker-compose.dev.yml down -v --remove-orphans
 ```
+
+Producao:
+
+```powershell
+docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml down -v --remove-orphans
+```
+
+### Referencia adicional
+
+Para um resumo objetivo dos arquivos e comandos de cada ambiente, consultar `docs/docker-environments.md`.
 
 ---
 
