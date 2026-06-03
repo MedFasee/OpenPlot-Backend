@@ -9,8 +9,14 @@
 bin/
 obj/
 .docs/Refatoracao/
-.artifacts/
-.packages/
+
+
+# Artefatos gerados
+/artifacts/
+/artifacts/validate/
+
+# Pacotes restauráveis
+/packages/
 
 # Logs e temporários
 *.log
