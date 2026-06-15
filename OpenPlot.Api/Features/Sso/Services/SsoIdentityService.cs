@@ -5,7 +5,16 @@ namespace OpenPlot.Features.Sso.Services;
 
 public interface ISsoIdentityService
 {
-    Task<(bool Ok, LoginResponse? Response, string? Error)> ResolveAsync(string clientId, string consultaId, CancellationToken ct = default);
+    Task<(bool Ok, LoginResponse? Response, string? Error)> ResolveAsync(
+        string clientId,
+        string consultaId,
+        CancellationToken ct = default);
+
+    Task<(bool Ok, LoginResponse? Response, string? Error)> ResolveAsync(
+        string clientId,
+        string consultaId,
+        string? consultaLabel,
+        CancellationToken ct = default);
 }
 
 public sealed class SsoIdentityService : ISsoIdentityService
@@ -19,7 +28,19 @@ public sealed class SsoIdentityService : ISsoIdentityService
         _userStore = userStore;
     }
 
-    public async Task<(bool Ok, LoginResponse? Response, string? Error)> ResolveAsync(string clientId, string consultaId, CancellationToken ct = default)
+    public Task<(bool Ok, LoginResponse? Response, string? Error)> ResolveAsync(
+        string clientId,
+        string consultaId,
+        CancellationToken ct = default)
+    {
+        return ResolveAsync(clientId, consultaId, consultaLabel: null, ct);
+    }
+
+    public async Task<(bool Ok, LoginResponse? Response, string? Error)> ResolveAsync(
+        string clientId,
+        string consultaId,
+        string? consultaLabel,
+        CancellationToken ct = default)
     {
         if (!_clientRegistry.TryGetClient(clientId, out var client))
             return (false, null, "Cliente SSO não cadastrado.");
@@ -37,6 +58,11 @@ public sealed class SsoIdentityService : ISsoIdentityService
             ["origin_client"] = client.ClientId,
             ["consulta_id"] = consultaId
         };
+
+        if (!string.IsNullOrWhiteSpace(consultaLabel))
+        {
+            claims["consulta_label"] = consultaLabel;
+        }
 
         var response = new LoginResponse
         {

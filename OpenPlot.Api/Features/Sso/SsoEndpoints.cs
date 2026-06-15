@@ -9,6 +9,8 @@ using OpenPlot.Features.Auth;
 using OpenPlot.Features.Sso.Contracts;
 using OpenPlot.Features.Sso.Repositories;
 using OpenPlot.Features.Sso.Services;
+using Dapper;
+using OpenPlot.Core.TimeSeries;
 
 namespace OpenPlot.Features.Sso;
 
@@ -89,6 +91,7 @@ public static class SsoEndpoints
                         ClientId = validation.ClientId,
                         ConsultaId = payload.ConsultaId,
                         Url = BuildConsumeUrl(request, ssoOptions.Value, token),
+                        Token = token,
                         ExpiresAtUtc = expiresAtUtc
                     }
                 };
@@ -101,60 +104,69 @@ public static class SsoEndpoints
             .Produces(StatusCodes.Status409Conflict);
 
         group.MapPost("/consumir-token",
-            async ([FromBody] ConsumeSsoTokenRequest payload,
-                ISsoAuthRepository repository,
-                ISsoIdentityService identityService,
-                IOpenPlotLoginTokenService loginTokenService,
-                ISessionUserService sessionUserService,
-                IOptions<SsoOptions> ssoOptions,
-                CancellationToken ct) =>
+    async ([FromBody] ConsumeSsoTokenRequest payload,
+        ISsoAuthRepository repository,
+        ISsoIdentityService identityService,
+        IOpenPlotLoginTokenService loginTokenService,
+        ISessionUserService sessionUserService,
+        [FromServices] IDbConnectionFactory dbf,
+        IOptions<SsoOptions> ssoOptions,
+        CancellationToken ct) =>
+    {
+        if (string.IsNullOrWhiteSpace(payload.Token))
+        {
+            return Results.Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "Token SSO inválido",
+                detail: "O token temporário é obrigatório.");
+        }
+
+        var consumedToken = await repository.ConsumeLoginTokenAsync(payload.Token, ct);
+        if (consumedToken is null)
+        {
+            return Results.Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Token SSO inválido",
+                detail: "O token temporário não existe, expirou ou já foi utilizado.");
+        }
+
+        var consultaLabel = await GetConsultaLabelAsync(dbf, consumedToken.ConsultaId, ct);
+
+        var (ok, loginResponse, error) = await identityService.ResolveAsync(
+            consumedToken.OriginClient,
+            consumedToken.ConsultaId,
+            consultaLabel,
+            ct);
+
+        if (!ok || loginResponse is null)
+        {
+            return Results.Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Usuário técnico SSO inválido",
+                detail: error);
+        }
+
+        sessionUserService.SetCurrentUser(loginResponse);
+
+        var jwt = loginTokenService.CreateJwt(loginResponse);
+        var response = new ApiResponse<ConsumeSsoTokenResponse>
+        {
+            Status = StatusCodes.Status200OK,
+            Data = new ConsumeSsoTokenResponse
             {
-                if (string.IsNullOrWhiteSpace(payload.Token))
-                {
-                    return Results.Problem(
-                        statusCode: StatusCodes.Status400BadRequest,
-                        title: "Token SSO inválido",
-                        detail: "O token temporário é obrigatório.");
-                }
+                ConsultaId = consumedToken.ConsultaId,
+                ConsultaLabel = consultaLabel,
+                OriginClient = consumedToken.OriginClient,
+                RedirectPath = BuildRedirectPath(ssoOptions.Value, consumedToken.ConsultaId),
+                Login = loginTokenService.CreateEnvelope(loginResponse, jwt)
+            }
+        };
 
-                var consumedToken = await repository.ConsumeLoginTokenAsync(payload.Token, ct);
-                if (consumedToken is null)
-                {
-                    return Results.Problem(
-                        statusCode: StatusCodes.Status401Unauthorized,
-                        title: "Token SSO inválido",
-                        detail: "O token temporário não existe, expirou ou já foi utilizado.");
-                }
-
-                var (ok, loginResponse, error) = await identityService.ResolveAsync(consumedToken.OriginClient, consumedToken.ConsultaId, ct);
-                if (!ok || loginResponse is null)
-                {
-                    return Results.Problem(
-                        statusCode: StatusCodes.Status401Unauthorized,
-                        title: "Usuário técnico SSO inválido",
-                        detail: error);
-                }
-
-                sessionUserService.SetCurrentUser(loginResponse);
-
-                var jwt = loginTokenService.CreateJwt(loginResponse);
-                var response = new ApiResponse<ConsumeSsoTokenResponse>
-                {
-                    Status = StatusCodes.Status200OK,
-                    Data = new ConsumeSsoTokenResponse
-                    {
-                        ConsultaId = consumedToken.ConsultaId,
-                        OriginClient = consumedToken.OriginClient,
-                        RedirectPath = BuildRedirectPath(ssoOptions.Value, consumedToken.ConsultaId),
-                        Login = loginTokenService.CreateEnvelope(loginResponse, jwt)
-                    }
-                };
-
-                return Results.Ok(response);
-            })
-            .Produces<ApiResponse<ConsumeSsoTokenResponse>>(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status400BadRequest)
-            .Produces(StatusCodes.Status401Unauthorized);
+        return Results.Ok(response);
+    })
+    .Produces<ApiResponse<ConsumeSsoTokenResponse>>(StatusCodes.Status200OK)
+    .Produces(StatusCodes.Status400BadRequest)
+    .Produces(StatusCodes.Status401Unauthorized);
 
         return app;
     }
@@ -191,5 +203,24 @@ public static class SsoEndpoints
         var body = await reader.ReadToEndAsync(ct);
         request.Body.Position = 0;
         return body;
+    }
+
+    private static async Task<string?> GetConsultaLabelAsync(
+    IDbConnectionFactory dbf,
+    string consultaId,
+    CancellationToken ct)
+    {
+        if (!Guid.TryParse(consultaId, out var id))
+            return null;
+
+        using var db = dbf.Create();
+
+        const string sql = @"
+SELECT source
+FROM openplot.search_runs
+WHERE id = @id";
+
+        return await db.QuerySingleOrDefaultAsync<string?>(
+            new CommandDefinition(sql, new { id }, cancellationToken: ct));
     }
 }
