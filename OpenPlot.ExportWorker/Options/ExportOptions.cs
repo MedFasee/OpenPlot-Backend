@@ -6,6 +6,7 @@ public sealed class ExportOptions
     public int PollIntervalMs { get; set; } = 1500;
     public int MaxParallelJobs { get; set; } = 0;
     public int MaxCpuUsagePercent { get; set; } = 75;
+    public int MeasurementsQueryTimeoutSeconds { get; set; } = 180;
 
     // COMTRADE 2013 (C37.111-2013 / IEC 60255-24 Ed.2)
     public string TimeCodeMode { get; set; } = "UTC";   // UTC | RUN_OFFSET

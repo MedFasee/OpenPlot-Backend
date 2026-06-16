@@ -101,3 +101,28 @@ Fornece o arquivo exportado para download, também de forma direcionada ao format
 - Isso preserva a coesão para os formatos futuros sem quebrar a infraestrutura atual.
 - Neste momento, a implementação continua usando a fila `openplot.comtrade_runs` já consumida pelo `OpenPlot.ExportWorker`.
 - O processamento permanece centralizado no worker; a API apenas enfileira, consulta status e entrega o arquivo final.
+
+## Nota Operacional - Carga COMTRADE por PMU
+
+No fluxo de exportação COMTRADE, o `OpenPlot.ExportWorker` passou a particionar a carga das medições por PMU durante a leitura no PostgreSQL.
+
+### Motivação
+
+- alguns runs possuem janela de tempo ampla e muitas PMUs selecionadas;
+- a leitura de todas as medições em uma única consulta pode gerar um `result set` muito grande;
+- mesmo com processamento assíncrono, o `Npgsql` ainda precisa consumir o stream de resposta do banco dentro de um tempo aceitável;
+- quando esse volume é excessivo, pode ocorrer `Timeout during reading attempt` durante a materialização dos dados.
+
+### Estratégia adotada
+
+- o worker resolve o contexto do `search_run` normalmente;
+- quando há PMUs selecionadas no run, ele consulta as medições de uma PMU por vez;
+- os resultados são acumulados em memória e seguem para a montagem final do COMTRADE;
+- quando não há lista de PMUs disponível, o fluxo atual mantém a consulta agregada como fallback.
+
+### Efeito prático
+
+- reduz o volume retornado por consulta;
+- reduz o tempo contínuo de leitura do stream pelo driver;
+- diminui o risco de timeout no carregamento das medições;
+- aumenta a quantidade de round-trips ao banco, mas com ganho de estabilidade para exports grandes.

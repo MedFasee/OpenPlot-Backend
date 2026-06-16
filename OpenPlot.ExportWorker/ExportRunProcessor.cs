@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using System.Diagnostics;
 using OpenPlot.ExportWorker.Build;
 using OpenPlot.ExportWorker.Comtrade;
 using OpenPlot.ExportWorker.Data;
@@ -66,12 +67,73 @@ public sealed class ExportRunProcessor : IExportRunProcessor
                          ?? _opt.NominalFrequencyFallback;
             await runRepo.UpdateProgressAsync(runId.Value, 5, "Carregando medições...", stoppingToken);
 
-            var rows = await mRepo.LoadMeasurementsForComtradeAsync(
-                runId: ctx.RunId,
-                fromUtc: ctx.FromUtc,
-                toUtc: ctx.ToUtc,
-                pmusOverride: ctx.RunPmus,
-                ct: stoppingToken);
+            _log.LogInformation(
+                "Carregando medições COMTRADE run_id={RunId} slot={Slot} pdc={PdcName} from={FromUtc:o} to={ToUtc:o} pmus={PmuCount}",
+                ctx.RunId,
+                slot,
+                ctx.PdcName,
+                ctx.FromUtc,
+                ctx.ToUtc,
+                ctx.RunPmus.Length);
+
+            var loadMeasurementsStopwatch = Stopwatch.StartNew();
+            var rows = new List<Domain.MeasurementRow>();
+
+            if (ctx.RunPmus.Length == 0)
+            {
+                rows = await mRepo.LoadMeasurementsForComtradeAsync(
+                    runId: ctx.RunId,
+                    fromUtc: ctx.FromUtc,
+                    toUtc: ctx.ToUtc,
+                    pmusOverride: ctx.RunPmus,
+                    ct: stoppingToken);
+            }
+            else
+            {
+                for (var i = 0; i < ctx.RunPmus.Length; i++)
+                {
+                    var pmu = ctx.RunPmus[i];
+                    await runRepo.UpdateProgressAsync(
+                        runId.Value,
+                        5 + (int)Math.Round(15.0 * i / Math.Max(1, ctx.RunPmus.Length)),
+                        $"Carregando medições da PMU {i + 1}/{ctx.RunPmus.Length} ({pmu})...",
+                        stoppingToken);
+
+                    _log.LogInformation(
+                        "Carregando medições COMTRADE run_id={RunId} slot={Slot} pmu={Pmu} index={Index}/{TotalPmus}",
+                        ctx.RunId,
+                        slot,
+                        pmu,
+                        i + 1,
+                        ctx.RunPmus.Length);
+
+                    var pmuRows = await mRepo.LoadMeasurementsForComtradeAsync(
+                        runId: ctx.RunId,
+                        fromUtc: ctx.FromUtc,
+                        toUtc: ctx.ToUtc,
+                        pmusOverride: [pmu],
+                        ct: stoppingToken);
+
+                    rows.AddRange(pmuRows);
+
+                    _log.LogInformation(
+                        "Medições COMTRADE carregadas run_id={RunId} slot={Slot} pmu={Pmu} rows={RowCount} total_rows={TotalRows}",
+                        ctx.RunId,
+                        slot,
+                        pmu,
+                        pmuRows.Count,
+                        rows.Count);
+                }
+            }
+
+            loadMeasurementsStopwatch.Stop();
+
+            _log.LogInformation(
+                "Medições COMTRADE carregadas run_id={RunId} slot={Slot} rows={RowCount} elapsed_ms={ElapsedMs}",
+                ctx.RunId,
+                slot,
+                rows.Count,
+                loadMeasurementsStopwatch.ElapsedMilliseconds);
 
             if (rows.Count == 0)
             {

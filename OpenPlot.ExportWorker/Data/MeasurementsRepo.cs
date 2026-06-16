@@ -4,6 +4,7 @@ using System.Xml.Linq;
 using Dapper;
 using Microsoft.Extensions.Logging;
 using OpenPlot.ExportWorker.Domain;
+using OpenPlot.ExportWorker.Options;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace OpenPlot.ExportWorker.Data;
@@ -11,7 +12,13 @@ namespace OpenPlot.ExportWorker.Data;
 public sealed class MeasurementsRepo
 {
     private readonly Db _db;
-    public MeasurementsRepo(Db db) => _db = db;
+    private readonly int _queryTimeoutSeconds;
+
+    public MeasurementsRepo(Db db, Microsoft.Extensions.Options.IOptions<ExportOptions> options)
+    {
+        _db = db;
+        _queryTimeoutSeconds = Math.Max(30, options.Value.MeasurementsQueryTimeoutSeconds);
+    }
 
     /// <summary>
     /// Resolve a seleção (PMUs) a partir do run_id, encontra signals (inclui MAG/ANG/FREQ/THD/DIGITAL),
@@ -151,13 +158,15 @@ sig AS(
        OR UPPER(s.component::text) IN('DIG', 'DIGITAL'))
     )
 ),
-sig_ids AS(
-  SELECT DISTINCT signal_id FROM sig
+ sig_keys AS(
+   SELECT DISTINCT pdc_pmu_id, signal_id FROM sig
 ),
 raw AS(
-  SELECT m.signal_id, m.ts, m.value
+   SELECT m.pdc_pmu_id, m.signal_id, m.ts, m.value
   FROM openplot.measurements m
-  JOIN sig_ids si ON si.signal_id = m.signal_id
+   JOIN sig_keys sk
+     ON sk.pdc_pmu_id = m.pdc_pmu_id
+    AND sk.signal_id = m.signal_id
   WHERE m.ts >= (SELECT from_utc FROM win)
     AND m.ts <= (SELECT to_utc FROM win)
 )
@@ -174,7 +183,9 @@ SELECT
   r.ts          AS Ts,
   r.value       AS Value
 FROM sig s
-JOIN raw r USING(signal_id)
+JOIN raw r
+  ON r.pdc_pmu_id = s.pdc_pmu_id
+ AND r.signal_id = s.signal_id
 ORDER BY s.id_name, s.signal_id, r.ts;
         ";
 
@@ -187,7 +198,7 @@ ORDER BY s.id_name, s.signal_id, r.ts;
         };
 
         var rows = await _db.Conn.QueryAsync<MeasurementRow>(
-            new CommandDefinition(sql, args, cancellationToken: ct));
+            new CommandDefinition(sql, args, commandTimeout: _queryTimeoutSeconds, cancellationToken: ct));
 
         return rows.AsList();
     }
