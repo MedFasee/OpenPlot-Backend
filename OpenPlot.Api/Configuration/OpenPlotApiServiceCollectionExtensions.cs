@@ -128,6 +128,7 @@ internal static class OpenPlotApiServiceCollectionExtensions
         services.AddScoped<ISeriesAssemblyService, SeriesAssemblyService>();
         services.AddScoped<IDftMetaBuilder, DftMetaBuilder>();
         services.AddScoped<IPronyMetaBuilder, PronyMetaBuilder>();
+        services.AddScoped<ICcaMetaBuilder, CcaMetaBuilder>();
         services.AddSingleton<IExportArtifactStore, DiskExportArtifactStore>();
         services.AddScoped<IExportFileService, ExportFileService>();
         services.AddScoped<IXmlImportService, XmlImportService>();

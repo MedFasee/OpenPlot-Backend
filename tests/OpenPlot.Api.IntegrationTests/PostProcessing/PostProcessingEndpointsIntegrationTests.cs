@@ -163,7 +163,66 @@ public sealed class PostProcessingEndpointsIntegrationTests(OpenPlotApiFactory f
         Assert.Contains("78", body, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task GetCca_WhenCacheExists_ReturnsAmbientModesPayload()
+    {
+        var cacheId = Guid.NewGuid();
+        var start = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        factory.CacheRepository.Seed(cacheId, CreateOscillatoryPayload(start, sampleRate: 1, sampleCount: 240, seriesCount: 2, frequencyHz: 0.35));
+
+        using var client = factory.CreateClient();
+        var response = await client.GetAsync($"/api/v1/cca?cache_id={cacheId:D}&model_order=4&block_rows=10&window_length_minutes=3&window_step_seconds=30&frequency_min_hz=0.3&frequency_max_hz=0.4&include_all_modes=true");
+
+        response.EnsureSuccessStatusCode();
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+
+        Assert.Equal(cacheId.ToString(), root.GetProperty("cache_id").GetString());
+        Assert.Equal(1, root.GetProperty("selectRate").GetInt32());
+        Assert.True(root.GetProperty("energySeries").GetArrayLength() > 0);
+        Assert.True(root.GetProperty("idmSeries").GetArrayLength() > 0);
+        Assert.True(root.GetProperty("windows").GetArrayLength() > 0);
+        Assert.Equal("CCA", root.GetProperty("meta").GetProperty("title").GetString()?.Split(' ')[0]);
+
+        var firstWindow = root.GetProperty("windows")[0];
+        Assert.True(firstWindow.GetProperty("allModes").GetArrayLength() > 0);
+
+        var firstEnergy = root.GetProperty("energySeries")[0];
+        Assert.True(firstEnergy.GetProperty("vector").GetArrayLength() == 2);
+    }
+
+    [Fact]
+    public async Task GetCca_WhenCacheDoesNotExist_ReturnsNotFound()
+    {
+        using var client = factory.CreateClient();
+        var response = await client.GetAsync($"/api/v1/cca?cache_id={Guid.NewGuid():D}&model_order=4&block_rows=10&window_length_minutes=3&window_step_seconds=30&frequency_min_hz=0.3&frequency_max_hz=0.4&include_all_modes=false");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetCca_WhenWindowLengthIsUnavailable_ReturnsBadRequest()
+    {
+        var cacheId = Guid.NewGuid();
+        var start = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        factory.CacheRepository.Seed(cacheId, CreateOscillatoryPayload(start, sampleRate: 1, sampleCount: 120, seriesCount: 1, frequencyHz: 0.35));
+
+        using var client = factory.CreateClient();
+        var response = await client.GetAsync($"/api/v1/cca?cache_id={cacheId:D}&model_order=4&block_rows=10&window_length_minutes=3&window_step_seconds=30&frequency_min_hz=0.3&frequency_max_hz=0.4&include_all_modes=false");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("janela deslizante", body, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static RowsCacheV2 CreateOscillatoryPayload(DateTime start, int sampleRate, int sampleCount, int seriesCount = 1)
+        => CreateOscillatoryPayload(start, sampleRate, sampleCount, seriesCount, frequencyHz: 1.0);
+
+    private static RowsCacheV2 CreateOscillatoryPayload(DateTime start, int sampleRate, int sampleCount, int seriesCount, double frequencyHz)
     {
         var series = new List<RowsCacheSeries>(seriesCount);
 
@@ -176,7 +235,7 @@ public sealed class PostProcessingEndpointsIntegrationTests(OpenPlotApiFactory f
                 points.Add(new RowsCachePoint
                 {
                     Ts = start.AddSeconds(t),
-                    Value = Math.Cos(2.0 * Math.PI * 1.0 * t + (seriesIndex * Math.PI / 6.0))
+                    Value = Math.Cos(2.0 * Math.PI * frequencyHz * t + (seriesIndex * Math.PI / 6.0))
                 });
             }
 

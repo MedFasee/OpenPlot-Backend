@@ -26,7 +26,8 @@ public sealed record UiMenuContext(
     int? SelectRate,
     int? EffectivePointCount = null,
     int? TotalSeriesCount = null,
-    int? ValidSeriesCount = null)
+    int? ValidSeriesCount = null,
+    int? AvailablePointCount = null)
 {
     public static UiMenuContext FromCache(RowsCacheV2 payload)
     {
@@ -34,6 +35,13 @@ public sealed record UiMenuContext(
 
         var totalSeriesCount = payload.Series?.Count ?? 0;
         var validSeriesCount = payload.Series?.Count(s => s.Points.Count >= 2) ?? 0;
+        var availablePointCount = payload.Series is { Count: > 0 }
+            ? payload.Series
+                .Where(s => s.Points.Count > 0)
+                .Select(s => s.Points.Count)
+                .DefaultIfEmpty(0)
+                .Min()
+            : 0;
 
         return new UiMenuContext(
             WindowFromUtc: payload.From,
@@ -41,7 +49,8 @@ public sealed record UiMenuContext(
             SelectRate: payload.SelectRate,
             EffectivePointCount: ComputeUniformPointCount(payload.From, payload.To, payload.SelectRate),
             TotalSeriesCount: totalSeriesCount,
-            ValidSeriesCount: validSeriesCount);
+            ValidSeriesCount: validSeriesCount,
+            AvailablePointCount: availablePointCount);
     }
 
     public int ResolveEffectivePointCount()
@@ -80,6 +89,13 @@ public interface IUiMenuService
 
 public sealed class UiMenuService : IUiMenuService
 {
+    private const int DefaultCcaModelOrder = 8;
+    private const int DefaultCcaBlockRows = 20;
+    private const int DefaultCcaWindowMinutes = 10;
+    private const int DefaultCcaWindowStepSeconds = 60;
+    private const double DefaultCcaFrequencyMinHz = 0.3;
+    private const double DefaultCcaFrequencyMaxHz = 0.4;
+
     private readonly FeatureFlags _flags;
     public UiMenuService(FeatureFlags flags) => _flags = flags;
 
@@ -130,15 +146,7 @@ public sealed class UiMenuService : IUiMenuService
         environment["DFT"] = BuildDftSettings(_flags.EnablesDFT);
         if (_flags.EnablesCCA)
         {
-            environment["CVA"] = new Dictionary<string, object?>
-            {
-                ["Ordem do modelo"] = 8,
-                ["N° de linhas por bloco"] = 20,
-                ["Tam. da janela (min.)"] = 10,
-                ["Passo da janela (s)"] = 60,
-                ["Freq. mínima (Hz)"] = 0.3,
-                ["Freq. máxima (Hz)"] = 0.4
-            };
+            environment["CCA"] = BuildCcaSettings(context);
         }
 
         if (transient.Count > 0) oscillations["Transitório"] = transient;
@@ -151,6 +159,22 @@ public sealed class UiMenuService : IUiMenuService
     {
         ["enabled"] = enabled
     };
+
+    private Dictionary<string, object?> BuildCcaSettings(UiMenuContext? context)
+    {
+        var enabled = _flags.EnablesCCA && (context is null || IsCcaEnabled(context));
+
+        return new Dictionary<string, object?>
+        {
+            ["enabled"] = enabled,
+            ["Ordem do modelo"] = DefaultCcaModelOrder,
+            ["N° de linhas por bloco"] = DefaultCcaBlockRows,
+            ["Tam. da janela (min.)"] = DefaultCcaWindowMinutes,
+            ["Passo da janela (s)"] = DefaultCcaWindowStepSeconds,
+            ["Freq. mínima (Hz)"] = DefaultCcaFrequencyMinHz,
+            ["Freq. máxima (Hz)"] = DefaultCcaFrequencyMaxHz
+        };
+    }
 
     private Dictionary<string, object?> BuildPronySettings(UiMenuContext? context)
     {
@@ -210,6 +234,27 @@ public sealed class UiMenuService : IUiMenuService
 
     private static int ComputeMaxAllowedPronyOrder(int sampleCount) =>
         Math.Max(1, sampleCount / 4);
+
+    private static bool IsCcaEnabled(UiMenuContext context)
+    {
+        if (context.SelectRate is null || context.SelectRate <= 0)
+            return false;
+
+        var validSeriesCount = context.ValidSeriesCount ?? context.TotalSeriesCount ?? 0;
+        if (validSeriesCount <= 0)
+            return false;
+
+        var availablePointCount = context.AvailablePointCount ?? context.ResolveEffectivePointCount();
+        if (availablePointCount <= 0)
+            return false;
+
+        var windowPointCount = DefaultCcaWindowMinutes * 60 * context.SelectRate.Value;
+
+        if (windowPointCount <= 2 * DefaultCcaBlockRows)
+            return false;
+
+        return windowPointCount <= availablePointCount;
+    }
 
     private static UiMenuSet InferSet(Dictionary<string, object?>? modes)
     {

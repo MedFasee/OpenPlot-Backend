@@ -9,6 +9,7 @@
 bin/
 obj/
 docs/Refatoracao
+.github/
 
 # Logs e temporários
 *.log

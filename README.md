@@ -16,7 +16,7 @@ API HTTP (Minimal API) responsavel por:
 - cadastro e consulta de *search runs*;
 - recuperação de séries temporais para plotagem (tensão, corrente, sequência, desequilíbrio, frequência, THD, potência, diferença angular etc.);
 - geração de metadados de gráficos (`title`, `xLabel`, `yLabel`) e envelopes consistentes;
-- pos-processamento baseado em `cache_id` (ex.: DFT e Prony).
+- pos-processamento baseado em `cache_id` (ex.: DFT, Prony e CCA).
 
 ### `OpenPlot.Ingestor.Gsf`
 Aplicação de ingestão responsável por:
@@ -61,8 +61,13 @@ Projeto de testes unitários para regras puras, contratos de resposta e handlers
 Cobertura atual:
 
 - `Dft`;
+- `Prony`;
+- `Cca`;
 - `PlotMetaBuilder`;
 - `DftMetaBuilder`;
+- `PronyMetaBuilder`;
+- `CcaMetaBuilder`;
+- `UiMenuService`;
 - `DiskExportStore`;
 - `RunsEndpoints`;
 - `BaseSeriesHandler`;
@@ -80,9 +85,11 @@ Cobertura atual:
 
 - `POST /api/v1/auth/login`;
 - `POST /api/v1/auth/logout`;
-- `GET /api/v1/dft`.
+- `GET /api/v1/dft`;
+- `GET /api/v1/prony`;
+- `GET /api/v1/cca`.
 
-No estado atual do workspace, a cobertura automatizada de post-processing esta concentrada em DFT; a feature Prony ja esta implementada na API, mas ainda nao aparece listada aqui com cobertura equivalente.
+No estado atual do workspace, os cenarios de post-processing com cobertura de integracao incluem DFT, Prony e CCA. A suite unitária completa ainda possui falhas preexistentes fora do escopo em testes antigos de `SimpleSeriesHandler` e `ExportEndpoints`, o que pode impedir a execucao integral do projeto `OpenPlot.UnitTests` mesmo com os novos testes do CCA presentes.
 
 A documentacao detalhada de testes esta em `docs/Testes/README.md`.
 
@@ -93,7 +100,7 @@ Os documentos tecnicos da API ficam em `docs/Features/`.
 Referencias principais:
 
 - `docs/Features/runsEndpoints.md` - endpoints de runs, terminais e series.
-- `docs/Features/postProcessingEndpoints.md` - arquitetura e contratos de DFT e Prony sobre `cache_id`.
+- `docs/Features/postProcessingEndpoints.md` - arquitetura e contratos de DFT, Prony e CCA sobre `cache_id`.
 
 ---
 

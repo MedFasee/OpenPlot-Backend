@@ -165,6 +165,143 @@ public static class PostProcessingEndpoints
             }
         });
 
+        grp.MapGet("/cca", async (
+            [FromQuery] Guid cache_id,
+            [FromQuery] int model_order,
+            [FromQuery] int block_rows,
+            [FromQuery] int window_length_minutes,
+            [FromQuery] int window_step_seconds,
+            [FromQuery] double frequency_min_hz,
+            [FromQuery] double frequency_max_hz,
+            [FromQuery] DateTime? from,
+            [FromQuery] DateTime? to,
+            [FromQuery] bool include_all_modes,
+            [FromServices] IAnalysisCacheRepository cacheRepo,
+            [FromServices] ICcaMetaBuilder metaBuilder,
+            CancellationToken ct = default
+        ) =>
+        {
+            var payload = await cacheRepo.GetAsync<RowsCacheV2>(cache_id, ct);
+            if (payload is null)
+                return Results.NotFound("cache_id não encontrado.");
+
+            var fromUtc = from?.ToUniversalTime();
+            var toUtc = to?.ToUniversalTime();
+
+            try
+            {
+                var cca = Cca.Compute(
+                    payload,
+                    model_order,
+                    block_rows,
+                    window_length_minutes,
+                    window_step_seconds,
+                    frequency_min_hz,
+                    frequency_max_hz,
+                    fromUtc,
+                    toUtc);
+
+                var meta = metaBuilder.Build(payload, cca.FromUtc, cca.ToUtc);
+
+                return Results.Ok(new
+                {
+                    cache_id,
+                    meta,
+                    selectRate = payload.SelectRate,
+                    window = new { from = cca.FromUtc, to = cca.ToUtc },
+                    parameters = new
+                    {
+                        modelOrder = cca.Parameters.ModelOrder,
+                        blockRows = cca.Parameters.BlockRows,
+                        windowLengthMinutes = cca.Parameters.WindowLengthMinutes,
+                        windowStepSeconds = cca.Parameters.WindowStepSeconds,
+                        frequencyMinHz = cca.Parameters.FrequencyMinHz,
+                        frequencyMaxHz = cca.Parameters.FrequencyMaxHz
+                    },
+                    energySeries = cca.Windows.Select(windowItem => new
+                    {
+                        index = windowItem.Index,
+                        from = windowItem.FromUtc,
+                        to = windowItem.ToUtc,
+                        frequencyHz = windowItem.Energy.FrequencyHz,
+                        dampingPercent = windowItem.Energy.DampingPercent,
+                        pseudoEnergy = windowItem.Energy.Score,
+                        vector = windowItem.Energy.Vector.Select(point => new
+                        {
+                            series = point.Series,
+                            pmu = point.Pmu,
+                            amplitude = point.Amplitude,
+                            phase = point.Phase,
+                            phaseRad = point.PhaseRad,
+                            component = point.Component,
+                            quantity = point.Quantity,
+                            unit = point.Unit
+                        }).ToList()
+                    }).ToList(),
+                    idmSeries = cca.Windows.Select(windowItem => new
+                    {
+                        index = windowItem.Index,
+                        from = windowItem.FromUtc,
+                        to = windowItem.ToUtc,
+                        frequencyHz = windowItem.Idm.FrequencyHz,
+                        dampingPercent = windowItem.Idm.DampingPercent,
+                        idm = windowItem.Idm.Score,
+                        vector = windowItem.Idm.Vector.Select(point => new
+                        {
+                            series = point.Series,
+                            pmu = point.Pmu,
+                            amplitude = point.Amplitude,
+                            phase = point.Phase,
+                            phaseRad = point.PhaseRad,
+                            component = point.Component,
+                            quantity = point.Quantity,
+                            unit = point.Unit
+                        }).ToList()
+                    }).ToList(),
+                    windows = cca.Windows.Select(windowItem => new
+                    {
+                        index = windowItem.Index,
+                        from = windowItem.FromUtc,
+                        to = windowItem.ToUtc,
+                        energy = new
+                        {
+                            index = windowItem.Energy.Index,
+                            frequencyHz = windowItem.Energy.FrequencyHz,
+                            dampingPercent = windowItem.Energy.DampingPercent,
+                            pseudoEnergy = windowItem.Energy.Score
+                        },
+                        idm = new
+                        {
+                            index = windowItem.Idm.Index,
+                            frequencyHz = windowItem.Idm.FrequencyHz,
+                            dampingPercent = windowItem.Idm.DampingPercent,
+                            idm = windowItem.Idm.Score
+                        },
+                        allModes = include_all_modes
+                            ? windowItem.AllModes.Select(mode => new
+                            {
+                                index = mode.Index,
+                                frequencyHz = mode.FrequencyHz,
+                                dampingPercent = mode.DampingPercent,
+                                pseudoEnergy = mode.PseudoEnergy,
+                                idm = mode.Idm,
+                                real = mode.Real,
+                                imaginary = mode.Imaginary
+                            }).ToList()
+                            : null
+                    }).ToList()
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(ex.Message);
+            }
+        });
+
         return app;
     }
 }

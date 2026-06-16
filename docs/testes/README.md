@@ -27,6 +27,11 @@ Cobertura unitária para:
   - erro para janela inválida;
   - erro para ordem maior ou igual ao número de amostras;
   - erro para janela com poucas amostras para a ordem solicitada.
+- `OpenPlot.Features.PostProcessing.Handlers.Cca`
+  - montagem do resultado de `Compute` com janelas válidas;
+  - preenchimento de `Windows`, séries dominantes por pseudoenergia e IDM;
+  - erro para relação inválida entre janela e número de linhas por bloco;
+  - erro para janela deslizante maior que o período disponível.
 - `OpenPlot.Features.Runs.Contracts.PlotMetaBuilder`
   - `title`, `xLabel` e `yLabel` para frequência, `dfreq`, THD e diferença angular.
 - `OpenPlot.Features.PostProcessing.Handlers.DftMetaBuilder`
@@ -35,6 +40,12 @@ Cobertura unitária para:
 - `OpenPlot.Features.PostProcessing.Handlers.PronyMetaBuilder`
   - fallback sem séries;
   - composição de metadados para sequência positiva.
+- `OpenPlot.Features.PostProcessing.Handlers.CcaMetaBuilder`
+  - fallback sem séries;
+  - composição de metadados para sequência positiva.
+- `OpenPlot.Services.UI.UiMenuService`
+  - retorno do bloco `oscillations -> Ambiente -> CCA` com `enabled` e defaults;
+  - habilitação e desabilitação contextual do CCA no fluxo `by-run`.
 - `OpenPlot.ExportWorker.Storage.DiskExportStore`
   - resolução do diretório diário em `comtrade/yyyy-MM-dd`;
   - sanitização do nome final do `.zip`;
@@ -64,7 +75,10 @@ Cobertura de integração HTTP com `WebApplicationFactory<Program>` para:
 - `GET /api/v1/dft`;
 - `GET /api/v1/prony` com sucesso;
 - `GET /api/v1/prony` com `404` para `cache_id` inexistente;
-- `GET /api/v1/prony` com `400` para ordem inválida ou indisponível na janela.
+- `GET /api/v1/prony` com `400` para ordem inválida ou indisponível na janela;
+- `GET /api/v1/cca` com sucesso;
+- `GET /api/v1/cca` com `404` para `cache_id` inexistente;
+- `GET /api/v1/cca` com `400` para janela deslizante indisponível.
 
 Nesses testes, a aplicação sobe com pipeline real de Minimal API, sessão, autenticação e middleware, mas com dependências externas substituídas por doubles de teste para manter a execução rápida e determinística.
 
@@ -80,8 +94,8 @@ Cobertura observada por feature:
   - testes unitários para helpers/validações de `ExportEndpoints`;
   - não há, no estado atual, cobertura de integração HTTP para o fluxo completo de exportação.
 - `PostProcessing`
-  - unitários para `Dft`, `Prony`, `DftMetaBuilder`, `PronyMetaBuilder` e `PlotMetaBuilder`;
-  - integração para `GET /api/v1/dft` e `GET /api/v1/prony`.
+	- unitários para `Dft`, `Prony`, `Cca`, `DftMetaBuilder`, `PronyMetaBuilder`, `CcaMetaBuilder`, `UiMenuService` e `PlotMetaBuilder`;
+  - integração para `GET /api/v1/dft`, `GET /api/v1/prony` e `GET /api/v1/cca`.
 - `Runs`
   - unitários para `RunsEndpoints`, `BaseSeriesHandler`, `SimpleSeriesHandler`, `PmuQueryHelper`, `SeriesResponseBuilder` e contratos de query.
 
@@ -147,6 +161,7 @@ dotnet test tests/OpenPlot.Api.IntegrationTests/OpenPlot.Api.IntegrationTests.cs
 
 - Os testes atuais não dependem de PostgreSQL real.
 - Os projetos de teste podem ser executados diretamente por `dotnet test`, mesmo quando não estiverem carregados na `openplot.sln` principal.
-- Há avisos de dependências/pacotes durante o build de teste, mas a suíte validada nesta tarefa passou integralmente (`69/69` unitários e `18/18` integração).
+- A suíte de integração validada nesta frente passou para os cenários relevantes de post-processing, incluindo `GET /api/v1/cca`.
+- A execução integral de `tests/OpenPlot.UnitTests` pode continuar falhando por erros preexistentes fora do escopo em testes antigos de `SimpleSeriesHandler` e `ExportEndpoints`.
 - Uma próxima etapa natural é criar um projeto de integração com banco para `RunContextRepository`, `MeasurementsRepository` e `AnalysisCacheRepository`.
 

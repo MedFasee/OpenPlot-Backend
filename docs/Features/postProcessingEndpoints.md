@@ -4,10 +4,11 @@
 
 A feature `PostProcessing` concentra analises derivadas executadas sobre um `cache_id` previamente gerado pelos endpoints de series. Em vez de reler medicoes brutas no banco, a API reutiliza um payload consolidado (`RowsCacheV2`) e aplica algoritmos de pos-processamento orientados a visualizacao analitica.
 
-No estado atual, a feature expoe dois endpoints autenticados:
+No estado atual, a feature expoe tres endpoints autenticados:
 
 - `GET /api/v1/dft`
 - `GET /api/v1/prony`
+- `GET /api/v1/cca`
 
 Esses endpoints compartilham o mesmo modelo operacional:
 
@@ -39,8 +40,10 @@ A feature `PostProcessing` concentra:
 - **`IAnalysisCacheRepository` / `AnalysisCacheRepository`**: persistencia e recuperacao de `RowsCacheV2` em `openplot.analysis_cache`.
 - **`Dft`**: calculo espectral por FFT single-sided sobre series reamostradas.
 - **`Prony`**: ajuste modal multissinal para estimativa de polos, frequencias e amortecimentos.
+- **`Cca`**: identificacao modal em janela deslizante com pseudoenergia, IDM e vetores modais dominantes.
 - **`DftMetaBuilder`**: reconstroi `title`, `xLabel` e `yLabel` para o contexto da DFT.
 - **`PronyMetaBuilder`**: reconstroi `title`, `xLabel` e `yLabel` para o contexto do Prony.
+- **`CcaMetaBuilder`**: reconstroi `title` e labels analiticos do contexto do CCA.
 - **`IPlotMetaBuilder`**: servico compartilhado reutilizado pelos meta builders para manter consistencia com a nomenclatura das series originais.
 
 ### Contrato base consumido
@@ -80,6 +83,7 @@ Esse desenho reduz acoplamento com a camada SQL de medicoes e favorece pipelines
 |---|---|---|---|---|
 | `/api/v1/dft` | GET | `cache_id`, `from`, `to` | FFT single-sided | espectro por serie + faixa inicial de zoom |
 | `/api/v1/prony` | GET | `cache_id`, `order`, `from`, `to`, `include_points`, `include_all_modes` | Prony multissinal | modos dominantes, modos completos e reconstrucao temporal |
+| `/api/v1/cca` | GET | `cache_id`, `model_order`, `block_rows`, `window_length_minutes`, `window_step_seconds`, `frequency_min_hz`, `frequency_max_hz`, `from`, `to`, `include_all_modes` | CCA em janela deslizante | modos dominantes por pseudoenergia e IDM + janelas analiticas |
 
 ---
 
@@ -279,15 +283,165 @@ Executa identificacao modal via Prony sobre um conjunto de series previamente ar
 
 ---
 
+## Endpoint `GET /api/v1/cca`
+
+Executa identificacao modal ambiental via CCA sobre um conjunto de series previamente armazenado em cache.
+
+### Entrada
+
+- Query obrigatorias:
+  - `cache_id`: identificador do payload salvo em `analysis_cache`.
+  - `model_order`: ordem do modelo modal.
+  - `block_rows`: numero de linhas por bloco.
+  - `window_length_minutes`: tamanho da janela deslizante em minutos.
+  - `window_step_seconds`: passo entre janelas em segundos.
+  - `frequency_min_hz`: limite inferior da faixa de interesse.
+  - `frequency_max_hz`: limite superior da faixa de interesse.
+- Query opcionais:
+  - `from`: limite inferior UTC para recorte da janela.
+  - `to`: limite superior UTC para recorte da janela.
+  - `include_all_modes`: quando `true`, inclui todos os modos calculados em cada janela.
+
+### Fluxo tecnico
+
+1. Recupera `RowsCacheV2` via cache analitico.
+2. Retorna `404` se o `cache_id` nao existir.
+3. Normaliza a janela UTC e trunca o intervalo aos limites do cache.
+4. Reamostra as series em grade temporal uniforme comum e executa `Cca.Compute(...)`.
+5. Gera `meta` via `ICcaMetaBuilder.Build(...)`.
+6. Projeta duas series dominantes por janela: uma guiada por pseudoenergia e outra por IDM.
+7. Retorna `windows[]` com os modos dominantes da janela e, opcionalmente, `allModes` completos.
+
+### Regras internas relevantes
+
+- O fluxo usa `payload.SelectRate` como taxa base de amostragem da janela recortada.
+- As series sao reamostradas por `hold-last` para manter uma grade temporal unica antes do pre-processamento.
+- O pre-processamento atual inclui media movel, deteccao/interpolacao de outliers, remocao de media e downsampling para analise modal ambiental.
+- A validacao principal replica a regra legada de disponibilidade do metodo:
+  - `window_length_minutes * 60 * selectRate > 2 * block_rows`;
+  - `window_length_minutes * 60 * selectRate <= availablePointCount`.
+- Modos fora da faixa `[frequency_min_hz, frequency_max_hz]` ou com amortecimento acima de 30% sao zerados para pseudoenergia e IDM.
+- O bloco de menu do frontend associado ao metodo foi padronizado para `CCA` em `oscillations -> Ambiente -> CCA`.
+
+### Resposta
+
+- `200` com payload contendo:
+  - `cache_id`;
+  - `meta`;
+  - `selectRate`;
+  - `window` com `from` e `to` efetivos;
+  - `parameters` com os parametros efetivamente usados;
+  - `energySeries[]` com o modo dominante por pseudoenergia em cada janela;
+  - `idmSeries[]` com o modo dominante por IDM em cada janela;
+  - `windows[]` com resumo da janela e, opcionalmente, `allModes`.
+- `404` se `cache_id` nao existir.
+- `400` para erros de entrada ou inviabilidade matematica do ajuste, incluindo:
+  - ordem de modelo invalida;
+  - `block_rows` invalido;
+  - janela invalida;
+  - janela deslizante maior que o periodo disponivel;
+  - relacao invalida entre pontos da janela e numero de linhas por bloco.
+
+### Shape resumido da resposta
+
+```json
+{
+  "cache_id": "guid",
+  "meta": {
+    "title": "CCA da Frequencia ...",
+    "xLabel": "Tempo (UTC)",
+    "frequencyYLabel": "Frequencia (Hz)",
+    "dampingYLabel": "Amortecimento (%)",
+    "energyYLabel": "Pseudoenergia",
+    "idmYLabel": "IDM"
+  },
+  "selectRate": 1,
+  "window": {
+    "from": "2026-01-24T21:46:14Z",
+    "to": "2026-01-24T22:06:14Z"
+  },
+  "parameters": {
+    "modelOrder": 4,
+    "blockRows": 10,
+    "windowLengthMinutes": 3,
+    "windowStepSeconds": 30,
+    "frequencyMinHz": 0.3,
+    "frequencyMaxHz": 0.4
+  },
+  "energySeries": [
+    {
+      "index": 0,
+      "from": "2026-01-24T21:46:14Z",
+      "to": "2026-01-24T21:49:14Z",
+      "frequencyHz": 0.35,
+      "dampingPercent": 2.1,
+      "pseudoEnergy": 12.4,
+      "vector": [
+        {
+          "series": "PMU-1|FREQUENCY|FREQ|A",
+          "pmu": "PMU-1",
+          "amplitude": 0.91,
+          "phase": 10.5,
+          "phaseRad": 0.18,
+          "component": "freq",
+          "quantity": "frequency",
+          "unit": "Hz"
+        }
+      ]
+    }
+  ],
+  "idmSeries": [
+    {
+      "index": 0,
+      "from": "2026-01-24T21:46:14Z",
+      "to": "2026-01-24T21:49:14Z",
+      "frequencyHz": 0.35,
+      "dampingPercent": 2.1,
+      "idm": 0.76,
+      "vector": []
+    }
+  ],
+  "windows": [
+    {
+      "index": 0,
+      "from": "2026-01-24T21:46:14Z",
+      "to": "2026-01-24T21:49:14Z",
+      "energy": {
+        "index": 1,
+        "frequencyHz": 0.35,
+        "dampingPercent": 2.1,
+        "pseudoEnergy": 12.4
+      },
+      "idm": {
+        "index": 1,
+        "frequencyHz": 0.35,
+        "dampingPercent": 2.1,
+        "idm": 0.76
+      },
+      "allModes": null
+    }
+  ]
+}
+```
+
+### Observacoes especificas
+
+- `energySeries` e `idmSeries` sao derivados do mesmo processamento, mas destacam criterios distintos de dominancia modal.
+- `include_all_modes=true` amplia o payload e deve ser usado principalmente para diagnostico numerico.
+- O contrato atual usa apenas a nomenclatura `CCA`; referencias publicas a `CVA` foram abolidas na API e na documentacao.
+
+---
+
 ## Metadados de plot
 
-`DftMetaBuilder` e `PronyMetaBuilder` reaproveitam `IPlotMetaBuilder` para preservar a semantica da serie original, mas fazem adaptacoes locais:
+`DftMetaBuilder`, `PronyMetaBuilder` e `CcaMetaBuilder` reaproveitam `IPlotMetaBuilder` para preservar a semantica da serie original, mas fazem adaptacoes locais:
 
 - normalizam `quantity` (`active` -> `p_active`, `reactive` -> `p_reactive`);
 - normalizam `component` (`seq` -> `mag`, `angle_diff_*` -> `angle`);
 - inferem `PhaseMode` com base na fase, componente e distribuicao de PMUs e fases no cache;
-- ajustam o titulo final com prefixos especificos (`Espectro de Freq.` e `Prony`);
-- no caso da DFT, sobrescrevem o `yLabel` com `Frequencia (Hz)`.
+- ajustam o titulo final com prefixos especificos (`Espectro de Freq.`, `Prony` e `CCA`);
+- no caso da DFT, sobrescrevem o `yLabel` com `Frequencia (Hz)`;
+- no caso do CCA, expõem um conjunto dedicado de labels analiticos para frequencia, amortecimento, pseudoenergia e IDM.
 
 Esse desenho evita que a feature de post-processing replique toda a logica de rotulagem usada pelos endpoints de series.
 
@@ -305,18 +459,14 @@ Esse desenho evita que a feature de post-processing replique toda a logica de ro
 
 Estado atual observado no workspace:
 
-- testes unitarios para `Dft`;
-- testes unitarios para `DftMetaBuilder`;
-- teste de integracao HTTP para `GET /api/v1/dft` com cache existente;
-- teste de integracao HTTP para `GET /api/v1/dft` com `404` quando o cache nao existe.
+- testes unitarios para `Dft`, `Prony` e `Cca`;
+- testes unitarios para `DftMetaBuilder`, `PronyMetaBuilder` e `CcaMetaBuilder`;
+- testes unitarios para `UiMenuService` cobrindo a habilitacao contextual do bloco `CCA` no `by-run`;
+- testes de integracao HTTP para `GET /api/v1/dft`;
+- testes de integracao HTTP para `GET /api/v1/prony`;
+- testes de integracao HTTP para `GET /api/v1/cca`.
 
-Nao foi identificada cobertura equivalente, no estado atual, para:
-
-- `Prony`;
-- `PronyMetaBuilder`;
-- `GET /api/v1/prony` em nivel de integracao.
-
-Essa lacuna e relevante porque `Prony` possui mais validacoes numericas, flags opcionais de payload e maior variabilidade de saida.
+Ha, entretanto, uma limitacao operacional no projeto `OpenPlot.UnitTests`: a execucao integral da suite pode continuar bloqueada por falhas preexistentes fora do escopo em testes antigos de `SimpleSeriesHandler` e `ExportEndpoints`.
 
 ---
 
