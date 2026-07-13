@@ -11,6 +11,9 @@ obj/
 docs/Refatoracao
 .github/
 
+# Secrets
+.env.dev
+
 # Logs e temporários
 *.log
 *.tmp
