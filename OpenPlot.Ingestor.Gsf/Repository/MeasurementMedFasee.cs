@@ -240,7 +240,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
                                     builtMeasurements.TryGetValue(measurementStr + "0", out var chMag) &&
                                     !reader.IsDBNull(cMag))
                                 {
-                                    series[chMag].Add(time, Convert.ToDouble(reader.GetValue(cMag)));
+                                    series[chMag].Add(time, Convert.ToDouble(reader.GetValue(cMag)), 29);
                                 }
 
                                 // Ângulo (measurement + "1")
@@ -248,7 +248,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
                                     builtMeasurements.TryGetValue(measurementStr + "1", out var chAng) &&
                                     !reader.IsDBNull(cAng))
                                 {
-                                    series[chAng].Add(time, Convert.ToDouble(reader.GetValue(cAng)));
+                                    series[chAng].Add(time, Convert.ToDouble(reader.GetValue(cAng)), 29);
                                 }
 
                                 // Frequência
@@ -258,7 +258,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
                                 {
                                     if (time != lastTimeFreqEmit)
                                     {
-                                        series[chFreq].Add(time, Convert.ToDouble(reader.GetValue(cFreq)));
+                                        series[chFreq].Add(time, Convert.ToDouble(reader.GetValue(cFreq)), 29);
                                         lastTimeFreqEmit = time;
                                     }
                                 }
@@ -269,7 +269,7 @@ namespace OpenPlot.Ingestor.Gsf.Repository
                                     !reader.IsDBNull(cRocof))
                                 {
                                     // (não força unicidade de timestamp com freq; usa mesma janela)
-                                    series[chRocof].Add(time, Convert.ToDouble(reader.GetValue(cRocof)));
+                                    series[chRocof].Add(time, Convert.ToDouble(reader.GetValue(cRocof)), 29);
                                 }
                             }
 

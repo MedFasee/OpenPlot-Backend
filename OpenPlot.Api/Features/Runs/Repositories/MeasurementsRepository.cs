@@ -384,7 +384,7 @@ ORDER BY sig.id_name, sig.signal_id, m.ts;
         };
 
         var rows = await db.QueryAsync<PhasorAbcRow>(
-            new CommandDefinition(sql, args, commandTimeout: 30, cancellationToken: ct));
+            new CommandDefinition(sql, args, commandTimeout: 300, cancellationToken: ct));
 
         return rows.ToList();
     }

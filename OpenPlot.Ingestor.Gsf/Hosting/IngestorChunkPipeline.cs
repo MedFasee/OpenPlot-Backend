@@ -167,7 +167,8 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                             ts          timestamptz       NOT NULL,
                             pdc_pmu_id  integer           NOT NULL,
                             signal_id   integer           NOT NULL,
-                            value       double precision  NOT NULL
+                            value       double precision  NOT NULL,
+                            quality     integer           NULL
                         ) ON COMMIT DROP;
                         TRUNCATE measurements_stage_tmp;", connCopy, txCopy))
                     {
@@ -176,7 +177,7 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
 
                     using (var importer = connCopy.BeginBinaryImport(@"
                         COPY measurements_stage_tmp
-                        (ts, pdc_pmu_id, signal_id, value)
+                        (ts, pdc_pmu_id, signal_id, value, quality)
                         FROM STDIN (FORMAT BINARY)"))
                     {
                         foreach (var kv in dict)
@@ -192,11 +193,13 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
 
                             var ts = series.GetTimestamps();
                             var rd = series.GetReadings();
+                            var ql = series.GetQualities();
 
                             for (var i = 0; i < series.Count; i++)
                             {
                                 var dt = FromOADateUtc(ts[i]);
                                 var val = rd[i];
+                                var quality = ql[i];
                                 if (double.IsNaN(val) || double.IsInfinity(val))
                                     continue;
                                 if (dt.Year < 1970 || dt.Year > 2100)
@@ -207,6 +210,7 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                                 importer.Write(pdcPmuId, NpgsqlTypes.NpgsqlDbType.Integer);
                                 importer.Write(signalId, NpgsqlTypes.NpgsqlDbType.Integer);
                                 importer.Write(val, NpgsqlTypes.NpgsqlDbType.Double);
+                                importer.Write(quality, NpgsqlTypes.NpgsqlDbType.Integer);
                             }
                         }
 
@@ -214,8 +218,8 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                     }
 
                     using (var upsert = new NpgsqlCommand(@"
-                        INSERT INTO openplot.measurements (ts, pdc_pmu_id, signal_id, value)
-                        SELECT ts, pdc_pmu_id, signal_id, value
+                        INSERT INTO openplot.measurements (ts, pdc_pmu_id, signal_id, value, quality)
+                        SELECT ts, pdc_pmu_id, signal_id, value, quality
                           FROM measurements_stage_tmp
                         ON CONFLICT (pdc_pmu_id, signal_id, ts) DO NOTHING;", connCopy, txCopy))
                     {

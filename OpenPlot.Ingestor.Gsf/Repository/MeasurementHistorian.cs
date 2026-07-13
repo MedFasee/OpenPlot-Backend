@@ -149,7 +149,6 @@ namespace OpenPlot.Ingestor.Gsf.Repository
             if (downloadStat && !series.ContainsKey(Channel.MISSING))
                 series[Channel.MISSING] = new TimeSeries();
 
-            bool oneValid = downloadStat;
             bool hasData = false;
             double frameMs = 1000.0 / framesPerSecond;
 
@@ -224,19 +223,15 @@ namespace OpenPlot.Ingestor.Gsf.Repository
                         {
                             bool qualityOk = qualityCode == 29;
 
-                            if (qualityOk || downloadStat)
+                            if (measurementsById.TryGetValue(historianId, out var key) && key is not null)
                             {
-                                oneValid |= qualityOk;
                                 hasData = true;
 
-                                if (measurementsById.TryGetValue(historianId, out var key) && key is not null)
-                                {
-                                    double time = TimeUtils.OaDate(measureTime);
-                                    series[key].Add(time, value);
+                                double time = TimeUtils.OaDate(measureTime);
+                                series[key].Add(time, value, qualityCode);
 
-                                    if (!qualityOk && downloadStat)
-                                        series[Channel.MISSING].Add(time, 2);
-                                }
+                                if (!qualityOk && downloadStat)
+                                    series[Channel.MISSING].Add(time, 2, qualityCode);
                             }
                         }
                     }
@@ -251,8 +246,6 @@ namespace OpenPlot.Ingestor.Gsf.Repository
 
             if (!hasData)
                 throw new InvalidQueryException(InvalidQueryException.EMPTY);
-            if (!oneValid)
-                throw new InvalidQueryException(InvalidQueryException.NO_VALID);
 
             return series;
         }

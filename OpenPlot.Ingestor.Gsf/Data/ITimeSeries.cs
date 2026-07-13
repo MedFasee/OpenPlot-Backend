@@ -8,11 +8,13 @@ namespace OpenPlot.Ingestor.Gsf.Data
     {
         int Count { get; }
 
-        void Add(double timestamp, double reading);
+        void Add(double timestamp, double reading, int quality = 29);
         double Timestamp(int position);
         double Reading(int position);
+        int Quality(int position);
 
         double[] GetReadings();
         double[] GetTimestamps();
+        int[] GetQualities();
     }
 }

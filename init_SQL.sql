@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
+
 CREATE SCHEMA IF NOT EXISTS openPlot;
 
 -- 0) Domínios/enums úteis
@@ -73,25 +75,29 @@ CREATE TABLE IF NOT EXISTS openPlot.signal_points (
   UNIQUE (signal_id, role)
 );
 
--- 6) 
-CREATE TABLE IF NOT EXISTS openPlot.measurements (
-  ts        timestamptz      NOT NULL,
-  pdc_pmu_id int             NOT NULL REFERENCES openPlot.pdc_pmu(pdc_pmu_id) ON DELETE CASCADE,
-  signal_id int              NOT NULL REFERENCES openPlot.signal(signal_id) ON DELETE CASCADE,
-  value     double precision NOT NULL,
-  PRIMARY KEY (signal_id, ts)
-);
-
--- 7) 
+-- 6) measurements (TimescaleDB hypertable)
 CREATE TABLE IF NOT EXISTS openplot.measurements (
     ts           timestamptz      NOT NULL,
     pdc_pmu_id   int              NOT NULL REFERENCES openplot.pdc_pmu(pdc_pmu_id) ON DELETE CASCADE,
     signal_id    int              NOT NULL REFERENCES openplot.signal(signal_id) ON DELETE CASCADE,
     value        double precision NOT NULL,
 
-    -- NOVA PK, correta
     PRIMARY KEY (pdc_pmu_id, signal_id, ts)
 );
+
+SELECT create_hypertable(
+  'openplot.measurements',
+  'ts',
+  chunk_time_interval => INTERVAL '1 day',
+  if_not_exists => TRUE,
+  migrate_data => TRUE
+);
+
+CREATE INDEX IF NOT EXISTS ix_measurements_signal_ts
+  ON openplot.measurements (signal_id, ts DESC);
+
+CREATE INDEX IF NOT EXISTS ix_measurements_pdc_signal_ts
+  ON openplot.measurements (pdc_pmu_id, signal_id, ts DESC);
 
 -- 8) -- fila / jobs
 CREATE TABLE IF NOT EXISTS openPlot.search_runs (
