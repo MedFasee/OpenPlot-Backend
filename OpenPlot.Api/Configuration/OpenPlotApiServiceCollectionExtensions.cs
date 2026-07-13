@@ -155,6 +155,7 @@ internal static class OpenPlotApiServiceCollectionExtensions
     private static IServiceCollection AddOpenPlotAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<AuthOptions>(configuration.GetSection("Auth"));
+        services.Configure<AuthProviderOptions>(configuration.GetSection("AuthProvider"));
         services.Configure<UserStoreOptions>(configuration.GetSection("Auth:UserStore"));
         services.Configure<SsoOptions>(configuration.GetSection("Sso"));
         services.Configure<List<SsoClientOptions>>(configuration.GetSection("SsoClients"));

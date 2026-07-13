@@ -102,6 +102,31 @@ Referencias principais:
 - `docs/Features/runsEndpoints.md` - endpoints de runs, terminais e series.
 - `docs/Features/postProcessingEndpoints.md` - arquitetura e contratos de DFT, Prony e CCA sobre `cache_id`.
 
+## 2.2 Comutacao de autenticacao no Docker (OpenPlot x ONS/SSO)
+
+A API suporta dois fluxos de autenticacao:
+
+- **OpenPlot**: login local (`/api/v1/auth/login`);
+- **ONS/SSO**: fluxo SSO (`/api/v1/sso/*`).
+
+A comutacao e feita por variavel de ambiente no container da API:
+
+- `OPENPLOT_AUTH_PROVIDER=OpenPlot` -> habilita login local e desabilita endpoints SSO;
+- `OPENPLOT_AUTH_PROVIDER=Ons` -> habilita SSO e desabilita login local.
+
+No `docker-compose.yml`, essa variavel e injetada como:
+
+- `AuthProvider__Provider: ${OPENPLOT_AUTH_PROVIDER:-OpenPlot}`
+
+Valores padrao dos ambientes atuais:
+
+- `.env.dev`: `OPENPLOT_AUTH_PROVIDER=OpenPlot`
+- `.env.prod`: `OPENPLOT_AUTH_PROVIDER=Ons`
+
+Observacao:
+
+- segredos e configuracoes sensiveis (ex.: `ConfigITapiKey`) devem permanecer em `.env`/ambiente, sem uso de `launchSettings.json`.
+
 ---
 
 ## 3. Execução dos testes

@@ -32,8 +32,17 @@ public static class SsoEndpoints
                 ISsoRequestValidator validator,
                 ISsoAuthRepository repository,
                 IOptions<SsoOptions> ssoOptions,
+                IOptions<AuthProviderOptions> providerOptions,
                 CancellationToken ct) =>
             {
+                if (!providerOptions.Value.IsOns)
+                {
+                    return Results.Problem(
+                        statusCode: StatusCodes.Status409Conflict,
+                        title: "Fluxo de autenticação indisponível",
+                        detail: "Autenticação ONS/SSO desabilitada. Use o login local do OpenPlot.");
+                }
+
                 var rawBody = await ReadRawBodyAsync(request, ct);
                 var validation = validator.Validate(
                     clientId,
@@ -111,8 +120,17 @@ public static class SsoEndpoints
         ISessionUserService sessionUserService,
         [FromServices] IDbConnectionFactory dbf,
         IOptions<SsoOptions> ssoOptions,
+        IOptions<AuthProviderOptions> providerOptions,
         CancellationToken ct) =>
     {
+        if (!providerOptions.Value.IsOns)
+        {
+            return Results.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Fluxo de autenticação indisponível",
+                detail: "Autenticação ONS/SSO desabilitada. Use o login local do OpenPlot.");
+        }
+
         if (string.IsNullOrWhiteSpace(payload.Token))
         {
             return Results.Problem(

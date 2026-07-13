@@ -1,62 +1,90 @@
 services:
-  db:
-    image: postgres:16
+  postgres:
+    image: ${OPENPLOT_POSTGRES_IMAGE:-timescale/timescaledb:latest-pg17}
+    command: postgres -c shared_preload_libraries=timescaledb
     environment:
-      POSTGRES_DB: openplot
-      POSTGRES_USER: openplot
-      POSTGRES_PASSWORD: openplot
+      POSTGRES_DB: ${OPENPLOT_POSTGRES_DB:-postgres}
+      POSTGRES_USER: ${OPENPLOT_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${OPENPLOT_POSTGRES_PASSWORD:-postgres}
     ports:
-      - "5432:5432"
+      - "${OPENPLOT_POSTGRES_PORT:-5432}:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
-      # se você quer rodar init SQL automaticamente:
-      - ./init_SQL:/docker-entrypoint-initdb.d/init.sql:ro
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/dumps/openplot_create_timescaledb.sql:/docker-entrypoint-initdb.d/01-openplot-create-timescaledb.sql:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" &&
+          psql -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" -tAc
+          "SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'"
+          | grep -q 1 &&
+          psql -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" -tAc
+          "SELECT 1 FROM information_schema.tables WHERE table_schema = 'openplot' AND table_name = 'measurements_ht'"
+          | grep -q 1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    networks:
+      - openplot-network
 
-  api:
-    build:
-      context: .
-      dockerfile: OpenPlot.Api/Dockerfile
+  openplot-api:
+    image: ${OPENPLOT_API_IMAGE:-openplot-api:${OPENPLOT_VERSION:-dev}}
     environment:
-      ASPNETCORE_URLS: http://+:5173
-      ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__Default: Host=db;Port=5432;Database=openplot;Username=openplot;Password=openplot
+      ASPNETCORE_ENVIRONMENT: ${OPENPLOT_API_ENVIRONMENT:-Development}
+      ASPNETCORE_URLS: http://+:7011
+      AuthProvider__Provider: ${OPENPLOT_AUTH_PROVIDER:-OpenPlot}
+      ConfigITr: ${ConfigITr:-https://configit-api.ons.org.br}
+      ConfigITapiKey: ${ConfigITapiKey:-72183c66-8431-4051-b0a6-efe1a525baec}
+      ConfigITamb: ${ConfigITamb:-Teste}
+      ConfigITpacote: ${ConfigITpacote:-OpenPlot}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-https://otel-collector-http-ons-coletor.apps.rosa.rosa-dev.wmaj.p3.openshiftapps.com}
+      ConnectionStrings__Db: Host=postgres;Port=5432;Database=${OPENPLOT_POSTGRES_DB:-postgres};Username=${OPENPLOT_POSTGRES_USER:-postgres};Password=${OPENPLOT_POSTGRES_PASSWORD:-postgres}
+      XmlFolder: /data/xml
     ports:
-      - "5173:5173"
+      - "${OPENPLOT_API_PORT:-7011}:7011"
+    volumes:
+      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/xml:/data/xml
+      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/exports:/data/exports
+      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/logs/api:/app/logs
+      - ./OpenPlot.Api/Auth:/app/auth:ro
     depends_on:
-      - db
+      postgres:
+        condition: service_healthy
+    networks:
+      - openplot-network
 
-  ingestor:
-    build:
-      context: .
-      dockerfile: OpenPlot.Ingestor.Gsf/Dockerfile
+  openplot-export-worker:
+    image: ${OPENPLOT_EXPORT_WORKER_IMAGE:-openplot-export-worker:${OPENPLOT_VERSION:-dev}}
     environment:
-      ConnectionStrings__Default: Host=db;Port=5432;Database=openplot;Username=openplot;Password=openplot
+      ConnectionStrings__OpenPlotDb: Host=postgres;Port=5432;Database=${OPENPLOT_POSTGRES_DB:-postgres};Username=${OPENPLOT_POSTGRES_USER:-postgres};Password=${OPENPLOT_POSTGRES_PASSWORD:-postgres}
+      Exports__RootDir: /data/exports
+    volumes:
+      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/exports:/data/exports
+      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/logs/export-worker:/app/logs
     depends_on:
-      - db
-    restart: unless-stopped
+      postgres:
+        condition: service_healthy
+    networks:
+      - openplot-network
 
-  exportworker:
-    build:
-      context: .
-      dockerfile: OpenPlot.ExportWorker/Dockerfile
+  openplot-ingestor-gsf:
+    image: ${OPENPLOT_INGESTOR_GSF_IMAGE:-openplot-ingestor-gsf:${OPENPLOT_VERSION:-dev}}
     environment:
-      ConnectionStrings__Default: Host=db;Port=5432;Database=openplot;Username=openplot;Password=openplot
+      OPENPLOT_INGESTOR__DB: Host=postgres;Port=5432;Database=${OPENPLOT_POSTGRES_DB:-postgres};Username=${OPENPLOT_POSTGRES_USER:-postgres};Password=${OPENPLOT_POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/xml:/data/xml
+      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/logs/ingestor-gsf:/app/logs
     depends_on:
-      - db
-    restart: unless-stopped
-
-  xmlimporter:
-    build:
-      context: .
-      dockerfile: OpenPlot.XmlImporter/Dockerfile
-    environment:
-      ConnectionStrings__Default: Host=db;Port=5432;Database=openplot;Username=openplot;Password=openplot
-    depends_on:
-      - db
-    restart: "no"
-    # se seu importer precisa de um diretório de XMLs, monte volume:
-    # volumes:
-    #   - ./Config:/imports:ro
+      postgres:
+        condition: service_healthy
+    networks:
+      - openplot-network
 
 volumes:
-  pgdata:
+  postgres-data:
+
+networks:
+  openplot-network:
+    driver: bridge

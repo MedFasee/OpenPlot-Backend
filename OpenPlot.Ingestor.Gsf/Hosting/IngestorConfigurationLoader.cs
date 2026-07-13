@@ -7,9 +7,12 @@ internal static class IngestorConfigurationLoader
 {
     internal static IngestorRuntimeContext LoadFromAppConfig()
     {
-        var connectionString = ConfigurationManager.AppSettings["Db"];
+        var connectionString =
+            Environment.GetEnvironmentVariable("OPENPLOT_INGESTOR__DB")
+            ?? ConfigurationManager.AppSettings["Db"];
+
         if (string.IsNullOrWhiteSpace(connectionString))
-            throw new Exception("App.config: defina AppSettings key=Db.");
+            throw new Exception("Defina OPENPLOT_INGESTOR__DB ou App.config AppSettings key=Db.");
 
         var cpuCount = Math.Max(1, Environment.ProcessorCount);
         var globalMaxParallelChunks = Math.Max(1, Math.Min(ReadInt("GlobalMaxParallelChunks", cpuCount), cpuCount));

@@ -26,14 +26,33 @@ public static class AuthEndpoints
                      .WithTags("Auth");
 
         // POST /api/v1/auth/login
+        grp.MapGet("/provider", (IOptions<AuthProviderOptions> providerOptions) =>
+        {
+            var provider = providerOptions.Value;
+            return Results.Ok(new
+            {
+                provider = provider.Current,
+                supported = new[] { "OpenPlot", "Ons" }
+            });
+        });
+
         grp.MapPost("/login",
             async ([FromBody] LoginRequest req,
                    IAuthService auth,
                    IOpenPlotLoginTokenService loginTokenService,
                    ISessionUserService session,
+                   IOptions<AuthProviderOptions> providerOptions,
                    HttpContext http,
                    CancellationToken ct) =>
             {
+                if (!providerOptions.Value.IsOpenPlot)
+                {
+                    return Results.Problem(
+                        statusCode: StatusCodes.Status409Conflict,
+                        title: "Fluxo de autenticação indisponível",
+                        detail: "Autenticação local do OpenPlot desabilitada. Use o fluxo ONS/SSO.");
+                }
+
                 var (ok, resp, error) = await auth.AuthenticateAsync(req, ct);
                 if (!ok || resp is null)
                     return Results.Problem(statusCode: StatusCodes.Status401Unauthorized,

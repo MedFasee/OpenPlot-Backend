@@ -1,4 +1,5 @@
 using System.Threading;
+using ons.configit.configuration.provider;
 using OpenPlot.Api.Configuration;
 using Serilog;
 using Serilog.Events;
@@ -16,10 +17,18 @@ Log.Logger = new LoggerConfiguration()
     .WriteTo.File("logs/api-.log", 
     rollingInterval: RollingInterval.Day).CreateLogger();
 
-
-
-
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Configuration.AddConfigITConfiguration(
+    url: Environment.GetEnvironmentVariable("ConfigITr"),
+    apiKey: Environment.GetEnvironmentVariable("ConfigITapiKey"),
+    environment: Environment.GetEnvironmentVariable("ConfigITamb"),
+    pacote: Environment.GetEnvironmentVariable("ConfigITpacote"),
+    configItJsonFullPath: null,
+    httpClient: null
+);
+
+
 
 builder.Host.UseSerilog();
 builder

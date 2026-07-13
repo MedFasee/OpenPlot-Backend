@@ -1,0 +1,15 @@
+services:
+  openplot-api:
+    build:
+      context: .
+      dockerfile: OpenPlot.Api/Dockerfile
+
+  openplot-export-worker:
+    build:
+      context: .
+      dockerfile: OpenPlot.ExportWorker/Dockerfile
+
+  openplot-ingestor-gsf:
+    build:
+      context: .
+      dockerfile: OpenPlot.Ingestor.Gsf/Dockerfile
