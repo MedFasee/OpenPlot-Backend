@@ -335,27 +335,24 @@ CREATE TABLE IF NOT EXISTS openplot.comtrade_runs (
 -- -----------------------------------------------------------------------------
 -- Series temporais - TimescaleDB
 -- -----------------------------------------------------------------------------
--- A tabela definitiva de series temporais passa a ser measurements_ht.
--- A tabela measurements NAO e criada como tabela fisica neste script.
--- Para compatibilidade com codigo legado, uma VIEW measurements e criada ao final
--- apontando para measurements_ht.
+-- A tabela definitiva de series temporais e openplot.measurements.
 --
 -- Observacao TimescaleDB:
 -- Toda PRIMARY KEY/UNIQUE em hypertable precisa conter a coluna de particionamento
 -- temporal. Por isso a PK inclui ts.
 
-CREATE TABLE IF NOT EXISTS openplot.measurements_ht (
+CREATE TABLE IF NOT EXISTS openplot.measurements (
     ts          timestamp with time zone NOT NULL,
     pdc_pmu_id  integer NOT NULL,
     signal_id   integer NOT NULL,
     value       double precision NOT NULL,
 
-    CONSTRAINT measurements_ht_pkey PRIMARY KEY (pdc_pmu_id, signal_id, ts),
-    CONSTRAINT measurements_ht_pdc_pmu_id_fkey
+    CONSTRAINT measurements_pkey PRIMARY KEY (pdc_pmu_id, signal_id, ts),
+    CONSTRAINT measurements_pdc_pmu_id_fkey
         FOREIGN KEY (pdc_pmu_id)
         REFERENCES openplot.pdc_pmu (pdc_pmu_id)
         ON DELETE CASCADE,
-    CONSTRAINT measurements_ht_signal_id_fkey
+    CONSTRAINT measurements_signal_id_fkey
         FOREIGN KEY (signal_id)
         REFERENCES openplot.signal (signal_id)
         ON DELETE CASCADE
@@ -365,20 +362,20 @@ CREATE TABLE IF NOT EXISTS openplot.measurements_ht (
 -- chunk_time_interval = 1 hour foi escolhido por padrao conservador para dados
 -- de sincrofasores em alta taxa. Ajuste para 6 hours ou 1 day se o volume for menor.
 SELECT create_hypertable(
-    'openplot.measurements_ht',
+    'openplot.measurements',
     'ts',
-    chunk_time_interval => INTERVAL '1 hour',
+    chunk_time_interval => INTERVAL '1 day',
     if_not_exists => TRUE,
     create_default_indexes => FALSE
 );
 
-COMMENT ON TABLE openplot.measurements_ht IS
+COMMENT ON TABLE openplot.measurements IS
 'Tabela definitiva de series temporais do OpenPlot, armazenada como hypertable TimescaleDB particionada por ts.';
 
-COMMENT ON COLUMN openplot.measurements_ht.ts IS 'Instante da amostra, em timestamptz.';
-COMMENT ON COLUMN openplot.measurements_ht.pdc_pmu_id IS 'Referencia ao par PDC-PMU.';
-COMMENT ON COLUMN openplot.measurements_ht.signal_id IS 'Referencia ao sinal medido.';
-COMMENT ON COLUMN openplot.measurements_ht.value IS 'Valor numerico da amostra.';
+COMMENT ON COLUMN openplot.measurements.ts IS 'Instante da amostra, em timestamptz.';
+COMMENT ON COLUMN openplot.measurements.pdc_pmu_id IS 'Referencia ao par PDC-PMU.';
+COMMENT ON COLUMN openplot.measurements.signal_id IS 'Referencia ao sinal medido.';
+COMMENT ON COLUMN openplot.measurements.value IS 'Valor numerico da amostra.';
 
 CREATE TABLE IF NOT EXISTS openplot.measurements_raw (
     ts          timestamp with time zone NOT NULL,
@@ -392,19 +389,6 @@ CREATE TABLE IF NOT EXISTS openplot.measurements_raw (
         REFERENCES openplot.pdc_pmu (pdc_pmu_id)
         ON DELETE CASCADE
 );
-
--- View de compatibilidade para codigo legado que ainda consulta openplot.measurements.
--- Em instalacoes novas, consultas SELECT em measurements passam a ler measurements_ht.
-CREATE OR REPLACE VIEW openplot.measurements AS
-SELECT
-    ts,
-    pdc_pmu_id,
-    signal_id,
-    value
-FROM openplot.measurements_ht;
-
-COMMENT ON VIEW openplot.measurements IS
-'View de compatibilidade: substitui a tabela legada measurements e aponta para measurements_ht.';
 
 -- -----------------------------------------------------------------------------
 -- Logs da API
@@ -530,14 +514,14 @@ ON openplot.ingest_chunks USING btree (signal_id, from_ts);
 -- Indices especificos da hypertable.
 -- A PK ja cobre (pdc_pmu_id, signal_id, ts). Os indices abaixo atendem consultas
 -- amplas por tempo e consultas por sinal.
-CREATE INDEX IF NOT EXISTS ix_measurements_ht_ts
-ON openplot.measurements_ht USING btree (ts DESC);
+CREATE INDEX IF NOT EXISTS ix_measurements_ts
+ON openplot.measurements USING btree (ts DESC);
 
-CREATE INDEX IF NOT EXISTS ix_measurements_ht_signal_ts
-ON openplot.measurements_ht USING btree (signal_id, ts DESC);
+CREATE INDEX IF NOT EXISTS ix_measurements_signal_ts
+ON openplot.measurements USING btree (signal_id, ts DESC);
 
-CREATE INDEX IF NOT EXISTS ix_measurements_ht_pdc_pmu_ts
-ON openplot.measurements_ht USING btree (pdc_pmu_id, ts DESC);
+CREATE INDEX IF NOT EXISTS ix_measurements_pdc_pmu_ts
+ON openplot.measurements USING btree (pdc_pmu_id, ts DESC);
 
 CREATE INDEX IF NOT EXISTS ix_measurements_raw_ts
 ON openplot.measurements_raw USING btree (ts);
@@ -555,14 +539,14 @@ ON openplot.sso_login_token USING btree (token);
 -- Compressao TimescaleDB
 -- -----------------------------------------------------------------------------
 --
-ALTER TABLE openplot.measurements_ht SET (
+ALTER TABLE openplot.measurements SET (
      timescaledb.compress,
      timescaledb.compress_segmentby = 'pdc_pmu_id, signal_id',
      timescaledb.compress_orderby = 'ts DESC'
  );
 --
 SELECT add_compression_policy(
-     'openplot.measurements_ht',
+    'openplot.measurements',
      INTERVAL '7 days',
      if_not_exists => TRUE
  );
@@ -582,7 +566,6 @@ GRANT SELECT ON TABLE openplot.comtrade_runs TO grafana;
 GRANT SELECT ON TABLE openplot.analysis_cache TO grafana;
 GRANT SELECT ON TABLE openplot.ingest_chunks TO grafana;
 GRANT SELECT ON TABLE openplot.measurements TO grafana;
-GRANT SELECT ON TABLE openplot.measurements_ht TO grafana;
 GRANT SELECT ON TABLE openplot.measurements_raw TO grafana;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA openplot

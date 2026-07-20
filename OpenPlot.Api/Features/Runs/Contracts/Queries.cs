@@ -17,6 +17,9 @@ public sealed class SimpleSeriesQuery : ISeriesQuery
     [FromQuery(Name = "maxPoints")]
     public string? MaxPoints { get; init; }
 
+    [FromQuery(Name = "preview_only")]
+    public bool PreviewOnly { get; init; }
+
     public bool MaxPointsIsAll =>
         string.Equals(MaxPoints?.Trim(), "all", StringComparison.OrdinalIgnoreCase);
 
@@ -31,6 +34,7 @@ public sealed class SimpleSeriesQuery : ISeriesQuery
 public sealed record SeqRunQuery(
     [property: FromQuery(Name = "run_Id")] Guid RunId,
     [property: FromQuery(Name = "maxPoints")] string? MaxPoints,
+    [property: FromQuery(Name = "preview_only")] bool PreviewOnly = false,
     [property: FromQuery] string? Unit = "raw",      // raw|pu
     [property: FromQuery] double? VoltLevel = null,  // usado se unit=pu e kind=voltage
     [property: FromQuery] string? Seq = null,        // pos|neg|zero (se ainda usar)
@@ -51,6 +55,7 @@ public sealed record SeqRunQuery(
 public sealed record UnbalanceRunQuery(
     [property: FromQuery(Name = "run_Id")] Guid RunId,
     [property: FromQuery(Name = "maxPoints")] string? MaxPoints,
+    [property: FromQuery(Name = "preview_only")] bool PreviewOnly = false,
     [property: FromQuery] double? VoltLevel = null,
     [property: FromQuery] string? Kind = null        // voltage|current
 )

@@ -17,6 +17,7 @@ public sealed class AngleDiffQuery : ISeriesQuery
 {
     public Guid RunId { get; init; }
     public string? MaxPoints { get; init; }
+    public bool PreviewOnly { get; init; }
     public string? Kind { get; init; } // voltage|current
     public string? Reference { get; init; } // PMU reference name
     public string? Phase { get; init; } // A|B|C
@@ -103,18 +104,29 @@ public sealed class AngleDiffSeriesHandler
                 ? _pmuHelper.Normalize(pmuList, new[] { refPmu }).ToList()
                 : pmuList;
 
-            var maxPts = query.ResolveMaxPoints(@default: 5000);
             var fromUtc = window.FromUtc;
             var toUtc = window.ToUtc;
 
             var ctx = await _runRepository.ResolveAsync(query.RunId, fromUtc, toUtc, ct);
             if (ctx is null)
-                return Results.NotFound("run_id não encontrado.");
+                return Results.NotFound("run_id nï¿½o encontrado.");
+
+            var requestedMaxPoints = query.ResolveMaxPoints(@default: 5000);
+            var estimatedSeriesCount = pmuList.Count > 0
+                ? pmuList.Count
+                : Math.Max(1, ctx.PmuNames.Count - 1);
+            var maxPts = SeriesDownsamplingPlanner.ResolveTargetMaxPointsPerSeries(
+                requestedMaxPoints,
+                query.MaxPointsIsAll,
+                estimatedSeriesCount,
+                ctx.FromUtc,
+                ctx.ToUtc,
+                ctx.SelectRate);
 
             // Query data
             var rows = await QueryDataAsync(query, window, queryPmuList, ct);
             if (rows.Count == 0)
-                return Results.NotFound("Nenhuma série encontrada para este run/filtros.");
+                return Results.NotFound("Nenhuma sï¿½rie encontrada para este run/filtros.");
 
             // Separate reference and measurement data
             var refRows = rows
@@ -122,7 +134,7 @@ public sealed class AngleDiffSeriesHandler
                 .ToList();
 
             if (refRows.Count == 0)
-                return Results.BadRequest("PMU de referência não encontrada dentro do run/filtros.");
+                return Results.BadRequest("PMU de referï¿½ncia nï¿½o encontrada dentro do run/filtros.");
 
             // Calculate reference angle series
             var refAngSeries = hasPhase
@@ -130,7 +142,7 @@ public sealed class AngleDiffSeriesHandler
                 : CalculateSequenceSeries(refRows, query.Sequence!);
 
             if (refAngSeries.Count == 0)
-                return Results.BadRequest("Não foi possível calcular série de referência (ângulo).");
+                return Results.BadRequest("Nï¿½o foi possï¿½vel calcular sï¿½rie de referï¿½ncia (ï¿½ngulo).");
 
             // Process target PMUs
             IEnumerable<IGrouping<string, (string IdName, string PdcName, string Phase, string Component, DateTime Ts, double Value)>> targetGroups;
@@ -175,7 +187,7 @@ public sealed class AngleDiffSeriesHandler
 
                 var points = _seriesAssembly.BuildPoints(
                     dif.Select(x => (x.ts, x.difDeg)),
-                    noDownsample: query.MaxPointsIsAll,
+                    noDownsample: false,
                     maxPoints: maxPts,
                     downsampler: _downsampler);
 
@@ -194,7 +206,7 @@ public sealed class AngleDiffSeriesHandler
             }
 
             if (series.Count == 0)
-                return Results.BadRequest("Nenhuma PMU pôde ser processada (faltam sinais ou alinhamento falhou).");
+                return Results.BadRequest("Nenhuma PMU pï¿½de ser processada (faltam sinais ou alinhamento falhou).");
 
             var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
             var windowTo = toUtc ?? rows.Max(r => r.Ts);
@@ -218,13 +230,18 @@ public sealed class AngleDiffSeriesHandler
                     points: g.Select(x => (x.ts, x.value))))
                 .ToList();
 
-            var cachePayload = _seriesAssembly.BuildCachePayload(
-                windowFrom,
-                windowTo,
-                ctx.SelectRate ?? 0,
-                cacheSeries);
+            RowsCacheV2? cachePayload = null;
+            object? cacheId = null;
+            if (!query.PreviewOnly)
+            {
+                cachePayload = _seriesAssembly.BuildCachePayload(
+                    windowFrom,
+                    windowTo,
+                    ctx.SelectRate ?? 0,
+                    cacheSeries);
 
-            var cacheId = await _cacheRepo.SaveAsync(query.RunId, cachePayload, ct);
+                cacheId = await _cacheRepo.SaveAsync(query.RunId, cachePayload, ct);
+            }
 
             // Build plot metadata with reference terminal
             var measQuery = new MeasurementsQuery(
@@ -239,7 +256,9 @@ public sealed class AngleDiffSeriesHandler
             var plotMeta = _metaBuilder.Build(new WindowQuery(fromUtc, toUtc), ctx, measQuery);
             var resolvedModes = _uiMenus.RebuildForRun(
                 modes,
-                UiMenuContext.FromCache(cachePayload));
+                cachePayload is not null
+                    ? UiMenuContext.FromCache(cachePayload)
+                    : new UiMenuContext(windowFrom, windowTo, ctx.SelectRate));
 
             return Results.Ok(new
             {
@@ -275,23 +294,23 @@ public sealed class AngleDiffSeriesHandler
     private (bool isValid, string? errorMessage) ValidateInput(AngleDiffQuery query)
     {
         if (query.RunId == Guid.Empty)
-            return (false, "run_id é obrigatório.");
+            return (false, "run_id ï¿½ obrigatï¿½rio.");
 
         if (string.IsNullOrWhiteSpace(query.Kind))
-            return (false, "kind é obrigatório (voltage|current).");
+            return (false, "kind ï¿½ obrigatï¿½rio (voltage|current).");
 
         var kind = query.Kind.Trim().ToLowerInvariant();
         if (kind is not ("voltage" or "current"))
             return (false, "kind deve ser 'voltage' ou 'current'.");
 
         if (string.IsNullOrWhiteSpace(query.Reference))
-            return (false, "ref é obrigatório (id_name da PMU referência).");
+            return (false, "ref ï¿½ obrigatï¿½rio (id_name da PMU referï¿½ncia).");
 
         var hasPhase = !string.IsNullOrWhiteSpace(query.Phase);
         var hasSeq = !string.IsNullOrWhiteSpace(query.Sequence);
 
         if (hasPhase == hasSeq)
-            return (false, "informe exatamente um dos parâmetros: phase (A|B|C) OU seq (pos|neg|zero).");
+            return (false, "informe exatamente um dos parï¿½metros: phase (A|B|C) OU seq (pos|neg|zero).");
 
         if (hasPhase)
         {
@@ -304,7 +323,7 @@ public sealed class AngleDiffSeriesHandler
             var seq = query.Sequence!.Trim().ToLowerInvariant();
             var normalized = NormalizeSeq(seq);
             if (normalized == "")
-                return (false, "seq inválida. Use pos|neg|zero (ou seq+|seq-|seq0).");
+                return (false, "seq invï¿½lida. Use pos|neg|zero (ou seq+|seq-|seq0).");
         }
 
         return (true, null);
@@ -486,7 +505,7 @@ ORDER BY s.id_name, s.signal_id, r.ts;
 
     /// <summary>
     /// Calculates sequence angle series from measurement rows (mode: sequence pos/neg/zero).
-    /// Uses complex number math: a = e^(j*120°), a² = e^(j*240°)
+    /// Uses complex number math: a = e^(j*120ï¿½), aï¿½ = e^(j*240ï¿½)
     /// </summary>
     private static List<(DateTime ts, double angDeg)> CalculateSequenceSeries(
         IEnumerable<(string IdName, string PdcName, string Phase, string Component, DateTime Ts, double Value)> rows,
@@ -530,7 +549,7 @@ ORDER BY s.id_name, s.signal_id, r.ts;
 
     /// <summary>
     /// Computes sequence angle from three-phase measurements using complex number math.
-    /// Sequence operators: a = e^(j*120°), a² = e^(j*240°)
+    /// Sequence operators: a = e^(j*120ï¿½), aï¿½ = e^(j*240ï¿½)
     /// </summary>
     private static List<(DateTime ts, double angDeg)> ComputeSequenceAngle(
         List<(DateTime ts, double mag)> vaMod,

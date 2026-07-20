@@ -30,6 +30,8 @@ public sealed class UserContextAccessor : IUserContextAccessor
         {
             userName =
                 context.User.FindFirst("username")?.Value
+                ?? context.User.FindFirst("preferred_username")?.Value
+                ?? context.User.FindFirst("upn")?.Value
                 ?? context.User.FindFirst("unique_name")?.Value
                 ?? context.User.Identity?.Name
                 ?? context.User.FindFirst(ClaimTypes.Name)?.Value
@@ -37,6 +39,8 @@ public sealed class UserContextAccessor : IUserContextAccessor
 
             userId =
                 context.User.FindFirst("sub")?.Value
+                ?? context.User.FindFirst("oid")?.Value
+                ?? context.User.FindFirst("client_id")?.Value
                 ?? context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         }
 

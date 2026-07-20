@@ -6,11 +6,14 @@ services:
       POSTGRES_DB: ${OPENPLOT_POSTGRES_DB:-postgres}
       POSTGRES_USER: ${OPENPLOT_POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${OPENPLOT_POSTGRES_PASSWORD:-postgres}
+      OPENPLOT_POSTGRES_RESTORE_DUMP: ${OPENPLOT_POSTGRES_RESTORE_DUMP:-true}
     ports:
       - "${OPENPLOT_POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./database/dumps/openplot_create_timescaledb.sql:/docker-entrypoint-initdb.d/01-openplot-create-timescaledb.sql:ro
+      - ./database/init/02-restore-openplot-dump.sh:/docker-entrypoint-initdb.d/02-restore-openplot-dump.sh:ro
+      - ./database/dumps:/docker-entrypoint-dumps:ro
     healthcheck:
       test:
         - CMD-SHELL
@@ -20,7 +23,7 @@ services:
           "SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'"
           | grep -q 1 &&
           psql -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" -tAc
-          "SELECT 1 FROM information_schema.tables WHERE table_schema = 'openplot' AND table_name = 'measurements_ht'"
+          "SELECT 1 FROM timescaledb_information.hypertables WHERE hypertable_schema = 'openplot' AND hypertable_name = 'measurements'"
           | grep -q 1
       interval: 10s
       timeout: 5s
@@ -35,17 +38,32 @@ services:
       ASPNETCORE_ENVIRONMENT: ${OPENPLOT_API_ENVIRONMENT:-Development}
       ASPNETCORE_URLS: http://+:7011
       AuthProvider__Provider: ${OPENPLOT_AUTH_PROVIDER:-OpenPlot}
-      ConfigITr: ${ConfigITr:-https://configit-api.ons.org.br}
-      ConfigITapiKey: ${ConfigITapiKey:-72183c66-8431-4051-b0a6-efe1a525baec}
-      ConfigITamb: ${ConfigITamb:-Teste}
-      ConfigITpacote: ${ConfigITpacote:-OpenPlot}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-}
+      ConfigITr: ${ConfigITr:-}
+      ConfigITapiKey: ${ConfigITapiKey:-}
+      ConfigITamb: ${ConfigITamb:-}
+      ConfigITpacote: ${ConfigITpacote:-}
+      ConfigIT_ENABLED: ${ConfigIT_ENABLED:-}
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-openplot-api}
+      OTEL_SERVICE_VERSION: ${OTEL_SERVICE_VERSION:-dev}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-https://otel-collector-http-ons-coletor.apps.rosa.rosa-dev.wmaj.p3.openshiftapps.com}
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
       ConnectionStrings__Db: Host=postgres;Port=5432;Database=${OPENPLOT_POSTGRES_DB:-postgres};Username=${OPENPLOT_POSTGRES_USER:-postgres};Password=${OPENPLOT_POSTGRES_PASSWORD:-postgres}
       XmlFolder: /data/xml
+      BackgroundWorkers__XmlImporter__Enabled: ${OPENPLOT_EMBED_XMLIMPORTER_ENABLED:-true}
+      BackgroundWorkers__XmlImporter__Path: /data/xml
+      BackgroundWorkers__XmlImporter__RunOnStartup: ${OPENPLOT_XMLIMPORTER_RUN_ON_STARTUP:-true}
+      BackgroundWorkers__XmlImporter__PollIntervalSeconds: ${OPENPLOT_XMLIMPORTER_POLL_SECONDS:-0}
+      BackgroundWorkers__ExportWorker__Enabled: ${OPENPLOT_EMBED_EXPORT_WORKER_ENABLED:-true}
+      Exports__RootDir: /data/exports
+      OPENPLOT_SERIES_MAX_RESPONSE_BYTES: ${OPENPLOT_SERIES_MAX_RESPONSE_BYTES:-2097152}
     ports:
       - "${OPENPLOT_API_PORT:-7011}:7011"
     volumes:
-      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/xml:/data/xml
+      - ./Config:/data/xml:ro
       - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/exports:/data/exports
       - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/logs/api:/app/logs
       - ./OpenPlot.Api/Auth:/app/auth:ro
@@ -55,27 +73,15 @@ services:
     networks:
       - openplot-network
 
-  openplot-export-worker:
-    image: ${OPENPLOT_EXPORT_WORKER_IMAGE:-openplot-export-worker:${OPENPLOT_VERSION:-dev}}
-    environment:
-      ConnectionStrings__OpenPlotDb: Host=postgres;Port=5432;Database=${OPENPLOT_POSTGRES_DB:-postgres};Username=${OPENPLOT_POSTGRES_USER:-postgres};Password=${OPENPLOT_POSTGRES_PASSWORD:-postgres}
-      Exports__RootDir: /data/exports
-    volumes:
-      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/exports:/data/exports
-      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/logs/export-worker:/app/logs
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - openplot-network
-
   openplot-ingestor-gsf:
-    image: ${OPENPLOT_INGESTOR_GSF_IMAGE:-openplot-ingestor-gsf:${OPENPLOT_VERSION:-dev}}
+    image: ${OPENPLOT_INGESTOR_IMAGE:-openplot-ingestor-gsf:${OPENPLOT_VERSION:-dev}}
     environment:
       OPENPLOT_INGESTOR__DB: Host=postgres;Port=5432;Database=${OPENPLOT_POSTGRES_DB:-postgres};Username=${OPENPLOT_POSTGRES_USER:-postgres};Password=${OPENPLOT_POSTGRES_PASSWORD:-postgres}
-    volumes:
-      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/xml:/data/xml
-      - ${OPENPLOT_DATA_ROOT:-/srv/openplot}/logs/ingestor-gsf:/app/logs
+      OPENPLOT_INGESTOR__PollIntervalSeconds: ${OPENPLOT_INGESTOR_POLL_SECONDS:-2}
+      OPENPLOT_INGESTOR__ChunkMinutes: ${OPENPLOT_INGESTOR_CHUNK_MINUTES:-5}
+      OPENPLOT_INGESTOR__MaxParallelChunks: ${OPENPLOT_INGESTOR_MAX_PARALLEL_CHUNKS:-4}
+      OPENPLOT_INGESTOR__MaxParallelJobs: ${OPENPLOT_INGESTOR_MAX_PARALLEL_JOBS:-4}
+      OPENPLOT_INGESTOR__GlobalMaxParallelChunks: ${OPENPLOT_INGESTOR_GLOBAL_MAX_PARALLEL_CHUNKS:-8}
     depends_on:
       postgres:
         condition: service_healthy

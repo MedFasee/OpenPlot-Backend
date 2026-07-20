@@ -32,7 +32,8 @@ public static class RunsEndpoints
             Phase = request.Phase,
             Unit = request.Unit,
             Pmus = request.Pmu,
-            MaxPoints = request.MaxPoints
+            MaxPoints = request.MaxPoints,
+            PreviewOnly = request.PreviewOnly ?? false
         };
 
     internal static ByRunQuery BuildThdByRunQuery(SeriesByRunRequest request) =>
@@ -44,13 +45,15 @@ public static class RunsEndpoints
             Unit = "%",
             Pmu = request.Tri == true ? request.Pmu?.FirstOrDefault() : null,
             Pmus = request.Tri == false ? request.Pmu : null,
-            MaxPoints = request.MaxPoints
+            MaxPoints = request.MaxPoints,
+            PreviewOnly = request.PreviewOnly ?? false
         };
 
     internal static SeqRunQuery BuildSeqRunQuery(SeqSeriesByRunRequest request) =>
         new(
             RunId: request.RunId,
             MaxPoints: request.MaxPoints,
+            PreviewOnly: request.PreviewOnly ?? false,
             Unit: request.Unit,
             VoltLevel: request.VoltLevel,
             Seq: request.Seq,
@@ -60,6 +63,7 @@ public static class RunsEndpoints
         new(
             RunId: request.RunId,
             MaxPoints: request.MaxPoints,
+            PreviewOnly: request.PreviewOnly ?? false,
             VoltLevel: request.VoltLevel,
             Kind: request.Kind);
 
@@ -73,7 +77,8 @@ public static class RunsEndpoints
             MaxPoints = request.MaxPoints,
             Tri = request.Tri,
             Total = request.Total,
-            Phase = request.Phase
+            Phase = request.Phase,
+            PreviewOnly = request.PreviewOnly ?? false
         };
 
     internal static AngleDiffQuery BuildAngleDiffQuery(AngleDiffSeriesByRunRequest request) =>
@@ -81,6 +86,7 @@ public static class RunsEndpoints
         {
             RunId = request.RunId,
             MaxPoints = request.MaxPoints,
+            PreviewOnly = request.PreviewOnly ?? false,
             Kind = request.Kind,
             Reference = request.Reference,
             Phase = request.Phase,

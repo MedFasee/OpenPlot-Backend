@@ -11,6 +11,7 @@ namespace OpenPlot.ExportWorker;
 public interface IExportRunProcessor
 {
     Task<bool> ProcessNextAsync(int slot, CancellationToken stoppingToken);
+    Task ProcessByIdAsync(Guid runId, CancellationToken ct);
 }
 
 public sealed class ExportRunProcessor : IExportRunProcessor
@@ -200,6 +201,136 @@ public sealed class ExportRunProcessor : IExportRunProcessor
             if (runId is not null)
                 await TryMarkFailedAsync(runId.Value, ex.Message);
 
+            throw;
+        }
+    }
+
+    public async Task ProcessByIdAsync(Guid runId, CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var runRepo = scope.ServiceProvider.GetRequiredService<RunComtradeRepo>();
+            var srRepo = scope.ServiceProvider.GetRequiredService<SearchRunsRepo>();
+            var mRepo = scope.ServiceProvider.GetRequiredService<MeasurementsRepo>();
+            var pdcRepo = scope.ServiceProvider.GetRequiredService<PdcRepo>();
+
+            // Marca como 'running' (sem dequeue, direto)
+            await runRepo.MarkRunningAsync(runId, ct);
+
+            var ctx = await srRepo.LoadRunContextAsync(runId, ct);
+            if (ctx is null)
+            {
+                await runRepo.MarkFailedAsync(runId, "search_runs não encontrado para este run_id.", ct);
+                return;
+            }
+
+            var pdcFps = await pdcRepo.GetFpsByNameAsync(ctx.PdcName, ct)
+                         ?? _opt.NominalFrequencyFallback;
+            await runRepo.UpdateProgressAsync(runId, 5, "Carregando medições...", ct);
+
+            _log.LogInformation(
+                "Processando export sincronamente run_id={RunId} pdc={PdcName} from={FromUtc:o} to={ToUtc:o} pmus={PmuCount}",
+                ctx.RunId,
+                ctx.PdcName,
+                ctx.FromUtc,
+                ctx.ToUtc,
+                ctx.RunPmus.Length);
+
+            var loadMeasurementsStopwatch = Stopwatch.StartNew();
+            var rows = new List<Domain.MeasurementRow>();
+
+            if (ctx.RunPmus.Length == 0)
+            {
+                rows = await mRepo.LoadMeasurementsForComtradeAsync(
+                    runId: ctx.RunId,
+                    fromUtc: ctx.FromUtc,
+                    toUtc: ctx.ToUtc,
+                    pmusOverride: ctx.RunPmus,
+                    ct: ct);
+            }
+            else
+            {
+                for (var i = 0; i < ctx.RunPmus.Length; i++)
+                {
+                    var pmu = ctx.RunPmus[i];
+                    await runRepo.UpdateProgressAsync(
+                        runId,
+                        5 + (int)Math.Round(15.0 * i / Math.Max(1, ctx.RunPmus.Length)),
+                        $"Carregando medições da PMU {i + 1}/{ctx.RunPmus.Length} ({pmu})...",
+                        ct);
+
+                    var pmuRows = await mRepo.LoadMeasurementsForComtradeAsync(
+                        runId: ctx.RunId,
+                        fromUtc: ctx.FromUtc,
+                        toUtc: ctx.ToUtc,
+                        pmusOverride: [pmu],
+                        ct: ct);
+
+                    rows.AddRange(pmuRows);
+                }
+            }
+
+            loadMeasurementsStopwatch.Stop();
+
+            if (rows.Count == 0)
+            {
+                await runRepo.MarkFailedAsync(runId, "Nenhuma medição encontrada para este run_id (openplot.measurements).", ct);
+                return;
+            }
+
+            await runRepo.UpdateProgressAsync(runId, 20, $"Montando PMUs/canais ({rows.Count} pontos)...", ct);
+
+            var pmus = _builder.Build(ctx, rows, nominalFps: pdcFps, onProgress: async (p, msg) =>
+            {
+                await runRepo.UpdateProgressAsync(runId, p, msg, ct);
+            });
+
+            if (pmus.Count == 0)
+            {
+                await runRepo.MarkFailedAsync(runId, "Não foi possível montar PMUs/canais para COMTRADE.", ct);
+                return;
+            }
+
+            await runRepo.UpdateProgressAsync(runId, 65, $"Gerando ZIP COMTRADE ({pmus.Count} PMUs)...", ct);
+
+            var export = _store.ResolveRunZipPath(_opt.RootDir, runId, ctx.Label);
+
+            var result = await _store.WriteZipAtomicallyAsync(
+                finalDir: export.DirPath,
+                finalFileName: export.FileName,
+                writeToStream: stream =>
+                {
+                    _writer.WriteZipToStream(
+                        stream: stream,
+                        run: ctx,
+                        pmus: pmus,
+                        nominalFrequency: _opt.NominalFrequencyFallback,
+                        timeCodeMode: _opt.TimeCodeMode,
+                        tmqCode: _opt.TmqCode,
+                        leapSec: _opt.LeapSec,
+                        fileType: _opt.FileType);
+                },
+                ct: ct);
+
+            await runRepo.MarkDoneAsync(
+                runId,
+                dirPath: export.DirPath,
+                fileName: export.FileName,
+                sizeBytes: result.SizeBytes,
+                sha256: result.Sha256,
+                ct: ct);
+
+            _log.LogInformation(
+                "Export sincronamente concluído run_id={RunId} zip={Zip} size={Size}",
+                runId,
+                Path.Combine(export.DirPath, export.FileName),
+                result.SizeBytes);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            _log.LogError(ex, "Erro no processamento sincronamente de export run_id={RunId}", runId);
+            await TryMarkFailedAsync(runId, ex.Message);
             throw;
         }
     }

@@ -1,19 +1,25 @@
+using OpenPlot.Core.TimeSeries;
+using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
+using System.Reflection;
+using System.Text.Json;
 
 namespace OpenPlot.Features.Runs.Handlers.Responses;
 
 /// <summary>
-/// Construtor fluente para respostas padronizadas de série temporal.
-/// Garante consistência em todos os endpoints /series/{type}/by-run
+/// Construtor fluente para respostas padronizadas de sï¿½rie temporal.
+/// Garante consistï¿½ncia em todos os endpoints /series/{type}/by-run
 /// 
-/// Padrão de resposta:
+/// Padrï¿½o de resposta:
 /// {
 ///   modes?: {...},                                    // UI modes (opcional)
-///   run_id: guid,                                     // ID da série
+///   run_id: guid,                                     // ID da sï¿½rie
 ///   data: "dd/MM/yyyy",                               // Data
 ///   cache_id?: string,                                // ID do cache (opcional)
-///   [campos-específicos-tipo]: unit, tri, phase, etc. // Por tipo de série
+///   [campos-especï¿½ficos-tipo]: unit, tri, phase, etc. // Por tipo de sï¿½rie
 ///   resolved: { pdc, pmu_count },                     // Resolvidos
 ///   window: { from, to },                             // Janela temporal
 ///   meta: { title, x_label, y_label },                // Metadados
@@ -35,7 +41,7 @@ public sealed class SeriesResponseBuilderFluent
     private int _pmuCount;
 
     /// <summary>
-    /// Inicia construtor para resposta de série.
+    /// Inicia construtor para resposta de sï¿½rie.
     /// </summary>
     public SeriesResponseBuilderFluent(
         Guid runId,
@@ -80,7 +86,7 @@ public sealed class SeriesResponseBuilderFluent
     }
 
     /// <summary>
-    /// Adiciona um campo específico do tipo de série.
+    /// Adiciona um campo especï¿½fico do tipo de sï¿½rie.
     /// </summary>
     public SeriesResponseBuilderFluent WithTypeField(string name, object? value)
     {
@@ -89,7 +95,7 @@ public sealed class SeriesResponseBuilderFluent
     }
 
     /// <summary>
-    /// Adiciona múltiplos campos específicos do tipo.
+    /// Adiciona mï¿½ltiplos campos especï¿½ficos do tipo.
     /// </summary>
     public SeriesResponseBuilderFluent WithTypeFields(Dictionary<string, object?> fields)
     {
@@ -101,7 +107,7 @@ public sealed class SeriesResponseBuilderFluent
     }
 
     /// <summary>
-    /// Constrói a resposta final.
+    /// Constrï¿½i a resposta final.
     /// </summary>
     public object Build()
     {
@@ -147,17 +153,222 @@ public sealed class SeriesResponseBuilderFluent
         // 8. Series
         response["series"] = _series;
 
+        EnforceMaxPayloadSize(response);
+
         return response;
+    }
+
+    private static void EnforceMaxPayloadSize(Dictionary<string, object?> response)
+    {
+        var maxBytes = ResolveMaxResponseBytes();
+        if (maxBytes <= 0)
+            return;
+
+        var currentSize = GetUtf8Size(response);
+        if (currentSize <= maxBytes)
+            return;
+
+        var seriesLists = ExtractPointLists(response.TryGetValue("series", out var seriesObj) ? seriesObj : null);
+        if (seriesLists.Count == 0)
+            return;
+
+        // Reduz em uma passada proporcional para evitar cascata de serializaï¿½ï¿½es.
+        var factor = Math.Sqrt((double)maxBytes / currentSize);
+        if (factor >= 0.999)
+            return;
+
+        foreach (var pointList in seriesLists)
+        {
+            if (pointList.Count <= 2)
+                continue;
+
+            var target = Math.Max(2, (int)Math.Floor(pointList.Count * factor));
+            if (target >= pointList.Count)
+                continue;
+
+            var reduced = ReducePointsLttb(pointList, target);
+            if (reduced.Count == pointList.Count)
+                continue;
+
+            pointList.Clear();
+            foreach (var row in reduced)
+                pointList.Add(row);
+        }
+    }
+
+    private static int ResolveMaxResponseBytes()
+    {
+        return SeriesResponseLimits.ResolveMaxResponseBytes();
+    }
+
+    private static int GetUtf8Size(object payload)
+    {
+        return JsonSerializer.SerializeToUtf8Bytes(payload).Length;
+    }
+
+    private static List<IList> ExtractPointLists(object? seriesObj)
+    {
+        var result = new List<IList>();
+        if (seriesObj is not IEnumerable enumerable || seriesObj is string)
+            return result;
+
+        foreach (var item in enumerable)
+        {
+            if (item is null)
+                continue;
+
+            var prop = item.GetType().GetProperty("points", BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            if (prop?.GetValue(item) is IList points && points.Count > 0)
+                result.Add(points);
+        }
+
+        return result;
+    }
+
+    private static List<object> ReducePointsLttb(IList rawPoints, int threshold)
+    {
+        if (rawPoints.Count <= threshold)
+            return rawPoints.Cast<object>().ToList();
+
+        if (threshold < 3)
+            return new List<object> { rawPoints[0], rawPoints[rawPoints.Count - 1] };
+
+        var points = new List<(long x, double y, object raw)>(rawPoints.Count);
+        foreach (var raw in rawPoints)
+        {
+            if (!TryReadPoint(raw, out var x, out var y))
+                continue;
+            points.Add((x, y, raw));
+        }
+
+        if (points.Count <= threshold)
+            return points.Select(p => p.raw).ToList();
+
+        var sampled = new List<object>(threshold) { points[0].raw };
+        var bucketSize = (points.Count - 2d) / (threshold - 2d);
+        var a = 0;
+
+        for (var i = 0; i < threshold - 2; i++)
+        {
+            var avgRangeStart = (int)Math.Floor((i + 1) * bucketSize) + 1;
+            var avgRangeEnd = (int)Math.Floor((i + 2) * bucketSize) + 1;
+            if (avgRangeEnd > points.Count)
+                avgRangeEnd = points.Count;
+
+            var avgRangeLength = Math.Max(1, avgRangeEnd - avgRangeStart);
+            double avgX = 0;
+            double avgY = 0;
+            for (var j = avgRangeStart; j < avgRangeEnd; j++)
+            {
+                avgX += points[j].x;
+                avgY += points[j].y;
+            }
+            avgX /= avgRangeLength;
+            avgY /= avgRangeLength;
+
+            var rangeOffs = (int)Math.Floor(i * bucketSize) + 1;
+            var rangeTo = (int)Math.Floor((i + 1) * bucketSize) + 1;
+            if (rangeTo > points.Count - 1)
+                rangeTo = points.Count - 1;
+
+            var pointA = points[a];
+            var maxArea = -1d;
+            var nextA = rangeOffs;
+
+            for (var j = rangeOffs; j < rangeTo; j++)
+            {
+                var area = Math.Abs(
+                    (pointA.x - avgX) * (points[j].y - pointA.y)
+                    - (pointA.x - points[j].x) * (avgY - pointA.y));
+
+                if (area > maxArea)
+                {
+                    maxArea = area;
+                    nextA = j;
+                }
+            }
+
+            sampled.Add(points[nextA].raw);
+            a = nextA;
+        }
+
+        sampled.Add(points[^1].raw);
+        return sampled;
+    }
+
+    private static bool TryReadPoint(object raw, out long tsTicks, out double value)
+    {
+        tsTicks = 0;
+        value = 0;
+
+        if (raw is object[] arr && arr.Length >= 2)
+        {
+            if (!TryToTicks(arr[0], out tsTicks))
+                return false;
+
+            if (!TryToDouble(arr[1], out value))
+                return false;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryToTicks(object? rawTs, out long ticks)
+    {
+        ticks = 0;
+        if (rawTs is DateTime dt)
+        {
+            ticks = dt.Ticks;
+            return true;
+        }
+
+        if (rawTs is DateTimeOffset dto)
+        {
+            ticks = dto.UtcDateTime.Ticks;
+            return true;
+        }
+
+        return DateTime.TryParse(rawTs?.ToString(), CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out var parsed)
+            && (ticks = parsed.Ticks) >= 0;
+    }
+
+    private static bool TryToDouble(object? rawVal, out double value)
+    {
+        value = 0;
+        if (rawVal is null)
+            return false;
+
+        if (rawVal is double d)
+        {
+            value = d;
+            return true;
+        }
+
+        if (rawVal is float f)
+        {
+            value = f;
+            return true;
+        }
+
+        if (rawVal is decimal m)
+        {
+            value = (double)m;
+            return true;
+        }
+
+        return double.TryParse(rawVal.ToString(), NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out value);
     }
 }
 
 /// <summary>
-/// Extensões para simplificar criação de builders.
+/// Extensï¿½es para simplificar criaï¿½ï¿½o de builders.
 /// </summary>
 public static class SeriesResponseBuilderExtensions
 {
     /// <summary>
-    /// Cria novo builder para resposta de série.
+    /// Cria novo builder para resposta de sï¿½rie.
     /// </summary>
     public static SeriesResponseBuilderFluent BuildSeriesResponse(
         Guid runId,

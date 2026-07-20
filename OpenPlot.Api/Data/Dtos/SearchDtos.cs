@@ -173,6 +173,9 @@ namespace OpenPlot.Data.Dtos
         [FromQuery(Name = "maxPoints")]
         public string? MaxPoints { get; init; }
 
+        [FromQuery(Name = "preview_only")]
+        public bool PreviewOnly { get; init; }
+
         public bool MaxPointsIsAll =>
             string.Equals(MaxPoints?.Trim(), "all", StringComparison.OrdinalIgnoreCase);
 
@@ -202,6 +205,8 @@ namespace OpenPlot.Data.Dtos
         [FromQuery(Name = "total")] public bool? Total { get; init; }   // <- bool?
 
         [FromQuery(Name = "phase")] public string? Phase { get; init; } // A|B|C
+
+        [FromQuery(Name = "preview_only")] public bool PreviewOnly { get; init; }
 
         public bool MaxPointsIsAll =>
             string.Equals(MaxPoints?.Trim(), "all", StringComparison.OrdinalIgnoreCase);
@@ -255,6 +260,8 @@ namespace OpenPlot.Data.Dtos
             public DateTime? From { get; set; }
             [JsonPropertyName("to")]
             public DateTime? To { get; set; }
+            [JsonPropertyName("preview_only")]
+            public bool? PreviewOnly { get; set; } = false;
         }
 
         /// <summary>
@@ -281,6 +288,8 @@ namespace OpenPlot.Data.Dtos
             public DateTime? From { get; set; }
             [JsonPropertyName("to")]
             public DateTime? To { get; set; }
+            [JsonPropertyName("preview_only")]
+            public bool? PreviewOnly { get; set; } = false;
         }
 
         /// <summary>
@@ -303,6 +312,8 @@ namespace OpenPlot.Data.Dtos
             public DateTime? From { get; set; }
             [JsonPropertyName("to")]
             public DateTime? To { get; set; }
+            [JsonPropertyName("preview_only")]
+            public bool? PreviewOnly { get; set; } = false;
         }
 
         /// <summary>
@@ -331,6 +342,8 @@ namespace OpenPlot.Data.Dtos
             public DateTime? From { get; set; }
             [JsonPropertyName("to")]
             public DateTime? To { get; set; }
+            [JsonPropertyName("preview_only")]
+            public bool? PreviewOnly { get; set; } = false;
         }
 
         /// <summary>
@@ -363,6 +376,8 @@ namespace OpenPlot.Data.Dtos
             public DateTime? From { get; set; }
             [JsonPropertyName("to")]
             public DateTime? To { get; set; }
+            [JsonPropertyName("preview_only")]
+            public bool? PreviewOnly { get; set; } = false;
         }
 
     }

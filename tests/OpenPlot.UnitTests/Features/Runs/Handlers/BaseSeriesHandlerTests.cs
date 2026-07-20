@@ -4,6 +4,7 @@ using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Abstractions;
 using OpenPlot.Features.Runs.Handlers.Base;
 using OpenPlot.Features.Runs.Repositories;
+using OpenPlot.Services.UI;
 using OpenPlot.UnitTests.Infrastructure;
 
 namespace OpenPlot.UnitTests.Features.Runs.Handlers;
@@ -13,7 +14,8 @@ public sealed class BaseSeriesHandlerTests
     private sealed class TestSeriesHandler(
         IRunContextRepository runRepository,
         IPlotMetaBuilder metaBuilder,
-        ISeriesCacheService cacheService) : BaseSeriesHandler<SimpleSeriesQuery>(runRepository, metaBuilder, cacheService)
+        ISeriesCacheService cacheService,
+        IUiMenuService uiMenus) : BaseSeriesHandler<SimpleSeriesQuery>(runRepository, metaBuilder, cacheService, uiMenus)
     {
         public IReadOnlyList<MeasurementRow> RowsToReturn { get; set; } = [];
 
@@ -40,11 +42,16 @@ public sealed class BaseSeriesHandlerTests
     private readonly Mock<IRunContextRepository> _runRepository = new();
     private readonly Mock<IPlotMetaBuilder> _metaBuilder = new();
     private readonly Mock<ISeriesCacheService> _cacheService = new();
+    private readonly Mock<IUiMenuService> _uiMenus = new();
     private readonly TestSeriesHandler _sut;
 
     public BaseSeriesHandlerTests()
     {
-        _sut = new TestSeriesHandler(_runRepository.Object, _metaBuilder.Object, _cacheService.Object);
+        _uiMenus
+            .Setup(service => service.RebuildForRun(It.IsAny<Dictionary<string, object?>?>(), It.IsAny<UiMenuContext>()))
+            .Returns((Dictionary<string, object?>?)null);
+
+        _sut = new TestSeriesHandler(_runRepository.Object, _metaBuilder.Object, _cacheService.Object, _uiMenus.Object);
     }
 
     [Fact]
@@ -84,7 +91,7 @@ public sealed class BaseSeriesHandlerTests
         var validation = _sut.Validate(new SimpleSeriesQuery { RunId = Guid.Empty }, new WindowQuery(null, null));
 
         Assert.False(validation.isValid);
-        Assert.Equal("run_id é obrigatório.", validation.errorMessage);
+        Assert.Equal("run_id ï¿½ obrigatï¿½rio.", validation.errorMessage);
     }
 
     [Fact]
@@ -108,7 +115,7 @@ public sealed class BaseSeriesHandlerTests
             new SimpleSeriesQuery { RunId = Guid.NewGuid() },
             new WindowQuery(null, null));
 
-        Assert.Equal("Série Temporal", meta.Title);
+        Assert.Equal("Sï¿½rie Temporal", meta.Title);
         Assert.Equal("Tempo", meta.XLabel);
         Assert.Equal("Valor", meta.YLabel);
     }

@@ -77,11 +77,13 @@ public static class AuthEndpoints
                         IOptions<JwtOptions> jwtOpt,
                         HttpContext http) =>
         {
-            var user = session.GetCurrentUser();
-            if (user is null)
-                return Results.Unauthorized();
+            // Stateless logout support: when frontend authenticates directly with ONS token,
+            // there may be no server session. In this case, just clear auth cookie and return OK.
+            var isAuthenticated = http.User?.Identity?.IsAuthenticated == true;
+            var hadSession = session.GetCurrentUser() is not null;
 
-            session.Clear();
+            if (hadSession)
+                session.Clear();
 
             var jwt = jwtOpt.Value;
             var cookieName = string.IsNullOrWhiteSpace(jwt.CookieName)
@@ -89,6 +91,9 @@ public static class AuthEndpoints
                 : jwt.CookieName;
 
             http.Response.Cookies.Delete(cookieName);
+
+            if (!isAuthenticated && !hadSession)
+                return Results.Ok(new { message = "Sessão não estava ativa" });
 
             return Results.Ok(new { message = "Sessão encerrada" });
         });

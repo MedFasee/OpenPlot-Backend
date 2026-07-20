@@ -1,8 +1,17 @@
-$ApiBaseUrl = "http://localhost:7011"
+param(
+    [string]$ApiBaseUrl = "",
+    [string]$XmlPath = "/data/xml"
+)
 
-# Caminho visto pela API dentro do container.
-# Se você montou C:/OpenPlotData/xml em /data/xml, use /data/xml ou /data/xml/arquivo.xml
-$XmlPath = "/data/xml"
+if ([string]::IsNullOrWhiteSpace($ApiBaseUrl)) {
+    $apiPort = $env:OPENPLOT_API_PORT
+    if ([string]::IsNullOrWhiteSpace($apiPort)) {
+        $apiPort = "7011"
+    }
+    $ApiBaseUrl = "http://localhost:$apiPort"
+}
+
+$ErrorActionPreference = "Stop"
 
 $LoginBody = @{
     username = "renan.dev"

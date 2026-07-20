@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Threading.Tasks;
 using Gemstone.Configuration;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
@@ -17,7 +18,15 @@ internal static class Program
             _ = new Settings();
             _ = SnapDB.Snap.Library.Encodings;
 
-            var runtimeContext = IngestorConfigurationLoader.LoadFromAppConfig();
+            var runtimeContext = LoadRuntimeContext();
+            Console.WriteLine(
+                "[startup] Ingestor options: PollIntervalSeconds=" + runtimeContext.Options.PollIntervalSeconds +
+                ", ChunkMinutes=" + runtimeContext.Options.ChunkMinutes +
+                ", MaxParallelChunks=" + runtimeContext.Options.MaxParallelChunks +
+                ", MaxParallelJobs=" + runtimeContext.Options.MaxParallelJobs +
+                ", GlobalMaxParallelChunks=" + runtimeContext.Options.GlobalMaxParallelChunks +
+                ", ProcessorCount=" + Environment.ProcessorCount);
+
             EnsureSchema(runtimeContext);
 
             using var host = Host.CreateDefaultBuilder(args)
@@ -38,6 +47,24 @@ internal static class Program
         catch (Exception ex)
         {
             Console.WriteLine("[fatal] " + ex.Message);
+        }
+    }
+
+    private static IngestorRuntimeContext LoadRuntimeContext()
+    {
+        var configuration = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: true)
+            .AddEnvironmentVariables()
+            .Build();
+
+        try
+        {
+            return IngestorConfigurationLoader.LoadFromConfiguration(configuration);
+        }
+        catch
+        {
+            return IngestorConfigurationLoader.LoadFromAppConfig();
         }
     }
 

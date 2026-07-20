@@ -103,7 +103,7 @@ namespace OpenPlot.Ingestor.Gsf
 
             // 1) PDC
             const string sqlPdc = @"
-    SELECT pdc_id, name, kind, fps, address, user_name, password, db_name
+    SELECT pdc_id, name, kind, fps, address, username, password, db_name
     FROM openplot.pdc
     WHERE pdc_id = @pdc_id;";
 
@@ -127,7 +127,7 @@ namespace OpenPlot.Ingestor.Gsf
                     kind = r.GetString(r.GetOrdinal("kind"));
                     fps = r.GetInt32(r.GetOrdinal("fps"));
                     addr = r.IsDBNull(r.GetOrdinal("address")) ? null : r.GetString(r.GetOrdinal("address"));
-                    user = r.IsDBNull(r.GetOrdinal("user_name")) ? "" : r.GetString(r.GetOrdinal("user_name"));
+                    user = r.IsDBNull(r.GetOrdinal("username")) ? "" : r.GetString(r.GetOrdinal("username"));
                     pass = r.IsDBNull(r.GetOrdinal("password")) ? "" : r.GetString(r.GetOrdinal("password"));
 
                     // pega o db_name que o XmlImporter gravou (ex: "db_smf")

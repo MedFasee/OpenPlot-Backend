@@ -54,6 +54,8 @@ internal sealed class XmlCatalogPersistence : IXmlCatalogPersistence
                 if (inserted == 0 && !string.IsNullOrWhiteSpace(signal.NotInsertedNote))
                     summary.Notes.Add(signal.NotInsertedNote);
             }
+
+            await UpdatePdcPmuKind(conn, pdcPmuId, ct);
         }
 
         return summary;
@@ -102,13 +104,13 @@ internal sealed class XmlCatalogPersistence : IXmlCatalogPersistence
         CancellationToken ct)
     {
         const string sql = @"
-INSERT INTO openplot.pdc (name, kind, fps, address, user_name, password, db_name)
-VALUES (@name, @kind, @fps, @addr, @user_name, @password, @db_name)
+INSERT INTO openplot.pdc (name, kind, fps, address, username, password, db_name)
+VALUES (@name, @kind, @fps, @addr, @username, @password, @db_name)
 ON CONFLICT (name) DO UPDATE
 SET kind      = EXCLUDED.kind,
     fps       = EXCLUDED.fps,
     address   = EXCLUDED.address,
-    user_name = EXCLUDED.user_name,
+    username = EXCLUDED.username,
     password  = EXCLUDED.password,
     db_name   = EXCLUDED.db_name
 RETURNING pdc_id;";
@@ -118,7 +120,7 @@ RETURNING pdc_id;";
         cmd.Parameters.AddWithValue("kind", kind);
         cmd.Parameters.AddWithValue("fps", fps);
         cmd.Parameters.AddWithValue("addr", addr ?? string.Empty);
-        cmd.Parameters.AddWithValue("user_name", (object?)userName ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("username", (object?)userName ?? DBNull.Value);
         cmd.Parameters.AddWithValue("password", (object?)password ?? DBNull.Value);
         cmd.Parameters.AddWithValue("db_name", (object?)dbName ?? DBNull.Value);
 
@@ -210,7 +212,7 @@ RETURNING pdc_pmu_id;";
 
         const string sql = @"
 INSERT INTO openplot.signal (pdc_pmu_id, name, quantity, phase, component, historian_point)
-VALUES (@pdc_pmu_id, @name, @quantity::qty_kind, @phase::phase_kind, @component::comp_kind, @historian_point)
+        VALUES (@pdc_pmu_id, @name, @quantity::openplot.qty_kind, @phase::openplot.phase_kind, @component::openplot.comp_kind, @historian_point)
 ON CONFLICT (pdc_pmu_id, name, phase, component) DO UPDATE
 SET quantity        = EXCLUDED.quantity,
     historian_point = EXCLUDED.historian_point
@@ -226,5 +228,64 @@ RETURNING signal_id;";
 
         var id = await cmd.ExecuteScalarAsync(ct);
         return id != null ? 1 : 0;
+    }
+
+    private static async Task UpdatePdcPmuKind(
+        NpgsqlConnection conn,
+        int pdcPmuId,
+        CancellationToken ct)
+    {
+        const string sql = @"
+WITH pmu_grandezas AS (
+    SELECT
+        p.pdc_pmu_id,
+        ARRAY(
+            SELECT g.grandeza
+            FROM (
+                SELECT DISTINCT
+                    CASE
+                        WHEN s.component::text ILIKE '%THD%' THEN 'THD'
+                        ELSE s.quantity::text
+                    END AS grandeza
+                FROM openplot.signal s
+                WHERE s.pdc_pmu_id = p.pdc_pmu_id
+                  AND (
+                        s.quantity IS NOT NULL
+                        OR s.component IS NOT NULL
+                  )
+            ) g
+            WHERE g.grandeza IS NOT NULL
+            ORDER BY g.grandeza
+        ) AS grandezas_distintas
+    FROM openplot.pdc_pmu p
+    WHERE p.pdc_pmu_id = @pdc_pmu_id
+),
+mapeamento AS (
+    SELECT
+        pdc_pmu_id,
+        CASE grandezas_distintas
+            WHEN ARRAY['Frequency','Voltage']::text[] THEN 'FV'
+            WHEN ARRAY['Current','Frequency','Voltage']::text[] THEN 'FVI'
+            WHEN ARRAY['Current','Frequency']::text[] THEN 'FI'
+            WHEN ARRAY['Current','Voltage']::text[] THEN 'VI'
+            WHEN ARRAY['Current','Digital','Frequency']::text[] THEN 'FID'
+            WHEN ARRAY['Current','Frequency','THD','Voltage']::text[] THEN 'FVIH'
+            WHEN ARRAY['Frequency','THD','Voltage']::text[] THEN 'FVH'
+            WHEN ARRAY['Current','Frequency','THD']::text[] THEN 'FIH'
+            WHEN ARRAY['Current','Digital','Frequency','THD']::text[] THEN 'FIDH'
+            ELSE NULL
+        END AS novo_kind
+    FROM pmu_grandezas
+)
+UPDATE openplot.pdc_pmu p
+SET kind = m.novo_kind
+FROM mapeamento m
+WHERE p.pdc_pmu_id = m.pdc_pmu_id
+  AND p.pdc_pmu_id = @pdc_pmu_id
+  AND m.novo_kind IS NOT NULL;";
+
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("pdc_pmu_id", pdcPmuId);
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 }

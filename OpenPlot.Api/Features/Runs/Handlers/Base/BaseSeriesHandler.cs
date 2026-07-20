@@ -1,4 +1,5 @@
 using System.Globalization;
+using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Abstractions;
 using OpenPlot.Features.Runs.Handlers.Responses;
@@ -8,11 +9,11 @@ using OpenPlot.Services.UI;
 namespace OpenPlot.Features.Runs.Handlers.Base;
 
 /// <summary>
-/// Handler base abstrato para séries temporais.
-/// Encapsula fluxo comum: validação ? query ? transformação ? cache ? resposta.
-/// Subclasses implementam apenas a lógica específica.
+/// Handler base abstrato para sï¿½ries temporais.
+/// Encapsula fluxo comum: validaï¿½ï¿½o ? query ? transformaï¿½ï¿½o ? cache ? resposta.
+/// Subclasses implementam apenas a lï¿½gica especï¿½fica.
 /// </summary>
-/// <typeparam name="TQuery">Tipo de query específico do handler.</typeparam>
+/// <typeparam name="TQuery">Tipo de query especï¿½fico do handler.</typeparam>
 public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
     where TQuery : ISeriesQuery
 {
@@ -35,7 +36,7 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
 
     /// <summary>
     /// Template method que orquestra o fluxo completo de processamento.
-    /// Implementações devem sobrescrever métodos específicos conforme necessário.
+    /// Implementaï¿½ï¿½es devem sobrescrever mï¿½todos especï¿½ficos conforme necessï¿½rio.
     /// </summary>
     public async Task<IResult> HandleAsync(
         TQuery query,
@@ -43,7 +44,7 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
         Dictionary<string, object?>? modes,
         CancellationToken ct)
     {
-        // Passo 1: Validação de parâmetros de entrada
+        // Passo 1: Validaï¿½ï¿½o de parï¿½metros de entrada
         var validationResult = ValidateInput(query, window);
         if (!validationResult.isValid)
         {
@@ -61,10 +62,21 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
 
             if (runContext is null)
             {
-                return Results.NotFound("run_id não encontrado.");
+                return Results.NotFound("run_id nï¿½o encontrado.");
             }
 
-            // Passo 3: Executar query específica do handler
+            var requestedMaxPoints = query.ResolveMaxPoints(@default: 5000);
+            var estimatedSeriesCount = EstimateSeriesCount(query, runContext);
+            var maxPts = SeriesDownsamplingPlanner.ResolveTargetMaxPointsPerSeries(
+                requestedMaxPoints,
+                query.MaxPointsIsAll,
+                estimatedSeriesCount,
+                runContext.FromUtc,
+                runContext.ToUtc,
+                runContext.SelectRate);
+            var noDownsample = false;
+
+            // Passo 3: Executar query especï¿½fica do handler
             var rows = await QueryDataAsync(query, runContext, window, ct);
 
             if (rows.Count == 0)
@@ -76,15 +88,15 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
             var windowFrom = window.FromUtc ?? rows.Min(r => r.Ts);
             var windowTo = window.ToUtc ?? rows.Max(r => r.Ts);
 
-            // Passo 5: Salvar em cache (se aplicável)
-            var cachePayload = BuildCachePayload(rows, windowFrom, windowTo, runContext);
+            // Passo 5: Salvar em cache (se aplicï¿½vel)
+            var cachePayload = query is OpenPlot.Features.Runs.Contracts.SimpleSeriesQuery sq && sq.PreviewOnly
+                ? null
+                : BuildCachePayload(rows, windowFrom, windowTo, runContext);
             var cacheId = cachePayload is not null
                 ? await _cacheService.SaveAsync(query.RunId, cachePayload, ct)
                 : null;
 
-            // Passo 6: Transformar dados para apresentação
-            var maxPts = query.ResolveMaxPoints(@default: 5000);
-            var noDownsample = query.MaxPointsIsAll;
+            // Passo 6: Transformar dados para apresentaï¿½ï¿½o
             var series = TransformData(rows, maxPts, noDownsample);
 
             // Passo 7: Construir metadados
@@ -116,8 +128,8 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
     }
 
     /// <summary>
-    /// Valida parâmetros de entrada comuns a todos os handlers.
-    /// Subclasses podem sobrescrever para validações específicas.
+    /// Valida parï¿½metros de entrada comuns a todos os handlers.
+    /// Subclasses podem sobrescrever para validaï¿½ï¿½es especï¿½ficas.
     /// </summary>
     protected virtual (bool isValid, string? errorMessage) ValidateInput(
         TQuery query,
@@ -125,7 +137,7 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
     {
         if (query.RunId == Guid.Empty)
         {
-            return (false, "run_id é obrigatório.");
+            return (false, "run_id ï¿½ obrigatï¿½rio.");
         }
 
         if (window.FromUtc.HasValue && window.ToUtc.HasValue && window.FromUtc >= window.ToUtc)
@@ -137,7 +149,7 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
     }
 
     /// <summary>
-    /// Executa a query específica para obter dados brutos.
+    /// Executa a query especï¿½fica para obter dados brutos.
     /// Deve ser implementado por subclasses.
     /// </summary>
     protected abstract Task<IReadOnlyList<MeasurementRow>> QueryDataAsync(
@@ -147,7 +159,7 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
         CancellationToken ct);
 
     /// <summary>
-    /// Transforma dados brutos em séries formatadas para resposta.
+    /// Transforma dados brutos em sï¿½ries formatadas para resposta.
     /// Deve ser implementado por subclasses.
     /// </summary>
     protected abstract List<object> TransformData(
@@ -156,8 +168,8 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
         bool noDownsample);
 
     /// <summary>
-    /// Constrói payload para cache (opcional).
-    /// Retorna null se o handler não cacheia dados.
+    /// Constrï¿½i payload para cache (opcional).
+    /// Retorna null se o handler nï¿½o cacheia dados.
     /// </summary>
     protected virtual RowsCacheV2? BuildCachePayload(
         IReadOnlyList<MeasurementRow> rows,
@@ -165,12 +177,12 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
         DateTime windowTo,
         RunContext runContext)
     {
-        return null; // Default: não cachear
+        return null; // Default: nï¿½o cachear
     }
 
     /// <summary>
-    /// Constrói metadados do gráfico (título, labels, etc).
-    /// Implementação padrão; subclasses podem customizar.
+    /// Constrï¿½i metadados do grï¿½fico (tï¿½tulo, labels, etc).
+    /// Implementaï¿½ï¿½o padrï¿½o; subclasses podem customizar.
     /// </summary>
     protected virtual PlotMetaDto BuildPlotMeta(
         RunContext runContext,
@@ -178,14 +190,14 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
         WindowQuery window)
     {
         return new PlotMetaDto(
-            Title: "Série Temporal",
+            Title: "Sï¿½rie Temporal",
             XLabel: "Tempo",
             YLabel: "Valor"
         );
     }
 
     /// <summary>
-    /// Retorna mensagem de erro quando nenhum dado é encontrado.
+    /// Retorna mensagem de erro quando nenhum dado ï¿½ encontrado.
     /// Subclasses podem customizar a mensagem.
     /// </summary>
     protected virtual string GetEmptyDataMessage() =>
@@ -193,10 +205,15 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
 
     /// <summary>
     /// Calcula contagem de PMUs a partir dos dados.
-    /// Implementação padrão; subclasses podem customizar.
+    /// Implementaï¿½ï¿½o padrï¿½o; subclasses podem customizar.
     /// </summary>
     protected virtual int GetPmuCount(
         IReadOnlyList<MeasurementRow> rows,
         List<object> series) =>
         rows.Select(r => r.IdName).Distinct().Count();
+
+    protected virtual int EstimateSeriesCount(TQuery query, RunContext runContext)
+    {
+        return Math.Max(1, runContext.PmuNames.Count);
+    }
 }

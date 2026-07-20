@@ -13,6 +13,10 @@ docs/Refatoracao
 
 # Secrets
 .env.dev
+.env.prod.local
+docker-compose.prod.secrets.yml
+secrets/*.json
+!secrets/.gitkeep
 
 # Logs e temporários
 *.log

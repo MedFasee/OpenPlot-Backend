@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Routing;
 using OpenPlot.Features.Export;
 using OpenPlot.Api.Services.Security;
 using OpenPlot.Data.Dtos;
+using OpenPlot.ExportWorker;
 
 public static class ExportEndpoints
 {
@@ -42,6 +43,7 @@ public static class ExportEndpoints
             [FromServices] IUserContextAccessor userContextAccessor,
             [FromServices] IDbConnectionFactory dbf,
             [FromServices] IExportFileService exportFileService,
+            [FromServices] IExportRunProcessor exportRunProcessor,
             [FromBody] QueueExportRequest req,
             CancellationToken ct
         ) =>
@@ -53,14 +55,14 @@ public static class ExportEndpoints
 
             var runIdRaw = req.ResolveRunId()?.Trim();
             if (!Guid.TryParse(runIdRaw, out var runId) || runId == Guid.Empty)
-                return Results.BadRequest("run_id inválido");
+                return Results.BadRequest("run_id invï¿½lido");
 
             var format = req.format?.Trim();
             if (string.IsNullOrWhiteSpace(format))
-                return Results.BadRequest("format é obrigatório");
+                return Results.BadRequest("format ï¿½ obrigatï¿½rio");
 
             if (!IsSupportedFormat(format))
-                return Results.BadRequest(new { error = "Formato de exportação ainda não suportado", format });
+                return Results.BadRequest(new { error = "Formato de exportaï¿½ï¿½o ainda nï¿½o suportado", format });
 
             using var db = dbf.Create();
             await exportFileService.PurgeExpiredExportsAsync(db, ct);
@@ -72,12 +74,36 @@ WHERE id = @run_id
 LIMIT 1;", new { run_id = runId });
 
             if (runStatus is null)
-                return Results.NotFound("run não encontrada.");
+                return Results.NotFound("run nï¿½o encontrada.");
 
             if (!CanConvertSearchRun(runStatus))
                 return Results.BadRequest(BuildIncompleteRunError(runStatus));
 
             await db.ExecuteAsync(ExportSql.QueueExportRun, new { run_id = runId });
+
+            // Processa exportaÃ§Ã£o sincronamente com timeout de 60 segundos
+            try
+            {
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromSeconds(60));
+                
+                await exportRunProcessor.ProcessByIdAsync(runId, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Timeout ou cancelamento - deixa em background para continuar processando
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await exportRunProcessor.ProcessByIdAsync(runId, CancellationToken.None);
+                    }
+                    catch
+                    {
+                        // Log de erro em background Ã© capturado pelo processador
+                    }
+                }, CancellationToken.None);
+            }
 
             var row = await db.QuerySingleOrDefaultAsync<ExportRunStatusRow>(
                 ExportSql.GetExportRunStatus,
@@ -110,7 +136,7 @@ LIMIT 1;", new { run_id = runId });
                 return Results.Unauthorized();
 
             if (!IsSupportedFormat(format))
-                return Results.BadRequest(new { error = "Formato de exportação ainda não suportado", format });
+                return Results.BadRequest(new { error = "Formato de exportaï¿½ï¿½o ainda nï¿½o suportado", format });
 
             using var db = dbf.Create();
             await exportFileService.PurgeExpiredExportsAsync(db, ct);
@@ -145,7 +171,7 @@ LIMIT 1;", new { run_id = runId });
                 return Results.Unauthorized();
 
             if (!IsSupportedFormat(format))
-                return Results.BadRequest(new { error = "Formato de exportação ainda não suportado", format });
+                return Results.BadRequest(new { error = "Formato de exportaï¿½ï¿½o ainda nï¿½o suportado", format });
 
             using var db = dbf.Create();
             await exportFileService.PurgeExpiredExportsAsync(db, ct);
@@ -162,7 +188,7 @@ LIMIT 1;", new { run_id = runId });
                 return Results.NotFound();
 
             if (!string.Equals(row.status, "done", StringComparison.OrdinalIgnoreCase))
-                return Results.BadRequest(new { error = "export ainda não concluído", status = row.status, progress = row.progress });
+                return Results.BadRequest(new { error = "export ainda nï¿½o concluï¿½do", status = row.status, progress = row.progress });
 
             return exportFileService.ResolveFileResult(row);
         });

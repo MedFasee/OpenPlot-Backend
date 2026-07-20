@@ -1,15 +1,28 @@
 services:
+  postgres:
+    extends:
+      file: docker-compose.yml
+      service: postgres
+
   openplot-api:
+    extends:
+      file: docker-compose.yml
+      service: openplot-api
     build:
       context: .
       dockerfile: OpenPlot.Api/Dockerfile
 
-  openplot-export-worker:
-    build:
-      context: .
-      dockerfile: OpenPlot.ExportWorker/Dockerfile
-
   openplot-ingestor-gsf:
+    extends:
+      file: docker-compose.yml
+      service: openplot-ingestor-gsf
     build:
       context: .
       dockerfile: OpenPlot.Ingestor.Gsf/Dockerfile
+
+volumes:
+  postgres-data:
+
+networks:
+  openplot-network:
+    driver: bridge

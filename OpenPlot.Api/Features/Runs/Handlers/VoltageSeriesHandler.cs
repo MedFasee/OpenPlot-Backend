@@ -53,8 +53,7 @@ public sealed class VoltageSeriesHandler
         if (unit is not ("raw" or "pu"))
             return Results.BadRequest("unit deve ser 'raw' ou 'pu'.");
 
-        var noDownsample = q.MaxPointsIsAll;
-        var maxPts = q.ResolveMaxPoints(@default: 5000);
+        var noDownsample = false;
 
         var fromUtc = w.FromUtc;
         var toUtc = w.ToUtc;
@@ -63,6 +62,19 @@ public sealed class VoltageSeriesHandler
 
         var ctx = await _runs.ResolveAsync(q.RunId, fromUtc, toUtc, ct);
         if (ctx is null) return Results.NotFound("run_id não encontrado.");
+
+        var requestedMaxPoints = q.ResolveMaxPoints(@default: 5000);
+        var estimatedPmuCount = tri
+            ? 1
+            : (selection.PmuNames.Length > 0 ? selection.PmuNames.Length : Math.Max(1, ctx.PmuNames.Count));
+        var estimatedSeriesCount = Math.Max(1, estimatedPmuCount * (tri ? 3 : 1));
+        var maxPts = SeriesDownsamplingPlanner.ResolveTargetMaxPointsPerSeries(
+            requestedMaxPoints,
+            q.MaxPointsIsAll,
+            estimatedSeriesCount,
+            ctx.FromUtc,
+            ctx.ToUtc,
+            ctx.SelectRate);
 
         var pmuNames = selection.PmuNames;
 
@@ -120,13 +132,18 @@ public sealed class VoltageSeriesHandler
             .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var cachePayload = _seriesAssembly.BuildCachePayload(
-            windowFrom,
-            windowTo2,
-            ctx.SelectRate ?? 0,
-            cacheSeries);
+        RowsCacheV2? cachePayload = null;
+        object? cacheId = null;
+        if (!q.PreviewOnly)
+        {
+            cachePayload = _seriesAssembly.BuildCachePayload(
+                windowFrom,
+                windowTo2,
+                ctx.SelectRate ?? 0,
+                cacheSeries);
 
-        var cacheId = await _cacheRepo.SaveAsync(q.RunId, cachePayload, ct);
+            cacheId = await _cacheRepo.SaveAsync(q.RunId, cachePayload, ct);
+        }
 
         // ===== DOWNSAMPLING DEPOIS (PARA VISUALIZAÇÃO) =====
         var series = processedData
@@ -162,7 +179,9 @@ public sealed class VoltageSeriesHandler
         var plotMeta = _meta.Build(w, ctx, meas);
         var resolvedModes = _uiMenus.RebuildForRun(
             modes,
-            UiMenuContext.FromCache(cachePayload));
+            cachePayload is not null
+                ? UiMenuContext.FromCache(cachePayload)
+                : new UiMenuContext(windowFrom, windowTo2, ctx.SelectRate));
 
         var response = SeriesResponseBuilderExtensions
             .BuildSeriesResponse(q.RunId, windowFrom, windowTo2, series, plotMeta)

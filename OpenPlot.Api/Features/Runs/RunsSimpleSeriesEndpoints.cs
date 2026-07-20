@@ -14,7 +14,8 @@ public static class RunsSimpleSeriesEndpoints
         new()
         {
             RunId = request.RunId,
-            MaxPoints = request.MaxPoints
+            MaxPoints = request.MaxPoints,
+            PreviewOnly = request.PreviewOnly ?? false
         };
 
     internal static IReadOnlyList<string> BuildNormalizedPmuList(IPmuQueryHelper pmuHelper, string[]? pmuNames) =>

@@ -43,11 +43,20 @@ public sealed class UnbalanceSeriesHandler
         Dictionary<string, object?>? modes,
         CancellationToken ct)
     {
-        var noDownsample = q.MaxPointsIsAll;
-        var maxPts = q.ResolveMaxPoints(@default: 5000);
+        var noDownsample = false;
 
         var ctx = await _runs.ResolveAsync(q.RunId, w.FromUtc, w.ToUtc, ct);
         if (ctx is null) return Results.NotFound("run_id não encontrado.");
+
+        var requestedMaxPoints = q.ResolveMaxPoints(@default: 5000);
+        var estimatedSeriesCount = pmuList.Count > 0 ? pmuList.Count : Math.Max(1, ctx.PmuNames.Count);
+        var maxPts = SeriesDownsamplingPlanner.ResolveTargetMaxPointsPerSeries(
+            requestedMaxPoints,
+            q.MaxPointsIsAll,
+            estimatedSeriesCount,
+            ctx.FromUtc,
+            ctx.ToUtc,
+            ctx.SelectRate);
 
         var kind = req.Kind == SeqKind.Current ? "current" : "voltage";
 
@@ -250,13 +259,18 @@ public sealed class UnbalanceSeriesHandler
                 points: g.Select(x => (x.ts, x.value))))
             .ToList();
 
-        var cachePayload = _seriesAssembly.BuildCachePayload(
-            windowFrom,
-            windowTo,
-            ctx.SelectRate ?? 0,
-            cacheSeries);
+        RowsCacheV2? cachePayload = null;
+        object? cacheId = null;
+        if (!q.PreviewOnly)
+        {
+            cachePayload = _seriesAssembly.BuildCachePayload(
+                windowFrom,
+                windowTo,
+                ctx.SelectRate ?? 0,
+                cacheSeries);
 
-        var cacheId = await _cacheRepo.SaveAsync(q.RunId, cachePayload, ct);
+            cacheId = await _cacheRepo.SaveAsync(q.RunId, cachePayload, ct);
+        }
         // =======================================================
 
         var meas = new MeasurementsQuery(
@@ -267,7 +281,9 @@ public sealed class UnbalanceSeriesHandler
         var plotMeta = _meta.Build(w, ctx, meas);
         var resolvedModes = _uiMenus.RebuildForRun(
             modes,
-            UiMenuContext.FromCache(cachePayload));
+            cachePayload is not null
+                ? UiMenuContext.FromCache(cachePayload)
+                : new UiMenuContext(windowFrom, windowTo, ctx.SelectRate));
 
         var response = SeriesResponseBuilderExtensions
             .BuildSeriesResponse(q.RunId, windowFrom, windowTo, series, plotMeta)

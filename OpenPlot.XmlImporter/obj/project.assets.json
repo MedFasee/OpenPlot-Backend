@@ -510,24 +510,24 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\Win 10\\.nuget\\packages\\": {},
+    "C:\\Users\\renan\\.nuget\\packages\\": {},
     "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.XmlImporter\\OpenPlot.XmlImporter.csproj",
+      "projectUniqueName": "D:\\Projetos\\OpenPlot_ONS\\OpenPlotAPI_merged\\OpenPlot-Backend\\OpenPlot.XmlImporter\\OpenPlot.XmlImporter.csproj",
       "projectName": "OpenPlot.XmlImporter",
-      "projectPath": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.XmlImporter\\OpenPlot.XmlImporter.csproj",
-      "packagesPath": "C:\\Users\\Win 10\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\OpenPlot.XmlImporter\\obj\\",
+      "projectPath": "D:\\Projetos\\OpenPlot_ONS\\OpenPlotAPI_merged\\OpenPlot-Backend\\OpenPlot.XmlImporter\\OpenPlot.XmlImporter.csproj",
+      "packagesPath": "C:\\Users\\renan\\.nuget\\packages\\",
+      "outputPath": "D:\\Projetos\\OpenPlot_ONS\\OpenPlotAPI_merged\\OpenPlot-Backend\\OpenPlot.XmlImporter\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
       ],
       "configFilePaths": [
-        "C:\\Users\\Win 10\\OneDrive\\Documentos\\OpenPlot\\openplot.api\\NuGet.Config",
-        "C:\\Users\\Win 10\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "D:\\Projetos\\OpenPlot_ONS\\OpenPlotAPI_merged\\OpenPlot-Backend\\NuGet.Config",
+        "C:\\Users\\renan\\AppData\\Roaming\\NuGet\\NuGet.Config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
@@ -596,7 +596,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.300/PortableRuntimeIdentifierGraph.json",
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.302/PortableRuntimeIdentifierGraph.json",
         "packagesToPrune": {
           "Microsoft.CSharp": "(,4.7.32767]",
           "Microsoft.VisualBasic": "(,10.4.32767]",

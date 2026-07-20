@@ -26,12 +26,20 @@ Aplicação de ingestão responsável por:
 - normalizar dados para o modelo do openPlot;
 - persistir medições e metadados nas tabelas `openplot.*` no PostgreSQL.
 
+Observação operacional atual:
+
+- em ambiente Docker, o ingestor roda internamente na API como `BackgroundService` (configuração `BackgroundWorkers:Ingestor`), sem necessidade de container dedicado.
+
 ### `OpenPlot.XmlImporter`
 Ferramenta de importação destinada a:
 
 - importar arquivos XML do legado MedPlot;
 - interpretar PDCs, PMUs, sinais/canais e configurações;
 - persistir/atualizar o inventário no banco (`pdc`, `pmu`, `signal`, `pdc_pmu`, etc.).
+
+Observação operacional atual:
+
+- em ambiente Docker, a importação XML é executada internamente pela API como `BackgroundService` (configuração `BackgroundWorkers:XmlImporter`), reutilizando a mesma lógica de importação da API.
 
 ### `OpenPlot.ExportWorker`
 Worker Service responsável por exportação assíncrona de runs para **COMTRADE**.
@@ -50,6 +58,10 @@ Arquivos relevantes:
 - `OpenPlot.ExportWorker/Build/ComtradeBuildService.cs`: montagem das séries/canais.
 - `OpenPlot.ExportWorker/Comtrade/*`: naming e writer do padrão COMTRADE.
 - `OpenPlot.ExportWorker/Storage/DiskExportStore.cs`: escrita atômica e organização em disco.
+
+Observação operacional atual:
+
+- em ambiente Docker, o export worker roda internamente na API como `BackgroundService` (configuração `BackgroundWorkers:ExportWorker`), sem necessidade de container dedicado.
 
 ## 2. Projetos de teste
 
@@ -102,7 +114,46 @@ Referencias principais:
 - `docs/Features/runsEndpoints.md` - endpoints de runs, terminais e series.
 - `docs/Features/postProcessingEndpoints.md` - arquitetura e contratos de DFT, Prony e CCA sobre `cache_id`.
 
-## 2.2 Comutacao de autenticacao no Docker (OpenPlot x ONS/SSO)
+## 2.2 Subida dos ambientes dev e prod
+
+### Dev
+
+No ambiente de desenvolvimento, a API sobe com autenticação local em modo mock.
+
+- `OPENPLOT_AUTH_PROVIDER=OpenPlot`
+- `Auth:UseMock=true`
+- `OPENPLOT_EMBED_INGESTOR_ENABLED=true`
+- `OPENPLOT_EMBED_XMLIMPORTER_ENABLED=true`
+- `OPENPLOT_EMBED_EXPORT_WORKER_ENABLED=true`
+
+Subida recomendada:
+
+```powershell
+docker compose --env-file .env.dev -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
+
+### Prod
+
+No ambiente de producao do ONS, a API usa o SSO do ONS e nao o login local.
+
+- `OPENPLOT_AUTH_PROVIDER=Ons`
+- `Auth:UseMock=false`
+- `OPENPLOT_EMBED_INGESTOR_ENABLED=true`
+- `OPENPLOT_EMBED_XMLIMPORTER_ENABLED=true`
+- `OPENPLOT_EMBED_EXPORT_WORKER_ENABLED=true`
+
+Subida recomendada:
+
+```powershell
+docker compose --env-file .env.prod --env-file .env.prod.local -f docker-compose.prod.yml -f docker-compose.prod.secrets.yml up -d --build
+```
+
+Observacao:
+
+- em dev e prod, o ingestor, o xml importer e o export worker rodam como servicos internos da API; nao ha container dedicado para esses processos.
+- o bootstrap do banco executa automaticamente na primeira subida do volume PostgreSQL e restaura o dump base com os PDCs/PMUs iniciais do ambiente.
+
+## 2.3 Comutacao de autenticacao no Docker (OpenPlot x ONS/SSO)
 
 A API suporta dois fluxos de autenticacao:
 
@@ -126,6 +177,56 @@ Valores padrao dos ambientes atuais:
 Observacao:
 
 - segredos e configuracoes sensiveis (ex.: `ConfigITapiKey`) devem permanecer em `.env`/ambiente, sem uso de `launchSettings.json`.
+
+### Subida segura em producao
+
+Use dois arquivos de ambiente e um arquivo local de segredo no compose de producao:
+
+- `.env.prod` (versionado): configuracoes nao sensiveis;
+- `.env.prod.local` (nao versionado): segredos (`ConfigIT*`, endpoints privados, etc.).
+- `secrets/configit.prod.json` (nao versionado): mapeamento de/para exigido pela lib do ConfigIT.
+
+Passos:
+
+1. copiar `.env.prod.local.example` para `.env.prod.local`;
+2. preencher os valores reais de `ConfigITr`, `ConfigITapiKey`, `ConfigITamb`, `ConfigITpacote` e `ConfigITjsonFullPath`;
+3. copiar `secrets/configit.prod.json.example` para `secrets/configit.prod.json` e preencher o de/para real (estrutura de dicionario; arquivo vazio `{}` e valido);
+4. copiar `docker-compose.prod.secrets.example.yml` para `docker-compose.prod.secrets.yml`;
+5. subir com:
+
+```powershell
+docker compose --env-file .env.prod --env-file .env.prod.local -f docker-compose.prod.yml -f docker-compose.prod.secrets.yml up -d --build
+```
+
+### Fluxo Docker atual (ambiente unico)
+
+Com a nova estrutura, o `OpenPlot.Ingestor.Gsf`, o `OpenPlot.XmlImporter` e o `OpenPlot.ExportWorker` rodam internamente no container da API como `BackgroundService`.
+Nao existem mais servicos dedicados para esses processos no compose.
+
+Subida recomendada (prod):
+
+```powershell
+docker compose --env-file .env.prod --env-file .env.prod.local -f docker-compose.prod.yml -f docker-compose.prod.secrets.yml up -d --build postgres openplot-api
+```
+
+Subida apenas da API (quando quiser recriar somente o processo que agora inclui ingestor/xml importer):
+
+```powershell
+docker compose --env-file .env.prod --env-file .env.prod.local -f docker-compose.prod.yml -f docker-compose.prod.secrets.yml up -d --build --force-recreate openplot-api
+```
+
+Logs da API (inclui logs HTTP + workers embutidos):
+
+```powershell
+docker compose --env-file .env.prod --env-file .env.prod.local -f docker-compose.prod.yml -f docker-compose.prod.secrets.yml logs -f --tail 200 openplot-api
+```
+
+Controles de habilitacao:
+
+- `OPENPLOT_EMBED_INGESTOR_ENABLED=true|false`
+- `OPENPLOT_EMBED_XMLIMPORTER_ENABLED=true|false`
+
+Essas variaveis ficam em `.env.dev` e `.env.prod`, com possibilidade de override em `.env.prod.local`.
 
 ---
 

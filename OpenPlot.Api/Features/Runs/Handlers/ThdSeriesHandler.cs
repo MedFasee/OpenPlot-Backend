@@ -8,7 +8,7 @@ using OpenPlot.Services.UI;
 namespace OpenPlot.Features.Runs.Handlers;
 
 /// <summary>
-/// Handler para Distorção Harmônica Total (THD) de tensão ou corrente.
+/// Handler para Distorï¿½ï¿½o Harmï¿½nica Total (THD) de tensï¿½o ou corrente.
 /// Utiliza IMeasurementsRepository para filtragem consistente com outros handlers.
 /// </summary>
 public sealed class ThdSeriesHandler
@@ -56,11 +56,10 @@ public sealed class ThdSeriesHandler
         var k = kind.Trim().ToLowerInvariant();
         var tri = query.Tri;
         var uphase = tri ? null : query.Phase?.Trim().ToUpperInvariant();
-        var noDownsample = query.MaxPointsIsAll;
-        var maxPts = query.ResolveMaxPoints(@default: 5000);
+        var noDownsample = false;
 
-        // Quando tri=true, usa apenas query.Pmu (validado como obrigatório)
-        // Quando tri=false, usa múltiplas PMUs de query.Pmus
+        // Quando tri=true, usa apenas query.Pmu (validado como obrigatï¿½rio)
+        // Quando tri=false, usa mï¿½ltiplas PMUs de query.Pmus
         var pmuList = tri
             ? new[] { query.Pmu! }
             : _pmuHelper.Normalize(new[] { query.Pmu }, query.Pmus);
@@ -72,9 +71,22 @@ public sealed class ThdSeriesHandler
 
         var ctx = await _runRepository.ResolveAsync(query.RunId, fromUtc, toUtc, ct);
         if (ctx is null)
-            return Results.NotFound("run_id não encontrado.");
+            return Results.NotFound("run_id nï¿½o encontrado.");
 
-        // Constrói a query de medições com filtros apropriados
+        var requestedMaxPoints = query.ResolveMaxPoints(@default: 5000);
+        var estimatedPmuCount = tri
+            ? 1
+            : (pmuList.Length > 0 ? pmuList.Length : Math.Max(1, ctx.PmuNames.Count));
+        var estimatedSeriesCount = Math.Max(1, estimatedPmuCount * (tri ? 3 : 1));
+        var maxPts = SeriesDownsamplingPlanner.ResolveTargetMaxPointsPerSeries(
+            requestedMaxPoints,
+            query.MaxPointsIsAll,
+            estimatedSeriesCount,
+            ctx.FromUtc,
+            ctx.ToUtc,
+            ctx.SelectRate);
+
+        // Constrï¿½i a query de mediï¿½ï¿½es com filtros apropriados
         var phaseMode = tri ? PhaseMode.ABC : PhaseMode.Single;
         var measQuery = new MeasurementsQuery(
             Quantity: k == "voltage" ? "voltage" : "current",
@@ -85,7 +97,7 @@ public sealed class ThdSeriesHandler
             Unit: "%"
         );
 
-        // Executa a query de medições (usa QueryPhasorAsync porque THD precisa da fase)
+        // Executa a query de mediï¿½ï¿½es (usa QueryPhasorAsync porque THD precisa da fase)
         var rows = await _measRepository.QueryPhasorAsync(ctx, measQuery, ct);
 
         if (rows.Count == 0)
@@ -94,7 +106,7 @@ public sealed class ThdSeriesHandler
         var windowFrom = rows.Min(r => r.Ts);
         var windowTo = rows.Max(r => r.Ts);
 
-        // Constrói as séries para cache
+        // Constrï¿½i as sï¿½ries para cache
         var cacheSeries = rows
             .GroupBy(r => r.SignalId)
             .Select(g =>
@@ -114,15 +126,20 @@ public sealed class ThdSeriesHandler
             })
             .ToList();
 
-        var cachePayload = _seriesAssembly.BuildCachePayload(
-            windowFrom,
-            windowTo,
-            ctx.SelectRate ?? 0,
-            cacheSeries);
+        RowsCacheV2? cachePayload = null;
+        object? cacheId = null;
+        if (!query.PreviewOnly)
+        {
+            cachePayload = _seriesAssembly.BuildCachePayload(
+                windowFrom,
+                windowTo,
+                ctx.SelectRate ?? 0,
+                cacheSeries);
 
-        var cacheId = await _cacheRepository.SaveAsync(query.RunId, cachePayload, ct);
+            cacheId = await _cacheRepository.SaveAsync(query.RunId, cachePayload, ct);
+        }
 
-        // Constrói as séries para resposta
+        // Constrï¿½i as sï¿½ries para resposta
         var series = rows
             .GroupBy(r => r.SignalId)
             .Select(g =>
@@ -163,7 +180,9 @@ public sealed class ThdSeriesHandler
         var plotMeta = _metaBuilder.Build(window, ctx, meas);
         var resolvedModes = _uiMenus.RebuildForRun(
             modes,
-            UiMenuContext.FromCache(cachePayload));
+            cachePayload is not null
+                ? UiMenuContext.FromCache(cachePayload)
+                : new UiMenuContext(windowFrom, windowTo, ctx.SelectRate));
 
         var response = SeriesResponseBuilderExtensions
             .BuildSeriesResponse(query.RunId, windowFrom, windowTo, series, plotMeta)
@@ -187,7 +206,7 @@ public sealed class ThdSeriesHandler
         string kind)
     {
         if (string.IsNullOrWhiteSpace(kind))
-            return (false, "kind é obrigatório (voltage|current).");
+            return (false, "kind ï¿½ obrigatï¿½rio (voltage|current).");
 
         var k = kind.Trim().ToLowerInvariant();
         if (k is not ("voltage" or "current"))
@@ -197,7 +216,7 @@ public sealed class ThdSeriesHandler
         if (!tri)
         {
             if (string.IsNullOrWhiteSpace(query.Phase))
-                return (false, "phase é obrigatório (A|B|C) quando tri=false.");
+                return (false, "phase ï¿½ obrigatï¿½rio (A|B|C) quando tri=false.");
 
             var phase = query.Phase.Trim().ToUpperInvariant();
             if (phase is not ("A" or "B" or "C"))
@@ -206,7 +225,7 @@ public sealed class ThdSeriesHandler
         else
         {
             if (string.IsNullOrWhiteSpace(query.Pmu))
-                return (false, "para tri=true é obrigatório informar pmu (id_name da PMU).");
+                return (false, "para tri=true ï¿½ obrigatï¿½rio informar pmu (id_name da PMU).");
         }
 
         return (true, null);

@@ -12,9 +12,9 @@ using OpenPlot.Services.UI;
 namespace OpenPlot.Features.Runs.Handlers;
 
 /// <summary>
-/// Handler para cálculo de potência ativa/reativa.
+/// Handler para cï¿½lculo de potï¿½ncia ativa/reativa.
 /// Recebe V/I em phasores (MAG+ANG) e calcula P/Q por fase ou total.
-/// Responsabilidade: validação, SQL, cálculo de potência e resposta.
+/// Responsabilidade: validaï¿½ï¿½o, SQL, cï¿½lculo de potï¿½ncia e resposta.
 /// </summary>
 public sealed class PowerSeriesHandler
 {
@@ -25,6 +25,7 @@ public sealed class PowerSeriesHandler
     private readonly IPmuQueryHelper _pmuHelper;
     private readonly ISeriesAssemblyService _seriesAssembly;
     private readonly IUiMenuService _uiMenus;
+    private readonly ITimeSeriesDownsampler _downsampler;
 
     public PowerSeriesHandler(
         IRunContextRepository runRepository,
@@ -33,7 +34,8 @@ public sealed class PowerSeriesHandler
         IPlotMetaBuilder metaBuilder,
         IPmuQueryHelper pmuHelper,
         ISeriesAssemblyService seriesAssembly,
-        IUiMenuService uiMenus)
+        IUiMenuService uiMenus,
+        ITimeSeriesDownsampler downsampler)
     {
         _runRepository = runRepository ?? throw new ArgumentNullException(nameof(runRepository));
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
@@ -42,10 +44,11 @@ public sealed class PowerSeriesHandler
         _pmuHelper = pmuHelper ?? throw new ArgumentNullException(nameof(pmuHelper));
         _seriesAssembly = seriesAssembly ?? throw new ArgumentNullException(nameof(seriesAssembly));
         _uiMenus = uiMenus ?? throw new ArgumentNullException(nameof(uiMenus));
+        _downsampler = downsampler ?? throw new ArgumentNullException(nameof(downsampler));
     }
 
     /// <summary>
-    /// Processa requisição de potência ativa/reativa.
+    /// Processa requisiï¿½ï¿½o de potï¿½ncia ativa/reativa.
     /// </summary>
     public async Task<IResult> HandleAsync(
         PowerPlotQuery query,
@@ -54,7 +57,7 @@ public sealed class PowerSeriesHandler
         CancellationToken ct)
     {
         // =============================
-        // Validação
+        // Validaï¿½ï¿½o
         // =============================
         var validation = ValidatePowerQuery(query);
         if (!validation.isValid)
@@ -63,7 +66,7 @@ public sealed class PowerSeriesHandler
         var which = (query.Which ?? "active").Trim().ToLowerInvariant();
         var quantityKey = which == "active" ? "p_active" : "p_reactive";
         var u = (query.Unit ?? "raw").Trim().ToLowerInvariant();
-        var maxPts = Math.Max(query.ResolveMaxPoints(@default: 100), 100);
+        var requestedMaxPoints = Math.Max(query.ResolveMaxPoints(@default: 100), 100);
 
         DateTime? fromUtc = window.FromUtc;
         DateTime? toUtc = window.ToUtc;
@@ -72,13 +75,22 @@ public sealed class PowerSeriesHandler
 
         var ctx = await _runRepository.ResolveAsync(query.RunId, fromUtc, toUtc, ct);
         if (ctx is null)
-            return Results.NotFound("run_id não encontrado.");
+            return Results.NotFound("run_id nï¿½o encontrado.");
 
         var pmuList = _pmuHelper.Normalize(query.Pmu).ToList();
 
         var tri = query.Tri ?? false;
         var total = query.Total ?? false;
         var phase = !tri && !total ? query.Phase : null;
+        var estimatedPmuCount = pmuList.Count > 0 ? pmuList.Count : Math.Max(1, ctx.PmuNames.Count);
+        var estimatedSeriesCount = Math.Max(1, estimatedPmuCount * (tri ? 3 : 1));
+        var maxPts = SeriesDownsamplingPlanner.ResolveTargetMaxPointsPerSeries(
+            requestedMaxPoints,
+            query.MaxPointsIsAll,
+            estimatedSeriesCount,
+            ctx.FromUtc,
+            ctx.ToUtc,
+            ctx.SelectRate);
 
         // =============================
         // Query SQL
@@ -218,7 +230,7 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
             return Results.NotFound("Nada encontrado para esse run/filtro no intervalo solicitado.");
 
         // =============================
-        // Cálculo de potência
+        // Cï¿½lculo de potï¿½ncia
         // =============================
         var tol = TimeSpan.FromMilliseconds(3);
         var seriesOut = new List<object>();
@@ -275,7 +287,11 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
                         cachePoints.Add((any.Id_Name, pt.ts, pt.val * scale));
                     }
 
-                    var down = TimeBucketDownsampleMinMax(pts.Select(x => (x.ts, x.val * scale)), maxPts);
+                    var down = _seriesAssembly.BuildPoints(
+                        pts.Select(x => (x.ts, x.val * scale)),
+                        noDownsample: false,
+                        maxPoints: maxPts,
+                        downsampler: _downsampler);
 
                     seriesOut.Add(new
                     {
@@ -283,7 +299,7 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
                         pdc = any.Pdc_Name,
                         meta = new { phase = phs },
                         unit = (u == "mw") ? (which == "active" ? "MW" : "MVAr") : "raw",
-                        points = down.Select(p => new object[] { p.ts, p.val })
+                        points = down
                     });
                 }
             }
@@ -303,7 +319,11 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
                     cachePoints.Add((any.Id_Name, pt.ts, pt.val * scale));
                 }
 
-                var down = TimeBucketDownsampleMinMax(sum.Select(x => (x.ts, x.val * scale)), maxPts);
+                var down = _seriesAssembly.BuildPoints(
+                    sum.Select(x => (x.ts, x.val * scale)),
+                    noDownsample: false,
+                    maxPoints: maxPts,
+                    downsampler: _downsampler);
 
                 seriesOut.Add(new
                 {
@@ -311,7 +331,7 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
                     pdc = any.Pdc_Name,
                     meta = new { total = true },
                     unit = (u == "mw") ? (which == "active" ? "MW" : "MVAr") : "raw",
-                    points = down.Select(p => new object[] { p.ts, p.val })
+                    points = down
                 });
             }
             else
@@ -325,7 +345,11 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
                     cachePoints.Add((any.Id_Name, pt.ts, pt.val * scale));
                 }
 
-                var down = TimeBucketDownsampleMinMax(pts.Select(x => (x.ts, x.val * scale)), maxPts);
+                var down = _seriesAssembly.BuildPoints(
+                    pts.Select(x => (x.ts, x.val * scale)),
+                    noDownsample: false,
+                    maxPoints: maxPts,
+                    downsampler: _downsampler);
 
                 seriesOut.Add(new
                 {
@@ -333,13 +357,13 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
                     pdc = any.Pdc_Name,
                     meta = new { phase = phase },
                     unit = (u == "mw") ? (which == "active" ? "MW" : "MVAr") : "raw",
-                    points = down.Select(p => new object[] { p.ts, p.val })
+                    points = down
                 });
             }
         }
 
         if (seriesOut.Count == 0)
-            return Results.BadRequest("Nenhuma PMU pôde ser processada (faltam sinais MAG/ANG de V/I ou alinhamento falhou).");
+            return Results.BadRequest("Nenhuma PMU pï¿½de ser processada (faltam sinais MAG/ANG de V/I ou alinhamento falhou).");
 
         var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
         var windowTo = toUtc ?? rows.Max(r => r.Ts);
@@ -361,13 +385,18 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
                 points: g.Select(x => (x.ts, x.value))))
             .ToList();
 
-        var cachePayload = _seriesAssembly.BuildCachePayload(
-            windowFrom,
-            windowTo,
-            ctx.SelectRate ?? 0,
-            cacheSeries);
+        RowsCacheV2? cachePayload = null;
+        object? cacheId = null;
+        if (!query.PreviewOnly)
+        {
+            cachePayload = _seriesAssembly.BuildCachePayload(
+                windowFrom,
+                windowTo,
+                ctx.SelectRate ?? 0,
+                cacheSeries);
 
-        var cacheId = await _cacheRepo.SaveAsync(query.RunId, cachePayload, ct);
+            cacheId = await _cacheRepo.SaveAsync(query.RunId, cachePayload, ct);
+        }
         // =======================================================
 
         var meas = new MeasurementsQuery(
@@ -380,7 +409,9 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
         var plotMeta = _metaBuilder.Build(window, ctx, meas);
         var resolvedModes = _uiMenus.RebuildForRun(
             modes,
-            UiMenuContext.FromCache(cachePayload));
+            cachePayload is not null
+                ? UiMenuContext.FromCache(cachePayload)
+                : new UiMenuContext(windowFrom, windowTo, ctx.SelectRate));
 
         var response = SeriesResponseBuilderExtensions
             .BuildSeriesResponse(query.RunId, windowFrom, windowTo, seriesOut, plotMeta)
@@ -403,7 +434,7 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
     private (bool isValid, string? errorMessage) ValidatePowerQuery(PowerPlotQuery query)
     {
         if (query.RunId == Guid.Empty)
-            return (false, "run_id é obrigatório.");
+            return (false, "run_id ï¿½ obrigatï¿½rio.");
 
         var which = (query.Which ?? "active").Trim().ToLowerInvariant();
         if (which is not ("active" or "reactive"))
@@ -417,13 +448,13 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
         var total = query.Total ?? false;
 
         if (tri && total)
-            return (false, "tri=true e total=true são mutuamente exclusivos.");
+            return (false, "tri=true e total=true sï¿½o mutuamente exclusivos.");
 
         if (tri && (query.Pmu?.Length ?? 0) != 1)
             return (false, "tri=true exige exatamente 1 pmu (id_name).");
 
         if (!tri && !total && string.IsNullOrWhiteSpace(query.Phase))
-            return (false, "phase é obrigatório quando tri=false e total=false.");
+            return (false, "phase ï¿½ obrigatï¿½rio quando tri=false e total=false.");
 
         if (!tri && !total)
         {
@@ -542,47 +573,4 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
         return outp;
     }
 
-    private static IEnumerable<(DateTime ts, double val)> TimeBucketDownsampleMinMax(
-        IEnumerable<(DateTime ts, double val)> pts, int maxPoints)
-    {
-        var list = pts.OrderBy(p => p.ts).ToList();
-        if (list.Count <= maxPoints) return list;
-
-        int buckets = Math.Max(1, maxPoints / 2);
-        var start = list.First().ts;
-        var end = list.Last().ts;
-        var span = (end - start).Ticks;
-        if (span <= 0) return list.Take(maxPoints);
-
-        long bucket = span / buckets;
-        var result = new List<(DateTime, double)>(buckets * 2 + 2) { list.First() };
-
-        for (int i = 0; i < buckets; i++)
-        {
-            var bStart = start.AddTicks(bucket * i);
-            var bEnd = (i == buckets - 1) ? end : start.AddTicks(bucket * (i + 1));
-            double? minVal = null, maxVal = null;
-            DateTime minTs = default, maxTs = default;
-
-            foreach (var p in list)
-            {
-                if (p.ts < bStart || p.ts >= bEnd) continue;
-                if (minVal is null || p.val < minVal)
-                {
-                    minVal = p.val; minTs = p.ts;
-                }
-                if (maxVal is null || p.val > maxVal)
-                {
-                    maxVal = p.val; maxTs = p.ts;
-                }
-            }
-            if (minVal is null) continue;
-
-            if (minTs <= maxTs) { result.Add((minTs, minVal!.Value)); result.Add((maxTs, maxVal!.Value)); }
-            else { result.Add((maxTs, maxVal!.Value)); result.Add((minTs, minVal!.Value)); }
-        }
-
-        result.Add(list.Last());
-        return result;
-    }
 }

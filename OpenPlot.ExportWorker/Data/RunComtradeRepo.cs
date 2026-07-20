@@ -33,6 +33,22 @@ public sealed class RunComtradeRepo
         return await _db.Conn.QueryFirstOrDefaultAsync<Guid?>(new CommandDefinition(sql, cancellationToken: ct));
     }
 
+    // marca um run específico como 'running' sem dequeue (para acionamento síncrono)
+    public Task MarkRunningAsync(Guid runId, CancellationToken ct)
+    {
+        const string sql = """
+        UPDATE openplot.comtrade_runs
+        SET status = 'running',
+            started_at = now(),
+            progress = 1,
+            message = 'Processando...',
+            error = NULL
+        WHERE run_id = @runId
+          AND status = 'queued';
+        """;
+        return _db.Conn.ExecuteAsync(new CommandDefinition(sql, new { runId }, cancellationToken: ct));
+    }
+
     public Task UpdateProgressAsync(Guid runId, int progress, string? message, CancellationToken ct)
     {
         const string sql = """

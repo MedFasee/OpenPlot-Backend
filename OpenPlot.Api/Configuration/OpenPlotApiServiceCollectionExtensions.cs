@@ -2,11 +2,14 @@ using System.Data;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using OpenPlot.ExportWorker;
 using OpenPlot.Api.Services.Security;
 using OpenPlot.Api.Services.Logging;
 using OpenPlot.Auth.Infrastructure.Auth;
@@ -55,6 +58,7 @@ internal static class OpenPlotApiServiceCollectionExtensions
         builder.Services.AddOpenPlotAuthentication(builder.Configuration);
         builder.Services.AddOpenPlotJsonSerialization();
         builder.Services.AddOpenPlotSwagger();
+        builder.Services.AddOpenPlotExportWorkerServices(builder.Configuration);
 
         return builder;
     }
@@ -132,6 +136,7 @@ internal static class OpenPlotApiServiceCollectionExtensions
         services.AddSingleton<IExportArtifactStore, DiskExportArtifactStore>();
         services.AddScoped<IExportFileService, ExportFileService>();
         services.AddScoped<IXmlImportService, XmlImportService>();
+        services.AddHostedService<XmlImportBackgroundService>();
 
         return services;
     }
@@ -154,6 +159,9 @@ internal static class OpenPlotApiServiceCollectionExtensions
 
     private static IServiceCollection AddOpenPlotAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
+        const string localScheme = "OpenPlotLocalJwt";
+        const string dynamicScheme = "OpenPlotDynamicJwt";
+
         services.Configure<AuthOptions>(configuration.GetSection("Auth"));
         services.Configure<AuthProviderOptions>(configuration.GetSection("AuthProvider"));
         services.Configure<UserStoreOptions>(configuration.GetSection("Auth:UserStore"));
@@ -177,10 +185,58 @@ internal static class OpenPlotApiServiceCollectionExtensions
 
         var jwtOptions = configuration.GetSection("Jwt").Get<AuthEndpoints.JwtOptions>() ?? new();
         var cookieName = jwtOptions.CookieName ?? "AuthToken";
+        var externalProviders = configuration
+            .GetSection("ExternalJwtProviders")
+            .Get<List<ExternalJwtProviderOptions>>()
+            ?? [];
+        var enabledExternalProviders = externalProviders
+            .Where(provider => provider.Enabled && !string.IsNullOrWhiteSpace(provider.AuthenticationScheme))
+            .ToList();
 
-        services
-            .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-            .AddJwtBearer(options =>
+        var issuerToScheme = enabledExternalProviders
+            .SelectMany(provider => provider.ResolveIssuerCandidates().Select(issuer => (issuer, provider.AuthenticationScheme)))
+            .GroupBy(item => item.issuer, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                grouping => grouping.Key,
+                grouping => grouping.First().AuthenticationScheme,
+                StringComparer.OrdinalIgnoreCase);
+
+        var authenticationBuilder = services
+            .AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = dynamicScheme;
+                options.DefaultChallengeScheme = dynamicScheme;
+                options.DefaultScheme = dynamicScheme;
+            })
+            .AddPolicyScheme(dynamicScheme, dynamicScheme, options =>
+            {
+                options.ForwardDefaultSelector = context =>
+                {
+                    var authorizationHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+                    if (!string.IsNullOrWhiteSpace(authorizationHeader) && authorizationHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var token = authorizationHeader[7..].Trim();
+                        if (!string.IsNullOrWhiteSpace(token))
+                        {
+                            try
+                            {
+                                var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+                                if (!string.IsNullOrWhiteSpace(jwt.Issuer)
+                                    && issuerToScheme.TryGetValue(jwt.Issuer, out var mappedScheme))
+                                {
+                                    return mappedScheme;
+                                }
+                            }
+                            catch
+                            {
+                            }
+                        }
+                    }
+
+                    return localScheme;
+                };
+            })
+            .AddJwtBearer(localScheme, options =>
             {
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
@@ -216,6 +272,60 @@ internal static class OpenPlotApiServiceCollectionExtensions
                     }
                 };
             });
+
+        foreach (var provider in enabledExternalProviders)
+        {
+            authenticationBuilder.AddJwtBearer(provider.AuthenticationScheme, options =>
+            {
+                options.Authority = provider.Authority;
+                if (!string.IsNullOrWhiteSpace(provider.MetadataAddress))
+                {
+                    options.MetadataAddress = provider.MetadataAddress;
+                }
+                options.RequireHttpsMetadata = provider.RequireHttpsMetadata;
+                options.SaveToken = provider.SaveToken;
+                options.IncludeErrorDetails = provider.IncludeErrorDetails;
+
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.FromMinutes(provider.ClockSkewMinutes)
+                };
+
+                if (!string.IsNullOrWhiteSpace(provider.Audience))
+                {
+                    options.Audience = provider.Audience!;
+                }
+
+                if ((provider.ValidAudiences ?? []).Count > 0)
+                {
+                    options.TokenValidationParameters.ValidAudiences = provider.ValidAudiences ?? [];
+                }
+
+                if (!string.IsNullOrWhiteSpace(provider.ValidIssuer))
+                {
+                    options.TokenValidationParameters.ValidIssuer = provider.ValidIssuer;
+                }
+
+                if ((provider.ValidIssuers ?? []).Count > 0)
+                {
+                    options.TokenValidationParameters.ValidIssuers = provider.ValidIssuers ?? [];
+                }
+
+                if (!string.IsNullOrWhiteSpace(provider.NameClaimType))
+                {
+                    options.TokenValidationParameters.NameClaimType = provider.NameClaimType;
+                }
+
+                if (!string.IsNullOrWhiteSpace(provider.RoleClaimType))
+                {
+                    options.TokenValidationParameters.RoleClaimType = provider.RoleClaimType;
+                }
+            });
+        }
 
         services.AddAuthorization();
 

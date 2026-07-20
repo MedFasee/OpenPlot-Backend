@@ -18,59 +18,77 @@ public sealed class TimeBucketMinMaxDownsampler : ITimeSeriesDownsampler
         if (pts is null) throw new ArgumentNullException(nameof(pts));
         if (maxPoints <= 0) return Array.Empty<Point>();
 
-        // ordena (se já vier ordenado do repo, dá pra remover)
         var list = pts.OrderBy(p => p.Ts).ToList();
-        if (list.Count <= maxPoints) return list;
+        var targetPoints = Math.Max(2, maxPoints);
 
-        int buckets = Math.Max(1, maxPoints / 2);
+        if (list.Count <= targetPoints)
+            return list;
 
-        var start = list[0].Ts;
-        var end = list[^1].Ts;
-        var spanTicks = (end - start).Ticks;
-        if (spanTicks <= 0) return list.Take(maxPoints).ToList();
+        if (targetPoints == 2)
+            return new List<Point> { list[0], list[^1] };
 
-        // evita bucketTicks = 0 quando span < buckets
-        long bucketTicks = Math.Max(1, spanTicks / buckets);
+        return LargestTriangleThreeBuckets(list, targetPoints);
+    }
 
-        var result = new List<Point>(Math.Min(maxPoints, buckets * 2 + 2));
-        result.Add(list[0]);
+    private static IReadOnlyList<Point> LargestTriangleThreeBuckets(IReadOnlyList<Point> sortedPoints, int threshold)
+    {
+        if (sortedPoints.Count <= threshold)
+            return sortedPoints.ToList();
 
-        for (int i = 0; i < buckets && result.Count < maxPoints; i++)
+        if (threshold < 3)
+            return new List<Point> { sortedPoints[0], sortedPoints[^1] };
+
+        var sampled = new List<Point>(threshold) { sortedPoints[0] };
+
+        var bucketSize = (sortedPoints.Count - 2d) / (threshold - 2d);
+        var a = 0;
+
+        for (var i = 0; i < threshold - 2; i++)
         {
-            var bStart = start.AddTicks(bucketTicks * i);
-            var bEnd = (i == buckets - 1) ? end : start.AddTicks(bucketTicks * (i + 1));
+            var avgRangeStart = (int)Math.Floor((i + 1) * bucketSize) + 1;
+            var avgRangeEnd = (int)Math.Floor((i + 2) * bucketSize) + 1;
+            if (avgRangeEnd > sortedPoints.Count)
+                avgRangeEnd = sortedPoints.Count;
 
-            double? minVal = null, maxVal = null;
-            DateTime minTs = default, maxTs = default;
+            var avgRangeLength = Math.Max(1, avgRangeEnd - avgRangeStart);
 
-            foreach (var p in list)
+            double avgX = 0;
+            double avgY = 0;
+            for (var j = avgRangeStart; j < avgRangeEnd; j++)
             {
-                if (p.Ts < bStart || p.Ts >= bEnd) continue;
+                avgX += sortedPoints[j].Ts.Ticks;
+                avgY += sortedPoints[j].Val;
+            }
+            avgX /= avgRangeLength;
+            avgY /= avgRangeLength;
 
-                if (minVal is null || p.Val < minVal) { minVal = p.Val; minTs = p.Ts; }
-                if (maxVal is null || p.Val > maxVal) { maxVal = p.Val; maxTs = p.Ts; }
+            var rangeOffs = (int)Math.Floor(i * bucketSize) + 1;
+            var rangeTo = (int)Math.Floor((i + 1) * bucketSize) + 1;
+            if (rangeTo > sortedPoints.Count - 1)
+                rangeTo = sortedPoints.Count - 1;
+
+            var pointA = sortedPoints[a];
+            var maxArea = -1d;
+            var nextA = rangeOffs;
+
+            for (var j = rangeOffs; j < rangeTo; j++)
+            {
+                var area = Math.Abs(
+                    (pointA.Ts.Ticks - avgX) * (sortedPoints[j].Val - pointA.Val)
+                    - (pointA.Ts.Ticks - sortedPoints[j].Ts.Ticks) * (avgY - pointA.Val));
+
+                if (area > maxArea)
+                {
+                    maxArea = area;
+                    nextA = j;
+                }
             }
 
-            if (minVal is null) continue;
-
-            // adiciona em ordem temporal e sem duplicar timestamp
-            if (minTs <= maxTs)
-            {
-                if (result.Count < maxPoints && result[^1].Ts != minTs) result.Add(new Point(minTs, minVal.Value));
-                if (result.Count < maxPoints && result[^1].Ts != maxTs) result.Add(new Point(maxTs, maxVal!.Value));
-            }
-            else
-            {
-                if (result.Count < maxPoints && result[^1].Ts != maxTs) result.Add(new Point(maxTs, maxVal!.Value));
-                if (result.Count < maxPoints && result[^1].Ts != minTs) result.Add(new Point(minTs, minVal.Value));
-            }
+            sampled.Add(sortedPoints[nextA]);
+            a = nextA;
         }
 
-        // garante o último (se couber e não duplicar)
-        if (result.Count < maxPoints && result[^1].Ts != list[^1].Ts)
-            result.Add(list[^1]);
-
-        // cap final duro
-        return result.Count <= maxPoints ? result : result.Take(maxPoints).ToList();
+        sampled.Add(sortedPoints[^1]);
+        return sampled;
     }
 }
