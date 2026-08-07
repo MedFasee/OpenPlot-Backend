@@ -202,5 +202,17 @@
 		  "organization": "UFSC",
 		  "tenant": "UFSC_user"
 		}
+	},
+	{
+		"sub": "e6f7e3c2-2e3c-4e5e-9b30-a2e2f0d91f11",
+		"username": "DSilva",
+		"password": "Daniel@2027",
+		"preferred_username": "Daniel Silva",
+		"email": "-",
+		"roles": ["reader"],
+		"claims": {
+		  "organization": "UFSC",
+		  "tenant": "UFSC_user"
+		}
 	}
 ]

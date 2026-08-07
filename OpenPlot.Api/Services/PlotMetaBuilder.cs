@@ -28,7 +28,7 @@ public sealed class PlotMetaBuilder : IPlotMetaBuilder
         if (from.Date == to.Date)
         {
             var diaStr = from.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
-            return $"Tempo (UTC) - Dia {diaStr}";
+            return $"Tempo (UTC) - Data {diaStr}";
         }
 
         return "Tempo (UTC)";
