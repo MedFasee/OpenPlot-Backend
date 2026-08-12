@@ -92,7 +92,7 @@ public sealed class UiMenuService : IUiMenuService
     private const int DefaultCcaModelOrder = 8;
     private const int DefaultCcaBlockRows = 20;
     private const int DefaultCcaWindowMinutes = 10;
-    private const int DefaultCcaWindowStepSeconds = 60;
+    private const int DefaultCcaWindowStepSeconds = 30;
     private const double DefaultCcaFrequencyMinHz = 0.3;
     private const double DefaultCcaFrequencyMaxHz = 0.4;
 
