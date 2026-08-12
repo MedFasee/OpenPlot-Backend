@@ -4,7 +4,10 @@ using OpenPlot.Features.Runs.Repositories;
 namespace OpenPlot.Features.PostProcessing.Handlers;
 
 public sealed record CcaPlotMeta(
-    string Title,
+    string FrequencyTitle,
+    string FrequencySubtitle,
+    string DampingTitle,
+    string DampingSubtitle,
     string XLabel,
     string FrequencyYLabel,
     string DampingYLabel,
@@ -30,7 +33,10 @@ public sealed class CcaMetaBuilder : ICcaMetaBuilder
         if (payload.Series is null || payload.Series.Count == 0)
         {
             return new CcaPlotMeta(
-                Title: "CCA",
+                FrequencyTitle: "Frequência de oscilação estimada",
+                FrequencySubtitle: string.Empty,
+                DampingTitle: "Taxa de amortecimento estimada",
+                DampingSubtitle: string.Empty,
                 XLabel: "Tempo (UTC)",
                 FrequencyYLabel: "Frequência (Hz)",
                 DampingYLabel: "Amortecimento (%)",
@@ -58,8 +64,13 @@ public sealed class CcaMetaBuilder : ICcaMetaBuilder
         var window = new WindowQuery(fromUtc ?? payload.From, toUtc ?? payload.To);
         var baseMeta = _plotMetaBuilder.Build(window, context, measurementsQuery);
 
+        var inputSignalSubtitle = $"Tipo de sinal de entrada: {baseMeta.Title}";
+
         return new CcaPlotMeta(
-            Title: BuildCcaTitle(baseMeta.Title),
+            FrequencyTitle: "Frequência de oscilação estimada",
+            FrequencySubtitle: inputSignalSubtitle,
+            DampingTitle: "Taxa de amortecimento estimada",
+            DampingSubtitle: inputSignalSubtitle,
             XLabel: baseMeta.XLabel,
             FrequencyYLabel: "Frequência (Hz)",
             DampingYLabel: "Amortecimento (%)",
@@ -169,22 +180,5 @@ public sealed class CcaMetaBuilder : ICcaMetaBuilder
         return PhaseMode.Any;
     }
 
-    private static string BuildCcaTitle(string baseTitle)
-    {
-        var article = UsesFeminineArticle(baseTitle) ? "da" : "do";
-        return $"CCA {article} {baseTitle}";
-    }
 
-    private static bool UsesFeminineArticle(string title)
-    {
-        if (string.IsNullOrWhiteSpace(title))
-            return false;
-
-        return title.StartsWith("Diferença", StringComparison.OrdinalIgnoreCase)
-            || title.StartsWith("Frequência", StringComparison.OrdinalIgnoreCase)
-            || title.StartsWith("Potência", StringComparison.OrdinalIgnoreCase)
-            || title.StartsWith("Variação", StringComparison.OrdinalIgnoreCase)
-            || title.StartsWith("Distorção", StringComparison.OrdinalIgnoreCase)
-            || title.StartsWith("Sinal", StringComparison.OrdinalIgnoreCase);
-    }
 }

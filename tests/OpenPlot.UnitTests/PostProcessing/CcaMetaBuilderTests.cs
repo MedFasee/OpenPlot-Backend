@@ -18,7 +18,10 @@ public sealed class CcaMetaBuilderTests
 
         var meta = sut.Build(payload);
 
-        Assert.Equal("CCA", meta.Title);
+        Assert.Equal("Frequência de oscilação estimada", meta.FrequencyTitle);
+        Assert.Equal(string.Empty, meta.FrequencySubtitle);
+        Assert.Equal("Taxa de amortecimento estimada", meta.DampingTitle);
+        Assert.Equal(string.Empty, meta.DampingSubtitle);
         Assert.Equal("Tempo (UTC)", meta.XLabel);
         Assert.Equal("Frequência (Hz)", meta.FrequencyYLabel);
         Assert.Equal("Amortecimento (%)", meta.DampingYLabel);
@@ -56,7 +59,10 @@ public sealed class CcaMetaBuilderTests
 
         var meta = sut.Build(payload);
 
-        Assert.Equal("CCA do Módulo da Tensão - Sequência Positiva - 60 fasores/s", meta.Title);
+        Assert.Equal("Frequência de oscilação estimada", meta.FrequencyTitle);
+        Assert.Equal("Tipo de sinal de entrada: Módulo da Tensão - Sequência Positiva - 60 fasores/s", meta.FrequencySubtitle);
+        Assert.Equal("Taxa de amortecimento estimada", meta.DampingTitle);
+        Assert.Equal("Tipo de sinal de entrada: Módulo da Tensão - Sequência Positiva - 60 fasores/s", meta.DampingSubtitle);
         Assert.Equal("Tempo (UTC) - Dia 01/01/2025", meta.XLabel);
         Assert.Equal("Frequência (Hz)", meta.FrequencyYLabel);
         Assert.Equal("Amortecimento (%)", meta.DampingYLabel);
