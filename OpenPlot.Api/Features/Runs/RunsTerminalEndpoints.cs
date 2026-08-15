@@ -3,6 +3,7 @@ using Data.Sql;
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
 using OpenPlot.Data.Dtos;
+using OpenPlot.Features.Runs.Services;
 
 public static class RunsTerminalEndpoints
 {
@@ -278,7 +279,8 @@ public static class RunsTerminalEndpoints
             [FromQuery] Guid? id,
             [FromServices] IDbConnectionFactory dbf,
             [FromServices] ILabelService labels,
-            [FromServices] IPmuHierarchyService pmuHierarchy
+            [FromServices] IPmuHierarchyService pmuHierarchy,
+            [FromServices] IMeasurementsWarmUpQueue measurementsWarmUpQueue
         ) =>
         {
             using var db = dbf.Create();
@@ -286,6 +288,8 @@ public static class RunsTerminalEndpoints
             var run = await ResolveSearchRunAsync(db, id, nomeBusca, labels);
             if (run is null)
                 return Results.Json(BuildSearchRunNotFoundError(id), statusCode: 404);
+
+            measurementsWarmUpQueue.TryEnqueue(run.id);
 
             var pmus = await LoadRunPmusAsync(db, run.id);
             var hierarchy = pmuHierarchy.BuildHierarchy(pmus);

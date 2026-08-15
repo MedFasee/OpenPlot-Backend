@@ -15,6 +15,7 @@ API HTTP (Minimal API) responsavel por:
 - autenticação e sessão;
 - cadastro e consulta de *search runs*;
 - recuperação de séries temporais para plotagem (tensão, corrente, sequência, desequilíbrio, frequência, THD, potência, diferença angular etc.);
+- tratamento de frames faltantes e frames sem qualidade, considerando os códigos 2 e 29 ou o valor informado no próprio frame de dados, na montagem das séries e no cálculo de diferença angular;
 - geração de metadados de gráficos (`title`, `xLabel`, `yLabel`) e envelopes consistentes;
 - pos-processamento baseado em `cache_id` (ex.: DFT, Prony e CCA).
 

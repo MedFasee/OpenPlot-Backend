@@ -25,6 +25,7 @@ using OpenPlot.Features.PostProcessing.Handlers;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers;
 using OpenPlot.Features.Runs.Repositories;
+using OpenPlot.Features.Runs.Services;
 using OpenPlot.Services.UI;
 
 namespace OpenPlot.Api.Configuration;
@@ -132,6 +133,11 @@ internal static class OpenPlotApiServiceCollectionExtensions
         services.AddSingleton<IExportArtifactStore, DiskExportArtifactStore>();
         services.AddScoped<IExportFileService, ExportFileService>();
         services.AddScoped<IXmlImportService, XmlImportService>();
+        services.AddSingleton<MeasurementsWarmUpService>();
+        services.AddSingleton<IMeasurementsWarmUpQueue>(serviceProvider =>
+            serviceProvider.GetRequiredService<MeasurementsWarmUpService>());
+        services.AddHostedService(serviceProvider =>
+            serviceProvider.GetRequiredService<MeasurementsWarmUpService>());
 
         return services;
     }

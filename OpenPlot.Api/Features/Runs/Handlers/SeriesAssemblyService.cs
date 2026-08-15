@@ -88,12 +88,129 @@ public sealed class SeriesAssemblyService : ISeriesAssemblyService
         int selectRate,
         IEnumerable<RowsCacheSeries> series)
     {
+        var fromUtc = from.ToUniversalTime();
+        var toUtc = to.ToUniversalTime();
+        var normalizedSeries = series
+            .Select(item => NormalizeSeries(item, fromUtc, toUtc, selectRate))
+            .ToList();
+
         return new RowsCacheV2
         {
-            From = from.ToUniversalTime(),
-            To = to.ToUniversalTime(),
+            From = fromUtc,
+            To = toUtc,
             SelectRate = selectRate,
-            Series = series.ToList()
+            Series = normalizedSeries
+        };
+    }
+
+    private static RowsCacheSeries NormalizeSeries(
+        RowsCacheSeries series,
+        DateTime fromUtc,
+        DateTime toUtc,
+        int selectRate)
+    {
+        var orderedPoints = series.Points
+            .OrderBy(point => point.Ts)
+            .Select(point => new RowsCachePoint
+            {
+                Ts = point.Ts.ToUniversalTime(),
+                Value = point.Value
+            })
+            .ToList();
+
+        if (selectRate <= 0 || orderedPoints.Count == 0)
+        {
+            return CloneSeriesWithPoints(series, orderedPoints);
+        }
+
+        var expectedFrames = BuildExpectedFrames(fromUtc, toUtc, selectRate);
+        if (!HasMissingFrames(orderedPoints, expectedFrames))
+        {
+            return CloneSeriesWithPoints(series, orderedPoints);
+        }
+
+        var holdLastPoints = ApplyHoldLast(orderedPoints, expectedFrames);
+        return CloneSeriesWithPoints(series, holdLastPoints);
+    }
+
+    private static List<DateTime> BuildExpectedFrames(DateTime fromUtc, DateTime toUtc, int selectRate)
+    {
+        var ticksPerFrame = Math.Max(1L, (long)Math.Round(TimeSpan.TicksPerSecond / (double)selectRate));
+        var spanTicks = Math.Max(0L, (toUtc - fromUtc).Ticks);
+        var count = (int)(spanTicks / ticksPerFrame) + 1;
+        var frames = new List<DateTime>(count);
+
+        for (var i = 0; i < count; i++)
+            frames.Add(fromUtc.AddTicks(i * ticksPerFrame));
+
+        return frames;
+    }
+
+    private static bool HasMissingFrames(IReadOnlyList<RowsCachePoint> points, IReadOnlyList<DateTime> expectedFrames)
+    {
+        if (expectedFrames.Count == 0)
+            return false;
+
+        var pointIndex = 0;
+
+        for (var frameIndex = 0; frameIndex < expectedFrames.Count; frameIndex++)
+        {
+            var frame = expectedFrames[frameIndex];
+
+            while (pointIndex < points.Count && points[pointIndex].Ts < frame)
+                pointIndex++;
+
+            if (pointIndex >= points.Count || points[pointIndex].Ts != frame)
+                return true;
+
+            pointIndex++;
+        }
+
+        return false;
+    }
+
+    private static List<RowsCachePoint> ApplyHoldLast(
+        IReadOnlyList<RowsCachePoint> points,
+        IReadOnlyList<DateTime> expectedFrames)
+    {
+        var output = new List<RowsCachePoint>(expectedFrames.Count);
+        var pointIndex = 0;
+        var lastValue = points[0].Value;
+
+        for (var frameIndex = 0; frameIndex < expectedFrames.Count; frameIndex++)
+        {
+            var frame = expectedFrames[frameIndex];
+
+            while (pointIndex < points.Count && points[pointIndex].Ts <= frame)
+            {
+                lastValue = points[pointIndex].Value;
+                pointIndex++;
+            }
+
+            output.Add(new RowsCachePoint
+            {
+                Ts = frame,
+                Value = lastValue
+            });
+        }
+
+        return output;
+    }
+
+    private static RowsCacheSeries CloneSeriesWithPoints(RowsCacheSeries series, List<RowsCachePoint> points)
+    {
+        return new RowsCacheSeries
+        {
+            SignalId = series.SignalId,
+            PdcPmuId = series.PdcPmuId,
+            IdName = series.IdName,
+            PdcName = series.PdcName,
+            ReferenceTerminal = series.ReferenceTerminal,
+            Unit = series.Unit,
+            Phase = series.Phase,
+            Quantity = series.Quantity,
+            Component = series.Component,
+            Points = points
         };
     }
 }

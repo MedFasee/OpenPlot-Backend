@@ -91,10 +91,109 @@ public interface IMeasurementsRepository
         DateTime? fromUtc,
         DateTime? toUtc,
         CancellationToken ct);
+
+    Task WarmUpAsync(
+        RunContext ctx,
+        CancellationToken ct);
 }
 
 public sealed class MeasurementsRepository : IMeasurementsRepository
 {
+    private const int ByRunMeasurementQuality = 29;
+
+    private const string WarmUpSimpleSql = @"
+WITH ctx AS (
+  SELECT
+    @pdc_id::int           AS pdc_id,
+    @from_utc::timestamptz AS from_utc,
+    @to_utc::timestamptz   AS to_utc
+),
+pmus AS (
+  SELECT pmu_id
+  FROM openplot.pmu
+  WHERE id_name = ANY(@all_run_pmus)
+),
+sig AS (
+  SELECT s.signal_id
+  FROM pmus
+  CROSS JOIN ctx c
+  JOIN openplot.pdc_pmu pp ON pp.pdc_id = c.pdc_id AND pp.pmu_id = pmus.pmu_id
+  JOIN openplot.signal s   ON s.pdc_pmu_id = pp.pdc_pmu_id
+  WHERE LOWER(s.quantity::text)  = LOWER(@quantity)
+    AND LOWER(s.component::text) = LOWER(@component)
+)
+SELECT COUNT(*)
+FROM sig
+JOIN openplot.measurements m ON m.signal_id = sig.signal_id
+WHERE m.ts >= (SELECT from_utc FROM ctx)
+  AND m.ts <= (SELECT to_utc   FROM ctx)
+  AND m.quality = @quality;
+";
+
+    private const string WarmUpPhasorSql = @"
+WITH ctx AS (
+  SELECT
+    @pdc_id::int           AS pdc_id,
+    @from_utc::timestamptz AS from_utc,
+    @to_utc::timestamptz   AS to_utc
+),
+pmus AS (
+  SELECT pmu_id
+  FROM openplot.pmu
+  WHERE id_name = ANY(@all_run_pmus)
+),
+sig AS (
+  SELECT s.signal_id
+  FROM pmus
+  CROSS JOIN ctx c
+  JOIN openplot.pdc_pmu pp ON pp.pdc_id = c.pdc_id AND pp.pmu_id = pmus.pmu_id
+  JOIN openplot.signal s   ON s.pdc_pmu_id = pp.pdc_pmu_id
+  WHERE LOWER(s.quantity::text)  = LOWER(@quantity)
+    AND LOWER(s.component::text) = LOWER(@component)
+    AND UPPER(s.phase::text) IN ('A','B','C')
+)
+SELECT COUNT(*)
+FROM sig
+JOIN openplot.measurements m ON m.signal_id = sig.signal_id
+WHERE m.ts >= (SELECT from_utc FROM ctx)
+  AND m.ts <= (SELECT to_utc   FROM ctx)
+  AND m.quality = @quality;
+";
+
+    private const string WarmUpAbcMagAngSql = @"
+WITH ctx AS (
+  SELECT
+    @pdc_id::int           AS pdc_id,
+    @from_utc::timestamptz AS from_utc,
+    @to_utc::timestamptz   AS to_utc
+),
+pmus AS (
+  SELECT pmu_id
+  FROM openplot.pmu
+  WHERE id_name = ANY(@all_run_pmus)
+),
+sig AS (
+  SELECT s.signal_id
+  FROM pmus
+  CROSS JOIN ctx c
+  JOIN openplot.pdc_pmu pp ON pp.pdc_id = c.pdc_id AND pp.pmu_id = pmus.pmu_id
+  JOIN openplot.signal s   ON s.pdc_pmu_id = pp.pdc_pmu_id
+  WHERE (
+      (@kind = 'voltage' AND LOWER(s.quantity::text) IN ('voltage','v'))
+      OR
+      (@kind = 'current' AND LOWER(s.quantity::text) IN ('current','i'))
+    )
+    AND UPPER(s.phase::text) IN ('A','B','C')
+    AND UPPER(s.component::text) IN ('MAG','ANG')
+)
+SELECT COUNT(*)
+FROM sig
+JOIN openplot.measurements m ON m.signal_id = sig.signal_id
+WHERE m.ts >= (SELECT from_utc FROM ctx)
+  AND m.ts <= (SELECT to_utc   FROM ctx)
+  AND m.quality = @quality;
+";
+
     private readonly IDbConnectionFactory _dbf;
     public MeasurementsRepository(IDbConnectionFactory dbf) => _dbf = dbf;
 
@@ -164,6 +263,7 @@ JOIN openplot.measurements m
   ON m.signal_id = sig.signal_id
 WHERE m.ts >= (SELECT from_utc FROM ctx)
   AND m.ts <= (SELECT to_utc   FROM ctx)
+  AND m.quality = @quality
 ORDER BY sig.signal_id, m.ts;
 ";
 
@@ -173,6 +273,7 @@ ORDER BY sig.signal_id, m.ts;
             pdc_name = ctx.PdcName,
             from_utc = ctx.FromUtc,
             to_utc = ctx.ToUtc,
+            quality = ByRunMeasurementQuality,
 
             quantity = q.Quantity,
             component = q.Component,
@@ -261,6 +362,7 @@ JOIN openplot.measurements m
   ON m.signal_id = sig.signal_id
 WHERE m.ts >= (SELECT from_utc FROM ctx)
   AND m.ts <= (SELECT to_utc   FROM ctx)
+  AND m.quality = @quality
 ORDER BY sig.signal_id, m.ts;
 ";
 
@@ -270,6 +372,7 @@ ORDER BY sig.signal_id, m.ts;
             pdc_name = ctx.PdcName,
             from_utc = ctx.FromUtc,
             to_utc = ctx.ToUtc,
+            quality = ByRunMeasurementQuality,
 
             quantity = q.Quantity,
             component = q.Component,
@@ -366,6 +469,7 @@ JOIN openplot.measurements m
   ON m.signal_id = sig.signal_id
 WHERE m.ts >= (SELECT from_utc FROM ctx)
   AND m.ts <= (SELECT to_utc   FROM ctx)
+  AND m.quality = @quality
 ORDER BY sig.id_name, sig.signal_id, m.ts;
 ";
 
@@ -375,6 +479,7 @@ ORDER BY sig.id_name, sig.signal_id, m.ts;
             pdc_name = ctx.PdcName,
             from_utc = effFrom,
             to_utc = effTo,
+            quality = ByRunMeasurementQuality,
             kind = k,
 
             all_run_pmus = ctx.PmuNames.ToArray(),
@@ -388,4 +493,79 @@ ORDER BY sig.id_name, sig.signal_id, m.ts;
 
         return rows.ToList();
     }
+
+    public async Task WarmUpAsync(
+        RunContext ctx,
+        CancellationToken ct)
+    {
+        if (ctx.PmuNames.Count == 0)
+            return;
+
+        using var db = _dbf.Create();
+
+        await db.ExecuteScalarAsync<long>(
+            new CommandDefinition(
+                WarmUpSimpleSql,
+                BuildWarmUpArgs(ctx, quantity: "frequency", component: "freq"),
+                commandTimeout: 300,
+                cancellationToken: ct));
+
+        await db.ExecuteScalarAsync<long>(
+            new CommandDefinition(
+                WarmUpSimpleSql,
+                BuildWarmUpArgs(ctx, quantity: "frequency", component: "dfreq"),
+                commandTimeout: 300,
+                cancellationToken: ct));
+
+        await db.ExecuteScalarAsync<long>(
+            new CommandDefinition(
+                WarmUpSimpleSql,
+                BuildWarmUpArgs(ctx, quantity: "digital", component: "dig"),
+                commandTimeout: 300,
+                cancellationToken: ct));
+
+        await db.ExecuteScalarAsync<long>(
+            new CommandDefinition(
+                WarmUpPhasorSql,
+                BuildWarmUpArgs(ctx, quantity: "voltage", component: "thd"),
+                commandTimeout: 300,
+                cancellationToken: ct));
+
+        await db.ExecuteScalarAsync<long>(
+            new CommandDefinition(
+                WarmUpPhasorSql,
+                BuildWarmUpArgs(ctx, quantity: "current", component: "thd"),
+                commandTimeout: 300,
+                cancellationToken: ct));
+
+        await db.ExecuteScalarAsync<long>(
+            new CommandDefinition(
+                WarmUpAbcMagAngSql,
+                BuildWarmUpArgs(ctx, kind: "voltage"),
+                commandTimeout: 300,
+                cancellationToken: ct));
+
+        await db.ExecuteScalarAsync<long>(
+            new CommandDefinition(
+                WarmUpAbcMagAngSql,
+                BuildWarmUpArgs(ctx, kind: "current"),
+                commandTimeout: 300,
+                cancellationToken: ct));
+    }
+
+    private static object BuildWarmUpArgs(
+        RunContext ctx,
+        string? quantity = null,
+        string? component = null,
+        string? kind = null) => new
+        {
+            pdc_id = ctx.PdcId,
+            from_utc = ctx.FromUtc,
+            to_utc = ctx.ToUtc,
+            quality = ByRunMeasurementQuality,
+            all_run_pmus = ctx.PmuNames.ToArray(),
+            quantity,
+            component,
+            kind
+        };
 }

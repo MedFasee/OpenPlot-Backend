@@ -14,6 +14,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include=".tmp\angle_diff_explain.sql" />
+    <None Include=".tmp\power_baliser_explain.sql" />
+    <None Include=".tmp\power_explain.sql" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" />

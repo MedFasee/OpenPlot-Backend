@@ -111,6 +111,10 @@ public sealed class AngleDiffSeriesHandler
             if (ctx is null)
                 return Results.NotFound("run_id não encontrado.");
 
+            var effectiveWindowFrom = fromUtc ?? ctx.FromUtc;
+            var effectiveWindowTo = toUtc ?? ctx.ToUtc;
+            var expectedFrames = BuildExpectedFrames(effectiveWindowFrom, effectiveWindowTo, ctx.SelectRate);
+
             // Query data
             var rows = await QueryDataAsync(query, window, queryPmuList, ct);
             if (rows.Count == 0)
@@ -159,7 +163,7 @@ public sealed class AngleDiffSeriesHandler
 
                 var first = sigRows.First();
                 var pmuName = g.Key;
-                var pdcName = rows.First(r => r.IdName == pmuName).PdcName;
+                var pdcName = first.PdcName;
 
                 var measAngSeries = hasPhase
                     ? ExtractPhaseSeries(sigRows.Select(s => (s.IdName, s.PdcName, s.Phase, s.Component, s.Ts, s.Value)))
@@ -167,7 +171,9 @@ public sealed class AngleDiffSeriesHandler
 
                 if (measAngSeries.Count == 0) continue;
 
-                var dif = ComputeAngleDifference(measAngSeries, refAngSeries, tol);
+                var dif = expectedFrames.Count > 0
+                    ? ComputeAngleDifferenceWithMissingFallback(measAngSeries, refAngSeries, expectedFrames, tol)
+                    : ComputeAngleDifference(measAngSeries, refAngSeries, tol);
                 if (dif.Count == 0) continue;
 
                 foreach (var p in dif)
@@ -196,8 +202,8 @@ public sealed class AngleDiffSeriesHandler
             if (series.Count == 0)
                 return Results.BadRequest("Nenhuma PMU pôde ser processada (faltam sinais ou alinhamento falhou).");
 
-            var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
-            var windowTo = toUtc ?? rows.Max(r => r.Ts);
+            var windowFrom = expectedFrames.Count > 0 ? expectedFrames[0] : (fromUtc ?? rows.Min(r => r.Ts));
+            var windowTo = expectedFrames.Count > 0 ? expectedFrames[^1] : (toUtc ?? rows.Max(r => r.Ts));
             var dataStr = windowFrom.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
             var modeLabel = hasPhase ? "phase" : "sequence";
@@ -428,6 +434,7 @@ raw AS (
   FROM openplot.measurements m
   WHERE m.ts >= (SELECT from_utc FROM win)
     AND m.ts <= (SELECT to_utc   FROM win)
+    AND m.quality = 29
 )
 SELECT
   s.signal_id, s.pdc_pmu_id, s.phase, s.component,
@@ -601,6 +608,25 @@ ORDER BY s.id_name, s.signal_id, r.ts;
     /// <summary>
     /// Computes angle difference between measurement and reference series with time-series alignment.
     /// </summary>
+    private static List<DateTime> BuildExpectedFrames(
+        DateTime fromUtc,
+        DateTime toUtc,
+        int? selectRate)
+    {
+        if (!selectRate.HasValue || selectRate.Value <= 0 || fromUtc > toUtc)
+            return new List<DateTime>();
+
+        var ticksPerFrame = Math.Max(1L, (long)Math.Round(TimeSpan.TicksPerSecond / (double)selectRate.Value));
+        var spanTicks = Math.Max(0L, (toUtc - fromUtc).Ticks);
+        var count = (int)(spanTicks / ticksPerFrame) + 1;
+        var frames = new List<DateTime>(count);
+
+        for (var i = 0; i < count; i++)
+            frames.Add(fromUtc.AddTicks(i * ticksPerFrame));
+
+        return frames;
+    }
+
     private static List<(DateTime ts, double difDeg)> ComputeAngleDifference(
         List<(DateTime ts, double angDeg)> meas,
         List<(DateTime ts, double angDeg)> refe,
@@ -640,6 +666,100 @@ ORDER BY s.id_name, s.signal_id, r.ts;
         }
 
         return outp;
+    }
+
+    private static List<(DateTime ts, double difDeg)> ComputeAngleDifferenceWithMissingFallback(
+        List<(DateTime ts, double angDeg)> meas,
+        List<(DateTime ts, double angDeg)> refe,
+        IReadOnlyList<DateTime> frames,
+        TimeSpan tol)
+    {
+        if (frames.Count == 0)
+            return ComputeAngleDifference(meas, refe, tol);
+
+        var measProjection = ProjectSeriesOntoFrames(meas, frames, tol);
+        var refProjection = ProjectSeriesOntoFrames(refe, frames, tol);
+        var firstValid = FindFirstValidDifference(measProjection, refProjection, frames);
+
+        if (!firstValid.HasValue)
+            return new List<(DateTime ts, double difDeg)>();
+
+        var diffs = new List<(DateTime ts, double difDeg)>(frames.Count);
+        var lastDifference = firstValid.Value.difDeg;
+
+        for (var i = 0; i < frames.Count; i++)
+        {
+            if (measProjection[i].hasValue && refProjection[i].hasValue)
+            {
+                lastDifference = Wrap180(measProjection[i].value - refProjection[i].value);
+            }
+
+            diffs.Add((frames[i], lastDifference));
+        }
+
+        return diffs;
+    }
+
+    private static List<(bool hasValue, double value)> ProjectSeriesOntoFrames(
+        List<(DateTime ts, double angDeg)> source,
+        IReadOnlyList<DateTime> frames,
+        TimeSpan tol)
+    {
+        var ordered = source
+            .OrderBy(item => item.ts)
+            .ToList();
+        var projected = new List<(bool hasValue, double value)>(frames.Count);
+        var sourceIndex = 0;
+
+        for (var frameIndex = 0; frameIndex < frames.Count; frameIndex++)
+        {
+            var frame = frames[frameIndex];
+            while (sourceIndex < ordered.Count && ordered[sourceIndex].ts < frame - tol)
+                sourceIndex++;
+
+            var bestIndex = -1;
+            var bestDelta = long.MaxValue;
+            for (var candidateIndex = sourceIndex; candidateIndex < ordered.Count; candidateIndex++)
+            {
+                var candidateTs = ordered[candidateIndex].ts;
+                if (candidateTs > frame + tol)
+                    break;
+
+                var delta = Math.Abs((candidateTs - frame).Ticks);
+                if (delta < bestDelta)
+                {
+                    bestDelta = delta;
+                    bestIndex = candidateIndex;
+                }
+            }
+
+            if (bestIndex >= 0)
+            {
+                projected.Add((true, ordered[bestIndex].angDeg));
+                sourceIndex = bestIndex + 1;
+                continue;
+            }
+
+            projected.Add((false, 0d));
+        }
+
+        return projected;
+    }
+
+    private static (int index, double difDeg)? FindFirstValidDifference(
+        IReadOnlyList<(bool hasValue, double value)> measProjection,
+        IReadOnlyList<(bool hasValue, double value)> refProjection,
+        IReadOnlyList<DateTime> frames)
+    {
+        for (var i = 0; i < frames.Count; i++)
+        {
+            if (!measProjection[i].hasValue || !refProjection[i].hasValue)
+                continue;
+
+            return (i, Wrap180(measProjection[i].value - refProjection[i].value));
+        }
+
+        return null;
     }
 
     /// <summary>
