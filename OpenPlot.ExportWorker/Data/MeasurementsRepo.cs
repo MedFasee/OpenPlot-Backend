@@ -33,7 +33,41 @@ public sealed class MeasurementsRepo
         string[]? pmusOverride,
         CancellationToken ct)
     {
-        const string sql = @"
+        var valueCase = @"
+CASE
+  WHEN LOWER(s.quantity::text) IN ('voltage','v') AND UPPER(s.phase::text) = 'A' AND UPPER(s.component::text) = 'MAG' THEN mw.va_mod_v
+  WHEN LOWER(s.quantity::text) IN ('voltage','v') AND UPPER(s.phase::text) = 'A' AND UPPER(s.component::text) = 'ANG' THEN mw.va_ang_deg
+  WHEN LOWER(s.quantity::text) IN ('voltage','v') AND UPPER(s.phase::text) = 'B' AND UPPER(s.component::text) = 'MAG' THEN mw.vb_mod_v
+  WHEN LOWER(s.quantity::text) IN ('voltage','v') AND UPPER(s.phase::text) = 'B' AND UPPER(s.component::text) = 'ANG' THEN mw.vb_ang_deg
+  WHEN LOWER(s.quantity::text) IN ('voltage','v') AND UPPER(s.phase::text) = 'C' AND UPPER(s.component::text) = 'MAG' THEN mw.vc_mod_v
+  WHEN LOWER(s.quantity::text) IN ('voltage','v') AND UPPER(s.phase::text) = 'C' AND UPPER(s.component::text) = 'ANG' THEN mw.vc_ang_deg
+
+  WHEN LOWER(s.quantity::text) IN ('current','i') AND UPPER(s.phase::text) = 'A' AND UPPER(s.component::text) = 'MAG' THEN mw.ia_mod_a
+  WHEN LOWER(s.quantity::text) IN ('current','i') AND UPPER(s.phase::text) = 'A' AND UPPER(s.component::text) = 'ANG' THEN mw.ia_ang_deg
+  WHEN LOWER(s.quantity::text) IN ('current','i') AND UPPER(s.phase::text) = 'B' AND UPPER(s.component::text) = 'MAG' THEN mw.ib_mod_a
+  WHEN LOWER(s.quantity::text) IN ('current','i') AND UPPER(s.phase::text) = 'B' AND UPPER(s.component::text) = 'ANG' THEN mw.ib_ang_deg
+  WHEN LOWER(s.quantity::text) IN ('current','i') AND UPPER(s.phase::text) = 'C' AND UPPER(s.component::text) = 'MAG' THEN mw.ic_mod_a
+  WHEN LOWER(s.quantity::text) IN ('current','i') AND UPPER(s.phase::text) = 'C' AND UPPER(s.component::text) = 'ANG' THEN mw.ic_ang_deg
+
+  WHEN LOWER(s.quantity::text) IN ('current','i') AND UPPER(s.phase::text) = 'A' AND UPPER(s.component::text) = 'THD' THEN mw.cthd_a_pct
+  WHEN LOWER(s.quantity::text) IN ('current','i') AND UPPER(s.phase::text) = 'B' AND UPPER(s.component::text) = 'THD' THEN mw.cthd_b_pct
+  WHEN LOWER(s.quantity::text) IN ('current','i') AND UPPER(s.phase::text) = 'C' AND UPPER(s.component::text) = 'THD' THEN mw.cthd_c_pct
+
+  WHEN LOWER(s.quantity::text) IN ('voltage','v') AND UPPER(s.phase::text) = 'A' AND UPPER(s.component::text) = 'THD' THEN mw.vthd_a_pct
+  WHEN LOWER(s.quantity::text) IN ('voltage','v') AND UPPER(s.phase::text) = 'B' AND UPPER(s.component::text) = 'THD' THEN mw.vthd_b_pct
+  WHEN LOWER(s.quantity::text) IN ('voltage','v') AND UPPER(s.phase::text) = 'C' AND UPPER(s.component::text) = 'THD' THEN mw.vthd_c_pct
+
+  WHEN LOWER(s.quantity::text) IN ('frequency','freq') AND LOWER(s.component::text) = 'freq' THEN mw.frequency_hz
+  WHEN LOWER(s.quantity::text) IN ('frequency','freq') AND LOWER(s.component::text) = 'dfreq' THEN mw.delta_freq_hz
+
+  WHEN LOWER(s.quantity::text) IN ('digital','d')
+       AND UPPER(s.component::text) = 'DIG'
+       AND UPPER(COALESCE(s.signal_name, '')) = 'CFDS'
+    THEN mw.cfds
+  ELSE NULL
+END";
+
+        var sql = @"
 WITH run AS (
   SELECT id, source AS pdc_name, from_ts, to_ts, COALESCE(pmus_ok, pmus) AS pmus, signals
   FROM openplot.search_runs
@@ -131,44 +165,6 @@ sig AS(
   FROM ctx c
   JOIN openplot.pdc_pmu pp ON pp.pdc_id = c.pdc_id AND pp.pmu_id = c.pmu_id
   JOIN openplot.signal s   ON s.pdc_pmu_id = pp.pdc_pmu_id
-  WHERE
-    (
-      --Fasores V / I MAG / ANG ABC
-      (LOWER(s.quantity::text) IN('voltage', 'v', 'current', 'i')
-       AND UPPER(s.phase::text) IN('A', 'B', 'C')
-       AND UPPER(s.component::text) IN('MAG', 'ANG'))
-
-      OR
-
-      -- Frequência
-      (LOWER(s.quantity::text) IN('frequency', 'freq')
-       AND LOWER(s.component::text) IN('freq'))
-
-      OR
-
-      -- THD(V / I por fase)
-      (LOWER(s.quantity::text) IN('voltage', 'v', 'current', 'i')
-       AND UPPER(s.phase::text) IN('A', 'B', 'C')
-       AND LOWER(s.component::text) = 'thd')
-
-      OR
-
-      -- DIGITAIS(AJUSTE se seu schema usar outro padrão)
-      (LOWER(s.quantity::text) IN('digital', 'd')
-       OR UPPER(s.component::text) IN('DIG', 'DIGITAL'))
-    )
-),
- sig_keys AS(
-   SELECT DISTINCT pdc_pmu_id, signal_id FROM sig
-),
-raw AS(
-   SELECT m.pdc_pmu_id, m.signal_id, m.ts, m.value
-  FROM openplot.measurements m
-   JOIN sig_keys sk
-     ON sk.pdc_pmu_id = m.pdc_pmu_id
-    AND sk.signal_id = m.signal_id
-  WHERE m.ts >= (SELECT from_utc FROM win)
-    AND m.ts <= (SELECT to_utc FROM win)
 )
 SELECT
   s.signal_id   AS SignalId,
@@ -180,14 +176,16 @@ SELECT
   s.component   AS Component,
   s.phase       AS Phase,
   NULL          AS Unit,
-  r.ts          AS Ts,
-  r.value       AS Value
+  mw.ts         AS Ts,
+  {VALUE_CASE}  AS Value
 FROM sig s
-JOIN raw r
-  ON r.pdc_pmu_id = s.pdc_pmu_id
- AND r.signal_id = s.signal_id
-ORDER BY s.id_name, s.signal_id, r.ts;
-        ";
+JOIN openplot.measurements_wide mw
+  ON mw.pdc_pmu_id = s.pdc_pmu_id
+WHERE mw.ts >= (SELECT from_utc FROM win)
+  AND mw.ts <= (SELECT to_utc FROM win)
+  AND ({VALUE_CASE}) IS NOT NULL
+ORDER BY s.id_name, s.signal_id, mw.ts;
+        ".Replace("{VALUE_CASE}", valueCase);
 
         var args = new
         {

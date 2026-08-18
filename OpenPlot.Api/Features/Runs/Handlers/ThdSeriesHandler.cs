@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 using OpenPlot.Core.TimeSeries;
 using OpenPlot.Data.Dtos;
 using OpenPlot.Features.Runs.Contracts;
@@ -21,6 +23,7 @@ public sealed class ThdSeriesHandler
     private readonly IPmuQueryHelper _pmuHelper;
     private readonly ISeriesAssemblyService _seriesAssembly;
     private readonly IUiMenuService _uiMenus;
+    private readonly ILogger<ThdSeriesHandler> _logger;
 
     public ThdSeriesHandler(
         IRunContextRepository runRepository,
@@ -30,7 +33,8 @@ public sealed class ThdSeriesHandler
         IPlotMetaBuilder metaBuilder,
         IPmuQueryHelper pmuHelper,
         ISeriesAssemblyService seriesAssembly,
-        IUiMenuService uiMenus)
+        IUiMenuService uiMenus,
+        ILogger<ThdSeriesHandler> logger)
     {
         _runRepository = runRepository ?? throw new ArgumentNullException(nameof(runRepository));
         _measRepository = measRepository ?? throw new ArgumentNullException(nameof(measRepository));
@@ -40,6 +44,7 @@ public sealed class ThdSeriesHandler
         _pmuHelper = pmuHelper ?? throw new ArgumentNullException(nameof(pmuHelper));
         _seriesAssembly = seriesAssembly ?? throw new ArgumentNullException(nameof(seriesAssembly));
         _uiMenus = uiMenus ?? throw new ArgumentNullException(nameof(uiMenus));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     public async Task<IResult> HandleAsync(
@@ -85,52 +90,87 @@ public sealed class ThdSeriesHandler
             Unit: "%"
         );
 
-        // Executa a query de medições (usa QueryPhasorAsync porque THD precisa da fase)
-        var rows = await _measRepository.QueryPhasorAsync(ctx, measQuery, ct);
+        // Select rápido para front
+        var frontWatch = Stopwatch.StartNew();
+        _logger.LogInformation("[BYRUN][THD][FRONT][START] runId={RunId} kind={Kind} maxPoints={MaxPoints}", query.RunId, k, noDownsample ? "all" : maxPts);
 
-        if (rows.Count == 0)
+        var frontRows = await _measRepository.QueryPhasorAsync(ctx, measQuery, ct, noDownsample ? null : maxPts);
+
+        frontWatch.Stop();
+        _logger.LogInformation("[BYRUN][THD][FRONT][END] runId={RunId} kind={Kind} elapsedMs={ElapsedMs} rows={Rows}", query.RunId, k, frontWatch.ElapsedMilliseconds, frontRows.Count);
+
+        if (frontRows.Count == 0)
             return Results.NotFound("Nada encontrado para esse run_id/filtro no intervalo solicitado.");
 
-        var windowFrom = rows.Min(r => r.Ts);
-        var windowTo = rows.Max(r => r.Ts);
+        var windowFrom = fromUtc ?? frontRows.Min(r => r.Ts);
+        var windowTo = toUtc ?? frontRows.Max(r => r.Ts);
+        var cacheId = Guid.NewGuid();
 
-        // Constrói as séries para cache
-        var cacheSeries = rows
-            .GroupBy(r => r.SignalId)
-            .Select(g =>
+        _ = Task.Run(async () =>
+        {
+            var bgWatch = Stopwatch.StartNew();
+            var fullRowsCount = 0;
+            var persisted = false;
+            _logger.LogInformation("[BYRUN][THD][CACHE-BG][START] runId={RunId} kind={Kind} cacheId={CacheId}", query.RunId, k, cacheId);
+
+            try
             {
-                var first = g.First();
-                return _seriesAssembly.BuildCacheSeries(
-                    signalId: first.SignalId,
-                    pdcPmuId: first.PdcPmuId,
-                    idName: first.IdName,
-                    pdcName: first.PdcName,
-                    referenceTerminal: null,
-                    unit: "%",
-                    phase: first.Phase,
-                    quantity: k,
-                    component: first.Component,
-                    points: g.Select(x => (x.Ts, x.Value)));
-            })
-            .ToList();
+                var fullRows = await _measRepository.QueryPhasorAsync(ctx, measQuery, CancellationToken.None, null);
+                fullRowsCount = fullRows.Count;
+                if (fullRowsCount == 0)
+                    return;
 
-        var cachePayload = _seriesAssembly.BuildCachePayload(
-            windowFrom,
-            windowTo,
-            ctx.SelectRate ?? 0,
-            cacheSeries);
+                var cacheSeriesFull = fullRows
+                    .GroupBy(r => r.SignalId)
+                    .Select(g =>
+                    {
+                        var first = g.First();
+                        return _seriesAssembly.BuildCacheSeries(
+                            signalId: first.SignalId,
+                            pdcPmuId: first.PdcPmuId,
+                            idName: first.IdName,
+                            pdcName: first.PdcName,
+                            referenceTerminal: null,
+                            unit: "%",
+                            phase: first.Phase,
+                            quantity: k,
+                            component: first.Component,
+                            points: g.Select(x => (x.Ts, x.Value)));
+                    })
+                    .ToList();
 
-        var cacheId = await _cacheRepository.SaveAsync(query.RunId, cachePayload, ct);
+                var fullWindowFrom = fromUtc ?? fullRows.Min(r => r.Ts);
+                var fullWindowTo = toUtc ?? fullRows.Max(r => r.Ts);
+
+                var cachePayloadFull = _seriesAssembly.BuildCachePayload(
+                    fullWindowFrom,
+                    fullWindowTo,
+                    ctx.SelectRate ?? 0,
+                    cacheSeriesFull);
+
+                await _cacheRepository.SaveAsync(cacheId, query.RunId, cachePayloadFull, CancellationToken.None);
+                persisted = true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falha ao persistir cache assíncrono de thd/by-run. runId={RunId}", query.RunId);
+            }
+            finally
+            {
+                bgWatch.Stop();
+                _logger.LogInformation("[BYRUN][THD][CACHE-BG][END] runId={RunId} kind={Kind} cacheId={CacheId} elapsedMs={ElapsedMs} rows={Rows} persisted={Persisted}", query.RunId, k, cacheId, bgWatch.ElapsedMilliseconds, fullRowsCount, persisted);
+            }
+        });
 
         // Constrói as séries para resposta
-        var series = rows
+        var series = frontRows
             .GroupBy(r => r.SignalId)
             .Select(g =>
             {
                 var first = g.First();
                 var points = _seriesAssembly.BuildPoints(
                     g.Select(r => (r.Ts, r.Value)),
-                    noDownsample,
+                    true,
                     maxPts,
                     _downsampler);
 
@@ -163,7 +203,7 @@ public sealed class ThdSeriesHandler
         var plotMeta = _metaBuilder.Build(window, ctx, meas);
         var resolvedModes = _uiMenus.RebuildForRun(
             modes,
-            UiMenuContext.FromCache(cachePayload));
+            new UiMenuContext(windowFrom, windowTo, ctx.SelectRate));
 
         var response = SeriesResponseBuilderExtensions
             .BuildSeriesResponse(query.RunId, windowFrom, windowTo, series, plotMeta)

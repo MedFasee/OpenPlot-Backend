@@ -35,11 +35,16 @@ public interface ISeriesCacheService
     /// <summary>
     /// Salva série processada em cache para recuperação posterior.
     /// </summary>
-    /// <param name="runId">ID do run associado.</param>
-    /// <param name="payload">Dados de série a cachear.</param>
-    /// <param name="ct">Token de cancelamento.</param>
-    /// <returns>ID do cache gerado (pode ser string ou guid).</returns>
     Task<object?> SaveAsync(
+        Guid runId,
+        RowsCacheV2 payload,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Salva série processada usando cache_id pré-definido.
+    /// </summary>
+    Task<object?> SaveAsync(
+        Guid cacheId,
         Guid runId,
         RowsCacheV2 payload,
         CancellationToken ct);

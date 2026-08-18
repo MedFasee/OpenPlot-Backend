@@ -214,137 +214,205 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                     using var txCopy = connCopy.BeginTransaction();
 
                     using (var cmd = new NpgsqlCommand(@"
-                        CREATE TEMP TABLE IF NOT EXISTS measurements_stage_tmp (
-                            ts          timestamptz       NOT NULL,
-                            pdc_pmu_id  integer           NOT NULL,
-                            signal_id   integer           NOT NULL,
-                            value       double precision  NOT NULL,
-                            quality     integer           NULL
+                        CREATE TEMP TABLE IF NOT EXISTS measurements_wide_stage_tmp (
+                            ts              timestamptz       NOT NULL,
+                            pdc_pmu_id      integer           NOT NULL,
+                            quality         integer           NULL,
+                            va_mod_v        double precision  NULL,
+                            va_ang_deg      double precision  NULL,
+                            vb_mod_v        double precision  NULL,
+                            vb_ang_deg      double precision  NULL,
+                            vc_mod_v        double precision  NULL,
+                            vc_ang_deg      double precision  NULL,
+                            ia_mod_a        double precision  NULL,
+                            ia_ang_deg      double precision  NULL,
+                            ib_mod_a        double precision  NULL,
+                            ib_ang_deg      double precision  NULL,
+                            ic_mod_a        double precision  NULL,
+                            ic_ang_deg      double precision  NULL,
+                            cthd_a_pct      double precision  NULL,
+                            cthd_b_pct      double precision  NULL,
+                            cthd_c_pct      double precision  NULL,
+                            vthd_a_pct      double precision  NULL,
+                            vthd_b_pct      double precision  NULL,
+                            vthd_c_pct      double precision  NULL,
+                            frequency_hz    double precision  NULL,
+                            delta_freq_hz   double precision  NULL,
+                            cfds            double precision  NULL
                         ) ON COMMIT DROP;
-                        TRUNCATE measurements_stage_tmp;", connCopy, txCopy))
+                        TRUNCATE measurements_wide_stage_tmp;", connCopy, txCopy))
                     {
                         cmd.ExecuteNonQuery();
                     }
 
                     var distinctSignalIds = signalMap.Values.Distinct().ToArray();
+                    var wideColumnBySignal = LoadWideColumnBySignalId(connCopy, pdcPmuId, distinctSignalIds);
                     var missingFilled = 0;
                     var missingWithoutLastValid = 0;
 
-                    using (var importer = connCopy.BeginBinaryImport(@"
-                        COPY measurements_stage_tmp
-                        (ts, pdc_pmu_id, signal_id, value, quality)
-                        FROM STDIN (FORMAT BINARY)"))
+                    var stagedFrames = new Dictionary<(DateTime Ts, int PdcPmuId), WideFrameRow>();
+
+                    // ============================================================
+                    // 1) Frames reais recebidos do historiador
+                    // ============================================================
+                    foreach (var sid in distinctSignalIds)
                     {
-                        // ============================================================
-                        // 1) Frames reais recebidos do historiador
-                        // ============================================================
-                        //
-                        // O dict inclui o lookback. Apenas [cs, ce) é persistido.
-                        foreach (var sid in distinctSignalIds)
+                        if (!wideColumnBySignal.TryGetValue(sid, out var wideColumn))
+                            continue;
+
+                        if (!samplesBySignal.TryGetValue(sid, out var samples))
+                            continue;
+
+                        foreach (var sample in samples)
                         {
-                            if (!samplesBySignal.TryGetValue(sid, out var samples))
+                            if (sample.Ts < cs || sample.Ts >= ce)
                                 continue;
 
+                            var row = GetOrCreateWideFrame(stagedFrames, sample.Ts, pdcPmuId);
+                            SetWideValue(row, wideColumn, sample.Value);
+                            row.Quality = MergeWideFrameQuality(row.Quality, sample.Quality, false);
+                        }
+                    }
+
+                    // ============================================================
+                    // 2) Frames faltantes -> HOLD-LAST por signal_id
+                    // ============================================================
+                    foreach (var sid in distinctSignalIds)
+                    {
+                        if (!wideColumnBySignal.TryGetValue(sid, out var wideColumn))
+                            continue;
+
+                        SignalSample? lastValid = null;
+
+                        if (samplesBySignal.TryGetValue(sid, out var samples))
+                        {
                             foreach (var sample in samples)
                             {
-                                if (sample.Ts < cs || sample.Ts >= ce)
-                                    continue;
+                                if (sample.Ts >= cs)
+                                    break;
 
-                                importer.StartRow();
-                                importer.Write(sample.Ts, NpgsqlTypes.NpgsqlDbType.TimestampTz);
-                                importer.Write(pdcPmuId, NpgsqlTypes.NpgsqlDbType.Integer);
-                                importer.Write(sid, NpgsqlTypes.NpgsqlDbType.Integer);
-                                importer.Write(sample.Value, NpgsqlTypes.NpgsqlDbType.Double);
-                                importer.Write(sample.Quality, NpgsqlTypes.NpgsqlDbType.Integer);
+                                lastValid = sample;
                             }
                         }
 
-                        // ============================================================
-                        // 2) Frames faltantes -> HOLD-LAST por signal_id
-                        // ============================================================
-                        //
-                        // Para cada sinal:
-                        //   - lastValid começa com a última amostra REAL anterior a cs;
-                        //   - quando existe um frame real, lastValid é atualizado;
-                        //   - quando o frame está ausente, grava lastValid com quality=2;
-                        //   - se ainda não existe lastValid, NÃO inventa zero.
-                        foreach (var sid in distinctSignalIds)
+                        receivedFramesBySignal.TryGetValue(
+                            sid,
+                            out var receivedFrames);
+
+                        foreach (var expectedTs in EnumerateExpectedFrames(cs, ce, selectRate))
                         {
-                            SignalSample? lastValid = null;
+                            var frameKey = GetExpectedFrameKey(expectedTs, selectRate);
 
-                            if (samplesBySignal.TryGetValue(sid, out var samples))
+                            if (receivedFrames != null &&
+                                receivedFrames.TryGetValue(frameKey, out var mapped))
                             {
-                                // Como a lista está ordenada por timestamp, o último valor
-                                // anterior a cs será o seed do hold-last.
-                                foreach (var sample in samples)
-                                {
-                                    if (sample.Ts >= cs)
-                                        break;
-
-                                    lastValid = sample;
-                                }
+                                lastValid = mapped.Sample;
+                                continue;
                             }
 
-                            receivedFramesBySignal.TryGetValue(
-                                sid,
-                                out var receivedFrames);
-
-                            foreach (var expectedTs in EnumerateExpectedFrames(cs, ce, selectRate))
+                            if (lastValid.HasValue)
                             {
-                                var frameKey = GetExpectedFrameKey(expectedTs, selectRate);
-
-                                if (receivedFrames != null &&
-                                    receivedFrames.TryGetValue(frameKey, out var mapped))
-                                {
-                                    // Frame real presente para ESTE signal_id.
-                                    // Atualiza o hold-last com o valor efetivamente recebido.
-                                    lastValid = mapped.Sample;
-                                    continue;
-                                }
-
-                                // Frame faltante para ESTE signal_id.
-                                if (lastValid.HasValue)
-                                {
-                                    importer.StartRow();
-                                    importer.Write(
-                                        expectedTs,
-                                        NpgsqlTypes.NpgsqlDbType.TimestampTz);
-                                    importer.Write(
-                                        pdcPmuId,
-                                        NpgsqlTypes.NpgsqlDbType.Integer);
-                                    importer.Write(
-                                        sid,
-                                        NpgsqlTypes.NpgsqlDbType.Integer);
-                                    importer.Write(
-                                        lastValid.Value.Value,
-                                        NpgsqlTypes.NpgsqlDbType.Double);
-
-                                    // quality=2 continua sinalizando que esse ponto não veio
-                                    // do historiador; ele foi reconstruído por hold-last.
-                                    importer.Write(
-                                        2,
-                                        NpgsqlTypes.NpgsqlDbType.Integer);
-
-                                    missingFilled++;
-                                }
-                                else
-                                {
-                                    // Sem last_valid no lookback: não cria 0 artificial.
-                                    missingWithoutLastValid++;
-                                }
+                                var row = GetOrCreateWideFrame(stagedFrames, expectedTs, pdcPmuId);
+                                SetWideValue(row, wideColumn, lastValid.Value.Value);
+                                row.Quality = MergeWideFrameQuality(row.Quality, 2, true);
+                                missingFilled++;
                             }
+                            else
+                            {
+                                missingWithoutLastValid++;
+                            }
+                        }
+                    }
+
+                    using (var importer = connCopy.BeginBinaryImport(@"
+                        COPY measurements_wide_stage_tmp
+                        (ts, pdc_pmu_id, quality,
+                         va_mod_v, va_ang_deg, vb_mod_v, vb_ang_deg, vc_mod_v, vc_ang_deg,
+                         ia_mod_a, ia_ang_deg, ib_mod_a, ib_ang_deg, ic_mod_a, ic_ang_deg,
+                         cthd_a_pct, cthd_b_pct, cthd_c_pct,
+                         vthd_a_pct, vthd_b_pct, vthd_c_pct,
+                         frequency_hz, delta_freq_hz, cfds)
+                        FROM STDIN (FORMAT BINARY)"))
+                    {
+                        foreach (var frame in stagedFrames.Values.OrderBy(x => x.Ts))
+                        {
+                            importer.StartRow();
+                            importer.Write(frame.Ts, NpgsqlTypes.NpgsqlDbType.TimestampTz);
+                            importer.Write(frame.PdcPmuId, NpgsqlTypes.NpgsqlDbType.Integer);
+                            if (frame.Quality.HasValue)
+                                importer.Write(frame.Quality.Value, NpgsqlTypes.NpgsqlDbType.Integer);
+                            else
+                                importer.WriteNull();
+
+                            WriteNullableDouble(importer, frame.VaModV);
+                            WriteNullableDouble(importer, frame.VaAngDeg);
+                            WriteNullableDouble(importer, frame.VbModV);
+                            WriteNullableDouble(importer, frame.VbAngDeg);
+                            WriteNullableDouble(importer, frame.VcModV);
+                            WriteNullableDouble(importer, frame.VcAngDeg);
+                            WriteNullableDouble(importer, frame.IaModA);
+                            WriteNullableDouble(importer, frame.IaAngDeg);
+                            WriteNullableDouble(importer, frame.IbModA);
+                            WriteNullableDouble(importer, frame.IbAngDeg);
+                            WriteNullableDouble(importer, frame.IcModA);
+                            WriteNullableDouble(importer, frame.IcAngDeg);
+                            WriteNullableDouble(importer, frame.CthdAPct);
+                            WriteNullableDouble(importer, frame.CthdBPct);
+                            WriteNullableDouble(importer, frame.CthdCPct);
+                            WriteNullableDouble(importer, frame.VthdAPct);
+                            WriteNullableDouble(importer, frame.VthdBPct);
+                            WriteNullableDouble(importer, frame.VthdCPct);
+                            WriteNullableDouble(importer, frame.FrequencyHz);
+                            WriteNullableDouble(importer, frame.DeltaFreqHz);
+                            WriteNullableDouble(importer, frame.Cfds);
                         }
 
                         importer.Complete();
                     }
 
                     using (var upsert = new NpgsqlCommand(@"
-                        INSERT INTO openplot.measurements
-                            (ts, pdc_pmu_id, signal_id, value, quality)
+                        INSERT INTO openplot.measurements_wide
+                            (ts, pdc_pmu_id, quality,
+                             va_mod_v, va_ang_deg, vb_mod_v, vb_ang_deg, vc_mod_v, vc_ang_deg,
+                             ia_mod_a, ia_ang_deg, ib_mod_a, ib_ang_deg, ic_mod_a, ic_ang_deg,
+                             cthd_a_pct, cthd_b_pct, cthd_c_pct,
+                             vthd_a_pct, vthd_b_pct, vthd_c_pct,
+                             frequency_hz, delta_freq_hz, cfds)
                         SELECT
-                            ts, pdc_pmu_id, signal_id, value, quality
-                        FROM measurements_stage_tmp
-                        ON CONFLICT (pdc_pmu_id, signal_id, ts) DO NOTHING;",
+                            ts, pdc_pmu_id, quality,
+                            va_mod_v, va_ang_deg, vb_mod_v, vb_ang_deg, vc_mod_v, vc_ang_deg,
+                            ia_mod_a, ia_ang_deg, ib_mod_a, ib_ang_deg, ic_mod_a, ic_ang_deg,
+                            cthd_a_pct, cthd_b_pct, cthd_c_pct,
+                            vthd_a_pct, vthd_b_pct, vthd_c_pct,
+                            frequency_hz, delta_freq_hz, cfds
+                        FROM measurements_wide_stage_tmp
+                        ON CONFLICT (pdc_pmu_id, ts) DO UPDATE
+                        SET
+                            quality = CASE
+                                WHEN openplot.measurements_wide.quality = 2 OR EXCLUDED.quality = 2 THEN 2
+                                ELSE COALESCE(EXCLUDED.quality, openplot.measurements_wide.quality)
+                            END,
+                            va_mod_v      = COALESCE(EXCLUDED.va_mod_v, openplot.measurements_wide.va_mod_v),
+                            va_ang_deg    = COALESCE(EXCLUDED.va_ang_deg, openplot.measurements_wide.va_ang_deg),
+                            vb_mod_v      = COALESCE(EXCLUDED.vb_mod_v, openplot.measurements_wide.vb_mod_v),
+                            vb_ang_deg    = COALESCE(EXCLUDED.vb_ang_deg, openplot.measurements_wide.vb_ang_deg),
+                            vc_mod_v      = COALESCE(EXCLUDED.vc_mod_v, openplot.measurements_wide.vc_mod_v),
+                            vc_ang_deg    = COALESCE(EXCLUDED.vc_ang_deg, openplot.measurements_wide.vc_ang_deg),
+                            ia_mod_a      = COALESCE(EXCLUDED.ia_mod_a, openplot.measurements_wide.ia_mod_a),
+                            ia_ang_deg    = COALESCE(EXCLUDED.ia_ang_deg, openplot.measurements_wide.ia_ang_deg),
+                            ib_mod_a      = COALESCE(EXCLUDED.ib_mod_a, openplot.measurements_wide.ib_mod_a),
+                            ib_ang_deg    = COALESCE(EXCLUDED.ib_ang_deg, openplot.measurements_wide.ib_ang_deg),
+                            ic_mod_a      = COALESCE(EXCLUDED.ic_mod_a, openplot.measurements_wide.ic_mod_a),
+                            ic_ang_deg    = COALESCE(EXCLUDED.ic_ang_deg, openplot.measurements_wide.ic_ang_deg),
+                            cthd_a_pct    = COALESCE(EXCLUDED.cthd_a_pct, openplot.measurements_wide.cthd_a_pct),
+                            cthd_b_pct    = COALESCE(EXCLUDED.cthd_b_pct, openplot.measurements_wide.cthd_b_pct),
+                            cthd_c_pct    = COALESCE(EXCLUDED.cthd_c_pct, openplot.measurements_wide.cthd_c_pct),
+                            vthd_a_pct    = COALESCE(EXCLUDED.vthd_a_pct, openplot.measurements_wide.vthd_a_pct),
+                            vthd_b_pct    = COALESCE(EXCLUDED.vthd_b_pct, openplot.measurements_wide.vthd_b_pct),
+                            vthd_c_pct    = COALESCE(EXCLUDED.vthd_c_pct, openplot.measurements_wide.vthd_c_pct),
+                            frequency_hz  = COALESCE(EXCLUDED.frequency_hz, openplot.measurements_wide.frequency_hz),
+                            delta_freq_hz = COALESCE(EXCLUDED.delta_freq_hz, openplot.measurements_wide.delta_freq_hz),
+                            cfds          = COALESCE(EXCLUDED.cfds, openplot.measurements_wide.cfds);",
                         connCopy,
                         txCopy))
                     {
@@ -618,6 +686,200 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
         return map;
     }
 
+    private static Dictionary<int, string> LoadWideColumnBySignalId(
+        NpgsqlConnection conn,
+        int pdcPmuId,
+        int[] signalIds)
+    {
+        var result = new Dictionary<int, string>();
+
+        if (signalIds.Length == 0)
+            return result;
+
+        using var cmd = new NpgsqlCommand(@"
+            SELECT signal_id, quantity::text, phase::text, component::text, COALESCE(name,'')
+              FROM openplot.signal
+             WHERE pdc_pmu_id = @pp
+               AND signal_id = ANY(@sids);", conn);
+
+        cmd.Parameters.AddWithValue("pp", pdcPmuId);
+        cmd.Parameters.AddWithValue("sids", signalIds);
+
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            var signalId = reader.GetInt32(0);
+            var quantity = reader.IsDBNull(1) ? "" : reader.GetString(1);
+            var phase = reader.IsDBNull(2) ? "" : reader.GetString(2);
+            var component = reader.IsDBNull(3) ? "" : reader.GetString(3);
+            var name = reader.IsDBNull(4) ? "" : reader.GetString(4);
+
+            var wideColumn = ResolveWideColumn(quantity, phase, component, name);
+            if (!string.IsNullOrWhiteSpace(wideColumn))
+                result[signalId] = wideColumn;
+        }
+
+        return result;
+    }
+
+    private static string ResolveWideColumn(
+        string quantity,
+        string phase,
+        string component,
+        string signalName)
+    {
+        var q = (quantity ?? "").Trim().ToLowerInvariant();
+        var p = (phase ?? "").Trim().ToUpperInvariant();
+        var c = (component ?? "").Trim().ToUpperInvariant();
+        var n = (signalName ?? "").Trim().ToUpperInvariant();
+
+        if (q is "voltage" or "v")
+        {
+            if (p == "A" && c == "MAG") return "va_mod_v";
+            if (p == "A" && c == "ANG") return "va_ang_deg";
+            if (p == "B" && c == "MAG") return "vb_mod_v";
+            if (p == "B" && c == "ANG") return "vb_ang_deg";
+            if (p == "C" && c == "MAG") return "vc_mod_v";
+            if (p == "C" && c == "ANG") return "vc_ang_deg";
+            if (p == "A" && c == "THD") return "vthd_a_pct";
+            if (p == "B" && c == "THD") return "vthd_b_pct";
+            if (p == "C" && c == "THD") return "vthd_c_pct";
+        }
+
+        if (q is "current" or "i")
+        {
+            if (p == "A" && c == "MAG") return "ia_mod_a";
+            if (p == "A" && c == "ANG") return "ia_ang_deg";
+            if (p == "B" && c == "MAG") return "ib_mod_a";
+            if (p == "B" && c == "ANG") return "ib_ang_deg";
+            if (p == "C" && c == "MAG") return "ic_mod_a";
+            if (p == "C" && c == "ANG") return "ic_ang_deg";
+            if (p == "A" && c == "THD") return "cthd_a_pct";
+            if (p == "B" && c == "THD") return "cthd_b_pct";
+            if (p == "C" && c == "THD") return "cthd_c_pct";
+        }
+
+        if (q is "frequency" or "freq")
+        {
+            if (c == "FREQ") return "frequency_hz";
+            if (c == "DFREQ") return "delta_freq_hz";
+        }
+
+        if (q is "digital" or "d")
+        {
+            if (c == "DIG" && n == "CFDS")
+                return "cfds";
+        }
+
+        return string.Empty;
+    }
+
+    private sealed class WideFrameRow
+    {
+        public DateTime Ts { get; init; }
+        public int PdcPmuId { get; init; }
+        public int? Quality { get; set; }
+
+        public double? VaModV { get; set; }
+        public double? VaAngDeg { get; set; }
+        public double? VbModV { get; set; }
+        public double? VbAngDeg { get; set; }
+        public double? VcModV { get; set; }
+        public double? VcAngDeg { get; set; }
+
+        public double? IaModA { get; set; }
+        public double? IaAngDeg { get; set; }
+        public double? IbModA { get; set; }
+        public double? IbAngDeg { get; set; }
+        public double? IcModA { get; set; }
+        public double? IcAngDeg { get; set; }
+
+        public double? CthdAPct { get; set; }
+        public double? CthdBPct { get; set; }
+        public double? CthdCPct { get; set; }
+
+        public double? VthdAPct { get; set; }
+        public double? VthdBPct { get; set; }
+        public double? VthdCPct { get; set; }
+
+        public double? FrequencyHz { get; set; }
+        public double? DeltaFreqHz { get; set; }
+        public double? Cfds { get; set; }
+    }
+
+    private static WideFrameRow GetOrCreateWideFrame(
+        Dictionary<(DateTime Ts, int PdcPmuId), WideFrameRow> frames,
+        DateTime ts,
+        int pdcPmuId)
+    {
+        var key = (ts, pdcPmuId);
+        if (!frames.TryGetValue(key, out var row))
+        {
+            row = new WideFrameRow
+            {
+                Ts = ts,
+                PdcPmuId = pdcPmuId
+            };
+            frames[key] = row;
+        }
+
+        return row;
+    }
+
+    private static int? MergeWideFrameQuality(int? current, int incoming, bool isHoldLast)
+    {
+        if (isHoldLast || incoming == 2)
+            return 2;
+
+        if (!current.HasValue)
+            return incoming;
+
+        if (current.Value == 2)
+            return 2;
+
+        return Math.Min(current.Value, incoming);
+    }
+
+    private static void SetWideValue(WideFrameRow row, string wideColumn, double value)
+    {
+        switch (wideColumn)
+        {
+            case "va_mod_v": row.VaModV ??= value; break;
+            case "va_ang_deg": row.VaAngDeg ??= value; break;
+            case "vb_mod_v": row.VbModV ??= value; break;
+            case "vb_ang_deg": row.VbAngDeg ??= value; break;
+            case "vc_mod_v": row.VcModV ??= value; break;
+            case "vc_ang_deg": row.VcAngDeg ??= value; break;
+
+            case "ia_mod_a": row.IaModA ??= value; break;
+            case "ia_ang_deg": row.IaAngDeg ??= value; break;
+            case "ib_mod_a": row.IbModA ??= value; break;
+            case "ib_ang_deg": row.IbAngDeg ??= value; break;
+            case "ic_mod_a": row.IcModA ??= value; break;
+            case "ic_ang_deg": row.IcAngDeg ??= value; break;
+
+            case "cthd_a_pct": row.CthdAPct ??= value; break;
+            case "cthd_b_pct": row.CthdBPct ??= value; break;
+            case "cthd_c_pct": row.CthdCPct ??= value; break;
+
+            case "vthd_a_pct": row.VthdAPct ??= value; break;
+            case "vthd_b_pct": row.VthdBPct ??= value; break;
+            case "vthd_c_pct": row.VthdCPct ??= value; break;
+
+            case "frequency_hz": row.FrequencyHz ??= value; break;
+            case "delta_freq_hz": row.DeltaFreqHz ??= value; break;
+            case "cfds": row.Cfds ??= value; break;
+        }
+    }
+
+    private static void WriteNullableDouble(NpgsqlBinaryImporter importer, double? value)
+    {
+        if (value.HasValue)
+            importer.Write(value.Value, NpgsqlTypes.NpgsqlDbType.Double);
+        else
+            importer.WriteNull();
+    }
+
     private static bool ChunkAlreadyPresentDb(
         string connString,
         int pdcPmuId,
@@ -631,25 +893,35 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
         using var conn = new NpgsqlConnection(connString);
         conn.Open();
 
-        using var cmd = new NpgsqlCommand(@"
-            SELECT COUNT(DISTINCT signal_id)
-              FROM openplot.measurements
-             WHERE pdc_pmu_id = @pp
-               AND signal_id   = ANY(@sids)
-               AND ts >= @from AND ts < @to;", conn);
+        var wideMap = LoadWideColumnBySignalId(conn, pdcPmuId, signalIds);
+        var columns = wideMap.Values
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
-        cmd.Parameters.AddWithValue("pp", pdcPmuId);
-        cmd.Parameters.AddWithValue("sids", signalIds);
-        cmd.Parameters.AddWithValue("from", from);
-        cmd.Parameters.AddWithValue("to", to);
+        if (columns.Length == 0)
+            return false;
 
-        var countObj = cmd.ExecuteScalar();
-        var count =
-            countObj == null || countObj is DBNull
-                ? 0L
-                : Convert.ToInt64(countObj);
+        foreach (var column in columns)
+        {
+            using var cmd = new NpgsqlCommand($@"
+                SELECT 1
+                  FROM openplot.measurements_wide mw
+                 WHERE mw.pdc_pmu_id = @pp
+                   AND mw.ts >= @from
+                   AND mw.ts <  @to
+                   AND mw.{column} IS NOT NULL
+                 LIMIT 1;", conn);
 
-        return count >= signalIds.Length;
+            cmd.Parameters.AddWithValue("pp", pdcPmuId);
+            cmd.Parameters.AddWithValue("from", from);
+            cmd.Parameters.AddWithValue("to", to);
+
+            var exists = cmd.ExecuteScalar() != null;
+            if (!exists)
+                return false;
+        }
+
+        return true;
     }
 
     private static DateTime FromOADateUtc(double oa)

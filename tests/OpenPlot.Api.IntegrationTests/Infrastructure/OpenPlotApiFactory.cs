@@ -70,6 +70,12 @@ public sealed class OpenPlotApiFactory : WebApplicationFactory<Program>
             return Task.FromResult(id);
         }
 
+        public Task<Guid> SaveAsync(Guid cacheId, Guid jobId, object payload, CancellationToken ct)
+        {
+            _items[cacheId] = payload;
+            return Task.FromResult(cacheId);
+        }
+
         public Task<T?> GetAsync<T>(Guid cacheId, CancellationToken ct)
         {
             if (_items.TryGetValue(cacheId, out var payload) && payload is T typed)

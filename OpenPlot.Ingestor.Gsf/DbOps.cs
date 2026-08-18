@@ -19,13 +19,38 @@ CREATE TABLE IF NOT EXISTS openplot.signal_points (
   UNIQUE (signal_id, role)
 );
 
-CREATE TABLE IF NOT EXISTS openplot.measurements (
-  ts        timestamptz      NOT NULL,
-  pdc_pmu_id int             NOT NULL REFERENCES openplot.pdc_pmu(pdc_pmu_id) ON DELETE CASCADE,
-  signal_id int              NOT NULL REFERENCES openplot.signal(signal_id) ON DELETE CASCADE,
-  value     double precision NOT NULL,
-  quality   integer          NULL,
-  PRIMARY KEY (signal_id, ts)
+CREATE TABLE IF NOT EXISTS openplot.measurements_wide (
+  ts             timestamptz      NOT NULL,
+  pdc_pmu_id     int              NOT NULL REFERENCES openplot.pdc_pmu(pdc_pmu_id) ON DELETE CASCADE,
+  quality        integer          NULL,
+
+  va_mod_v       double precision NULL,
+  va_ang_deg     double precision NULL,
+  vb_mod_v       double precision NULL,
+  vb_ang_deg     double precision NULL,
+  vc_mod_v       double precision NULL,
+  vc_ang_deg     double precision NULL,
+
+  ia_mod_a       double precision NULL,
+  ia_ang_deg     double precision NULL,
+  ib_mod_a       double precision NULL,
+  ib_ang_deg     double precision NULL,
+  ic_mod_a       double precision NULL,
+  ic_ang_deg     double precision NULL,
+
+  cthd_a_pct     double precision NULL,
+  cthd_b_pct     double precision NULL,
+  cthd_c_pct     double precision NULL,
+
+  vthd_a_pct     double precision NULL,
+  vthd_b_pct     double precision NULL,
+  vthd_c_pct     double precision NULL,
+
+  frequency_hz   double precision NULL,
+  delta_freq_hz  double precision NULL,
+  cfds           double precision NULL,
+
+  PRIMARY KEY (pdc_pmu_id, ts)
 );
 
 CREATE TABLE IF NOT EXISTS openplot.measurements_raw (
@@ -55,7 +80,7 @@ CREATE TABLE IF NOT EXISTS openplot.search_runs (
 
 ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS started_at timestamptz NULL;
 ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS finished_at timestamptz NULL;
-ALTER TABLE openplot.measurements ADD COLUMN IF NOT EXISTS quality integer NULL;
+ALTER TABLE openplot.measurements_wide ADD COLUMN IF NOT EXISTS quality integer NULL;
 
 CREATE TABLE IF NOT EXISTS openplot.ingest_chunks (
   id          bigserial      PRIMARY KEY,

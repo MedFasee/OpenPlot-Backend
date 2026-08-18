@@ -1,25 +1,29 @@
-using System.Data;
-using System.Globalization;
-using System.Numerics;
-using Dapper;
-using OpenPlot.Core.TimeSeries;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using OpenPlot.Data.Dtos;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Responses;
 using OpenPlot.Features.Runs.Repositories;
-using OpenPlot.Data.Dtos;
 using OpenPlot.Services.UI;
 
 namespace OpenPlot.Features.Runs.Handlers;
 
 /// <summary>
-/// Handler para cálculo de potência ativa/reativa.
-/// Recebe V/I em phasores (MAG+ANG) e calcula P/Q por fase ou total.
-/// Responsabilidade: validação, SQL, cálculo de potência e resposta.
+/// Potência ativa/reativa calculada sobre frames Wide sincronizados.
+///
+/// A leitura de V e I é feita em UMA única consulta por janela:
+/// measurements_wide -> time_bucket -> V/I ABC MAG+ANG -> cálculo P/Q.
 /// </summary>
 public sealed class PowerSeriesHandler
 {
-    private readonly IDbConnectionFactory _dbFactory;
+    private readonly IMeasurementsRepository _measurementsRepository;
     private readonly IRunContextRepository _runRepository;
+    private readonly ILogger<PowerSeriesHandler> _logger;
     private readonly IAnalysisCacheRepository _cacheRepo;
     private readonly IPlotMetaBuilder _metaBuilder;
     private readonly IPmuQueryHelper _pmuHelper;
@@ -29,323 +33,114 @@ public sealed class PowerSeriesHandler
     public PowerSeriesHandler(
         IRunContextRepository runRepository,
         IDbConnectionFactory dbFactory,
+        IMeasurementsRepository measurementsRepository,
         IAnalysisCacheRepository cacheRepo,
         IPlotMetaBuilder metaBuilder,
         IPmuQueryHelper pmuHelper,
         ISeriesAssemblyService seriesAssembly,
-        IUiMenuService uiMenus)
+        IUiMenuService uiMenus,
+        ILogger<PowerSeriesHandler> logger)
     {
         _runRepository = runRepository ?? throw new ArgumentNullException(nameof(runRepository));
-        _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
+        _ = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory)); // preserva assinatura DI atual
+        _measurementsRepository = measurementsRepository ?? throw new ArgumentNullException(nameof(measurementsRepository));
         _cacheRepo = cacheRepo ?? throw new ArgumentNullException(nameof(cacheRepo));
         _metaBuilder = metaBuilder ?? throw new ArgumentNullException(nameof(metaBuilder));
         _pmuHelper = pmuHelper ?? throw new ArgumentNullException(nameof(pmuHelper));
         _seriesAssembly = seriesAssembly ?? throw new ArgumentNullException(nameof(seriesAssembly));
         _uiMenus = uiMenus ?? throw new ArgumentNullException(nameof(uiMenus));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    /// <summary>
-    /// Processa requisição de potência ativa/reativa.
-    /// </summary>
     public async Task<IResult> HandleAsync(
         PowerPlotQuery query,
         WindowQuery window,
         Dictionary<string, object?>? modes,
         CancellationToken ct)
     {
-        // =============================
-        // Validação
-        // =============================
         var validation = ValidatePowerQuery(query);
         if (!validation.isValid)
             return Results.BadRequest(validation.errorMessage);
 
+        var processingWatch = Stopwatch.StartNew();
+
         var which = (query.Which ?? "active").Trim().ToLowerInvariant();
         var quantityKey = which == "active" ? "p_active" : "p_reactive";
-        var u = (query.Unit ?? "raw").Trim().ToLowerInvariant();
+        var unit = (query.Unit ?? "raw").Trim().ToLowerInvariant();
         var maxPts = Math.Max(query.ResolveMaxPoints(@default: 100), 100);
 
-        DateTime? fromUtc = window.FromUtc;
-        DateTime? toUtc = window.ToUtc;
+        _logger.LogInformation(
+            "[PROCESS][Power][START] runId={RunId} which={Which} tri={Tri} total={Total} phase={Phase}",
+            query.RunId,
+            which,
+            query.Tri,
+            query.Total,
+            query.Phase);
+
+        var fromUtc = window.FromUtc;
+        var toUtc = window.ToUtc;
+
         if (fromUtc.HasValue && toUtc.HasValue && fromUtc >= toUtc)
             return Results.BadRequest("from < to");
 
-        var ctx = await _runRepository.ResolveAsync(query.RunId, fromUtc, toUtc, ct);
+        var ctx = await _runRepository.ResolveAsync(
+            query.RunId,
+            fromUtc,
+            toUtc,
+            ct);
+
         if (ctx is null)
             return Results.NotFound("run_id não encontrado.");
 
         var pmuList = _pmuHelper.Normalize(query.Pmu).ToList();
+        IReadOnlyList<string>? pmuFilter = pmuList.Count > 0 ? pmuList : null;
 
         var tri = query.Tri ?? false;
         var total = query.Total ?? false;
-        var phase = !tri && !total ? query.Phase : null;
+        var phase = !tri && !total
+            ? query.Phase?.Trim().ToUpperInvariant()
+            : null;
 
-        // =============================
-        // Query SQL
-        // =============================
-        using var db = _dbFactory.Create();
+        int? frontMaxPoints = query.MaxPointsIsAll
+        ? null
+        : maxPts;
 
-        var pmuFilter = _pmuHelper.BuildOrSqlFilter("c.id_name", pmuList);
+        // UMA única leitura da Wide para V + I.
+        var frames = await _measurementsRepository.QueryPowerFramesAsync(
+            ctx,
+            pmuFilter,
+            fromUtc,
+            toUtc,
+            ct,
+            frontMaxPoints);
 
-        string phaseClause = (tri || total)
-            ? "UPPER(s.phase::text) IN ('A','B','C')"
-            : "UPPER(s.phase::text) = UPPER(@phase)";
+        if (frames.Count == 0)
+            return Results.NotFound(
+                "Nada encontrado para esse run/filtro no intervalo solicitado.");
 
-        const string sqlTemplate = @"
-WITH run AS (
-  SELECT id, source AS pdc_name, from_ts, to_ts, COALESCE(pmus_ok, pmus) AS pmus, signals
-  FROM openplot.search_runs
-  WHERE id = @run_id::uuid
-),
-run_window AS (
-  SELECT
-    CASE WHEN pg_typeof(r.from_ts)::text = 'timestamp without time zone'
-         THEN r.from_ts::timestamptz ELSE r.from_ts END AS from_utc,
-    CASE WHEN pg_typeof(r.to_ts)::text = 'timestamp without time zone'
-         THEN r.to_ts::timestamptz ELSE r.to_ts   END AS to_utc,
-    r.pdc_name, r.signals, r.pmus
-  FROM run r
-),
-win AS (
-  SELECT
-    COALESCE(@from_utc, rw.from_utc) AS from_utc,
-    COALESCE(@to_utc,   rw.to_utc)   AS to_utc,
-    rw.pdc_name, rw.signals, rw.pmus
-  FROM run_window rw
-),
-src AS (
-  SELECT w.pdc_name,
-         w.from_utc AS from_ts,
-         w.to_utc   AS to_ts,
-         CASE
-           WHEN jsonb_typeof(w.signals) = 'array' AND jsonb_array_length(w.signals) > 0 THEN w.signals
-           WHEN jsonb_typeof(w.pmus)    = 'array' AND jsonb_array_length(w.pmus)    > 0 THEN w.pmus
-           ELSE '[]'::jsonb
-         END AS arr
-  FROM win w
-),
-elems AS (
-  SELECT pdc_name, from_ts, to_ts, jsonb_array_elements(arr) AS elem
-  FROM src
-),
-pmu_ids AS (
-  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
-  FROM elems r
-  JOIN openplot.pmu p ON p.id_name = btrim(r.elem::text, '""')
-  WHERE jsonb_typeof(r.elem) = 'string'
-  UNION ALL
-  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
-  FROM elems r
-  JOIN LATERAL (
-    SELECT NULLIF(TRIM(r.elem->>'pmu'), '')     AS key_pmu,
-           NULLIF(TRIM(r.elem->>'id_name'), '') AS key_idname
-  ) k ON TRUE
-  JOIN openplot.pmu p ON p.id_name = COALESCE(k.key_pmu, k.key_idname)
-  WHERE jsonb_typeof(r.elem) = 'object'
-    AND COALESCE(k.key_pmu, k.key_idname) IS NOT NULL
-  UNION ALL
-  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
-  FROM elems r
-  JOIN LATERAL (SELECT NULLIF(r.elem->>'pdc_pmu_id','')::int AS key_pdc_pmu_id) k ON TRUE
-  JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = k.key_pdc_pmu_id
-  JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
-  WHERE jsonb_typeof(r.elem) = 'object'
-  UNION ALL
-  SELECT r.pdc_name, r.from_ts, r.to_ts, p.pmu_id, p.id_name
-  FROM elems r
-  JOIN LATERAL (SELECT NULLIF(r.elem->>'signal_id','')::int AS key_signal_id) k ON TRUE
-  JOIN openplot.signal s ON s.signal_id = k.key_signal_id
-  JOIN openplot.pdc_pmu ppm ON ppm.pdc_pmu_id = s.pdc_pmu_id
-  JOIN openplot.pmu p ON p.pmu_id = ppm.pmu_id
-  WHERE jsonb_typeof(r.elem) = 'object'
-),
-pdc_ctx AS (
-  SELECT w.pdc_name, w.from_ts, w.to_ts, pdc.pdc_id
-  FROM src w
-  JOIN openplot.pdc pdc ON LOWER(pdc.name) = LOWER(w.pdc_name)
-),
-ctx AS (
-  SELECT pc.pdc_name, pc.from_ts, pc.to_ts, pid.id_name, pid.pmu_id, pc.pdc_id
-  FROM pdc_ctx pc
-  JOIN pmu_ids pid ON pid.pdc_name = pc.pdc_name
-),
-sig AS (
-  SELECT s.signal_id, s.pdc_pmu_id, s.phase, s.component, s.quantity,
-         c.id_name, c.pdc_name
-  FROM ctx c
-  JOIN openplot.pdc_pmu pp ON pp.pdc_id = c.pdc_id AND pp.pmu_id = c.pmu_id
-  JOIN openplot.signal s   ON s.pdc_pmu_id = pp.pdc_pmu_id
-  WHERE ({PMU_FILTER})
-    AND {PHASE_CLAUSE}
-    AND UPPER(s.component::text) IN ('MAG','ANG')
-    AND LOWER(s.quantity::text) IN ('voltage','v','current','i')
-),
-raw AS (
-  SELECT m.signal_id, m.ts, m.value
-  FROM openplot.measurements m
-  WHERE m.ts >= (SELECT from_utc FROM win)
-    AND m.ts <= (SELECT to_utc   FROM win)
-)
-SELECT
-  s.signal_id, s.pdc_pmu_id, s.phase, s.component, s.quantity,
-  s.id_name, s.pdc_name,
-  r.ts, r.value
-FROM sig s
-JOIN raw r USING (signal_id)
-ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
-";
+        var projection = BuildPowerProjection(
+            frames,
+            tri,
+            total,
+            phase,
+            which,
+            unit,
+            buildFrontSeries: true);
 
-        var sql = sqlTemplate
-            .Replace("{PMU_FILTER}", pmuFilter)
-            .Replace("{PHASE_CLAUSE}", phaseClause);
-
-        var dyn = new DynamicParameters();
-        dyn.Add("run_id", query.RunId);
-        dyn.Add("from_utc", fromUtc);
-        dyn.Add("to_utc", toUtc);
-        dyn.Add("phase", phase);
-
-        _pmuHelper.AddSqlParameters(dyn, pmuList);
-
-        var command = new CommandDefinition(
-            sql,
-            dyn,
-            cancellationToken: ct,
-            commandTimeout: 300);
-
-        var rows = (await db.QueryAsync<PowerRow>(command)).ToList();
-        if (rows.Count == 0)
-            return Results.NotFound("Nada encontrado para esse run/filtro no intervalo solicitado.");
-
-        // =============================
-        // Cálculo de potência
-        // =============================
-        var tol = TimeSpan.FromMilliseconds(3);
-        var seriesOut = new List<object>();
-        var cachePoints = new List<(string pmuId, DateTime ts, double value)>();
-
-        foreach (var pmuGroup in rows.GroupBy(r => r.Id_Name))
-        {
-            var d = new Dictionary<string, List<(DateTime ts, double v)>>();
-
-            foreach (var r in pmuGroup)
-            {
-                var qty = (r.Quantity ?? "").ToLowerInvariant();
-                var phs = (r.Phase ?? "").ToUpperInvariant();
-                var cmp = (r.Component ?? "").ToUpperInvariant();
-
-                if (qty is not ("voltage" or "v" or "current" or "i")) continue;
-                if (phs is not ("A" or "B" or "C")) continue;
-                if (cmp is not ("MAG" or "ANG")) continue;
-
-                var qn = qty == "v" ? "voltage" : (qty == "i" ? "current" : qty);
-                if (!d.TryGetValue($"{qn}_{phs}_{cmp}", out var list))
-                    d[$"{qn}_{phs}_{cmp}"] = list = new();
-                list.Add((r.Ts, r.Value));
-            }
-
-            bool Need(string key) => d.ContainsKey(key) && d[key].Count > 0;
-
-            List<(DateTime ts, double val)> MakePhase(string phs)
-            {
-                var vMagK = $"voltage_{phs}_MAG";
-                var vAngK = $"voltage_{phs}_ANG";
-                var iMagK = $"current_{phs}_MAG";
-                var iAngK = $"current_{phs}_ANG";
-
-                if (!Need(vMagK) || !Need(vAngK) || !Need(iMagK) || !Need(iAngK))
-                    return new List<(DateTime ts, double val)>();
-
-                return ComputePower1Phase(d[vMagK], d[vAngK], d[iMagK], d[iAngK], tol, which);
-            }
-
-            double scale = 1e-6;
-            var any = pmuGroup.First();
-
-            if (tri)
-            {
-                foreach (var phs in new[] { "A", "B", "C" })
-                {
-                    var pts = MakePhase(phs);
-                    if (pts.Count == 0) continue;
-
-                    // Armazena para cache
-                    foreach (var pt in pts)
-                    {
-                        cachePoints.Add((any.Id_Name, pt.ts, pt.val * scale));
-                    }
-
-                    var down = TimeBucketDownsampleMinMax(pts.Select(x => (x.ts, x.val * scale)), maxPts);
-
-                    seriesOut.Add(new
-                    {
-                        pmu = any.Id_Name,
-                        pdc = any.Pdc_Name,
-                        meta = new { phase = phs },
-                        unit = (u == "mw") ? (which == "active" ? "MW" : "MVAr") : "raw",
-                        points = down.Select(p => new object[] { p.ts, p.val })
-                    });
-                }
-            }
-            else if (total)
-            {
-                var aPts = MakePhase("A");
-                var bPts = MakePhase("B");
-                var cPts = MakePhase("C");
-                if (aPts.Count == 0 || bPts.Count == 0 || cPts.Count == 0) continue;
-
-                var sum = Sum3PhasePointwise(aPts, bPts, cPts, tol);
-                if (sum.Count == 0) continue;
-
-                // Armazena para cache
-                foreach (var pt in sum)
-                {
-                    cachePoints.Add((any.Id_Name, pt.ts, pt.val * scale));
-                }
-
-                var down = TimeBucketDownsampleMinMax(sum.Select(x => (x.ts, x.val * scale)), maxPts);
-
-                seriesOut.Add(new
-                {
-                    pmu = any.Id_Name,
-                    pdc = any.Pdc_Name,
-                    meta = new { total = true },
-                    unit = (u == "mw") ? (which == "active" ? "MW" : "MVAr") : "raw",
-                    points = down.Select(p => new object[] { p.ts, p.val })
-                });
-            }
-            else
-            {
-                var pts = MakePhase(phase!);
-                if (pts.Count == 0) continue;
-
-                // Armazena para cache
-                foreach (var pt in pts)
-                {
-                    cachePoints.Add((any.Id_Name, pt.ts, pt.val * scale));
-                }
-
-                var down = TimeBucketDownsampleMinMax(pts.Select(x => (x.ts, x.val * scale)), maxPts);
-
-                seriesOut.Add(new
-                {
-                    pmu = any.Id_Name,
-                    pdc = any.Pdc_Name,
-                    meta = new { phase = phase },
-                    unit = (u == "mw") ? (which == "active" ? "MW" : "MVAr") : "raw",
-                    points = down.Select(p => new object[] { p.ts, p.val })
-                });
-            }
-        }
+        var seriesOut = projection.series;
+        var cachePoints = projection.cachePoints;
 
         if (seriesOut.Count == 0)
-            return Results.BadRequest("Nenhuma PMU pôde ser processada (faltam sinais MAG/ANG de V/I ou alinhamento falhou).");
+            return Results.BadRequest(
+                "Nenhuma PMU pôde ser processada (faltam V/I MAG+ANG na linha Wide).");
 
-        var windowFrom = fromUtc ?? rows.Min(r => r.Ts);
-        var windowTo = toUtc ?? rows.Max(r => r.Ts);
-        var unitDisplay = (u == "mw") ? (which == "active" ? "MW" : "MVAr") : "raw";
+        var windowFrom = fromUtc ?? frames.Min(r => r.Ts);
+        var windowTo = toUtc ?? frames.Max(r => r.Ts);
 
-        // ===== CACHE =====
+        var unitDisplay = unit == "mw"
+            ? (which == "active" ? "MW" : "MVAr")
+            : "raw";
+
         var cacheSeries = cachePoints
             .GroupBy(x => x.pmuId)
             .Select(g => _seriesAssembly.BuildCacheSeries(
@@ -367,23 +162,125 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
             ctx.SelectRate ?? 0,
             cacheSeries);
 
-        var cacheId = await _cacheRepo.SaveAsync(query.RunId, cachePayload, ct);
-        // =======================================================
+        var cacheId = Guid.NewGuid();
+
+        await _cacheRepo.SaveAsync(
+            cacheId,
+            query.RunId,
+            cachePayload,
+            ct);
+
+        // Cache completo: mesma SQL, bucket mínimo de 1 ms.
+        // Continua preservando 120 fps, mas agora V e I vêm juntos.
+        _ = Task.Run(async () =>
+        {
+            var bgWatch = Stopwatch.StartNew();
+            var fullFrameCount = 0;
+            var persisted = false;
+
+            _logger.LogInformation(
+                "[BYRUN][Power][CACHE-BG][START] runId={RunId} cacheId={CacheId}",
+                query.RunId,
+                cacheId);
+
+            try
+            {
+                var fullFrames = await _measurementsRepository.QueryPowerFramesAsync(
+                    ctx,
+                    pmuFilter,
+                    fromUtc,
+                    toUtc,
+                    CancellationToken.None,
+                    maxPoints: null);
+
+                fullFrameCount = fullFrames.Count;
+                if (fullFrameCount == 0)
+                    return;
+
+                var fullProjection = BuildPowerProjection(
+                    fullFrames,
+                    tri,
+                    total,
+                    phase,
+                    which,
+                    unit,
+                    buildFrontSeries: false);
+
+                if (fullProjection.cachePoints.Count == 0)
+                    return;
+
+                var fullWindowFrom = fromUtc ?? fullFrames.Min(r => r.Ts);
+                var fullWindowTo = toUtc ?? fullFrames.Max(r => r.Ts);
+
+                var cacheSeriesFull = fullProjection.cachePoints
+                    .GroupBy(x => x.pmuId)
+                    .Select(g => _seriesAssembly.BuildCacheSeries(
+                        signalId: 0,
+                        pdcPmuId: 0,
+                        idName: g.Key,
+                        pdcName: ctx.PdcName,
+                        referenceTerminal: null,
+                        unit: unitDisplay,
+                        phase: null,
+                        quantity: which,
+                        component: "power",
+                        points: g.Select(x => (x.ts, x.value))))
+                    .ToList();
+
+                var cachePayloadFull = _seriesAssembly.BuildCachePayload(
+                    fullWindowFrom,
+                    fullWindowTo,
+                    ctx.SelectRate ?? 0,
+                    cacheSeriesFull);
+
+                await _cacheRepo.SaveAsync(
+                    cacheId,
+                    query.RunId,
+                    cachePayloadFull,
+                    CancellationToken.None);
+
+                persisted = true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Falha ao persistir cache assíncrono de power/by-run. runId={RunId}",
+                    query.RunId);
+            }
+            finally
+            {
+                bgWatch.Stop();
+
+                _logger.LogInformation(
+                    "[BYRUN][Power][CACHE-BG][END] runId={RunId} cacheId={CacheId} elapsedMs={ElapsedMs} frames={Frames} persisted={Persisted}",
+                    query.RunId,
+                    cacheId,
+                    bgWatch.ElapsedMilliseconds,
+                    fullFrameCount,
+                    persisted);
+            }
+        });
 
         var meas = new MeasurementsQuery(
             Quantity: quantityKey,
             Component: "power",
             PhaseMode: PhaseMode.Any,
-            Unit: unitDisplay
-        );
+            Unit: unitDisplay);
 
         var plotMeta = _metaBuilder.Build(window, ctx, meas);
+
         var resolvedModes = _uiMenus.RebuildForRun(
             modes,
             UiMenuContext.FromCache(cachePayload));
 
         var response = SeriesResponseBuilderExtensions
-            .BuildSeriesResponse(query.RunId, windowFrom, windowTo, seriesOut, plotMeta)
+            .BuildSeriesResponse(
+                query.RunId,
+                windowFrom,
+                windowTo,
+                seriesOut,
+                plotMeta)
             .WithModes(resolvedModes)
             .WithCacheId(cacheId)
             .WithResolved(ctx.PdcName, seriesOut.Count)
@@ -397,10 +294,20 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
             })
             .Build();
 
+        processingWatch.Stop();
+
+        _logger.LogInformation(
+            "[PROCESS][Power][END] runId={RunId} elapsedMs={ElapsedMs} frames={Frames} series={SeriesCount}",
+            query.RunId,
+            processingWatch.ElapsedMilliseconds,
+            frames.Count,
+            seriesOut.Count);
+
         return Results.Ok(response);
     }
 
-    private (bool isValid, string? errorMessage) ValidatePowerQuery(PowerPlotQuery query)
+    private static (bool isValid, string? errorMessage) ValidatePowerQuery(
+        PowerPlotQuery query)
     {
         if (query.RunId == Guid.Empty)
             return (false, "run_id é obrigatório.");
@@ -435,154 +342,204 @@ ORDER BY s.id_name, s.quantity, s.phase, s.component, r.ts;
         return (true, null);
     }
 
-    // ========== Helpers ==========
+    private static (
+        List<object> series,
+        List<(string pmuId, DateTime ts, double value)> cachePoints)
+        BuildPowerProjection(
+            IReadOnlyList<PowerFrameRow> frames,
+            bool tri,
+            bool total,
+            string? phase,
+            string which,
+            string unit,
+            bool buildFrontSeries)
+    {
+        var series = new List<object>();
+        var cachePoints = new List<(string pmuId, DateTime ts, double value)>();
 
-    private static List<(DateTime ts, double val)> ComputePower1Phase(
-        List<(DateTime ts, double v)> vMag,
-        List<(DateTime ts, double v)> vAng,
-        List<(DateTime ts, double v)> iMag,
-        List<(DateTime ts, double v)> iAng,
-        TimeSpan tol,
+        var unitDisplay = unit == "mw"
+            ? (which == "active" ? "MW" : "MVAr")
+            : "raw";
+
+        // Mantém a mesma escala do handler anterior.
+        const double scale = 1e-6;
+
+        foreach (var pmuGroup in frames.GroupBy(
+                     x => x.IdName,
+                     StringComparer.OrdinalIgnoreCase))
+        {
+            var ordered = pmuGroup
+                .OrderBy(x => x.Ts)
+                .ToList();
+
+            if (ordered.Count == 0)
+                continue;
+
+            var any = ordered[0];
+
+            List<(DateTime ts, double val)> PhasePoints(string ph)
+            {
+                var output = new List<(DateTime ts, double val)>(ordered.Count);
+
+                foreach (var frame in ordered)
+                {
+                    var power = ph switch
+                    {
+                        "A" => CalculatePower(
+                            frame.VaMod, frame.VaAng,
+                            frame.IaMod, frame.IaAng,
+                            which),
+
+                        "B" => CalculatePower(
+                            frame.VbMod, frame.VbAng,
+                            frame.IbMod, frame.IbAng,
+                            which),
+
+                        "C" => CalculatePower(
+                            frame.VcMod, frame.VcAng,
+                            frame.IcMod, frame.IcAng,
+                            which),
+
+                        _ => null
+                    };
+
+                    if (power.HasValue)
+                        output.Add((frame.Ts, power.Value));
+                }
+
+                return output;
+            }
+
+            if (tri)
+            {
+                foreach (var ph in new[] { "A", "B", "C" })
+                {
+                    var pts = PhasePoints(ph);
+                    if (pts.Count == 0)
+                        continue;
+
+                    var scaled = pts
+                        .Select(x => (x.ts, val: x.val * scale))
+                        .ToList();
+
+                    foreach (var p in scaled)
+                        cachePoints.Add((any.IdName, p.ts, p.val));
+
+                    if (!buildFrontSeries)
+                        continue;
+
+                    series.Add(new
+                    {
+                        pmu = any.IdName,
+                        pdc = any.PdcName,
+                        meta = new { phase = ph },
+                        unit = unitDisplay,
+                        points = scaled.Select(p => new object[] { p.ts, p.val })
+                    });
+                }
+
+                continue;
+            }
+
+            if (total)
+            {
+                var sum = new List<(DateTime ts, double val)>(ordered.Count);
+
+                foreach (var frame in ordered)
+                {
+                    var pa = CalculatePower(
+                        frame.VaMod, frame.VaAng,
+                        frame.IaMod, frame.IaAng,
+                        which);
+
+                    var pb = CalculatePower(
+                        frame.VbMod, frame.VbAng,
+                        frame.IbMod, frame.IbAng,
+                        which);
+
+                    var pc = CalculatePower(
+                        frame.VcMod, frame.VcAng,
+                        frame.IcMod, frame.IcAng,
+                        which);
+
+                    if (pa.HasValue && pb.HasValue && pc.HasValue)
+                        sum.Add((frame.Ts, pa.Value + pb.Value + pc.Value));
+                }
+
+                if (sum.Count == 0)
+                    continue;
+
+                var scaled = sum
+                    .Select(x => (x.ts, val: x.val * scale))
+                    .ToList();
+
+                foreach (var p in scaled)
+                    cachePoints.Add((any.IdName, p.ts, p.val));
+
+                if (buildFrontSeries)
+                {
+                    series.Add(new
+                    {
+                        pmu = any.IdName,
+                        pdc = any.PdcName,
+                        meta = new { total = true },
+                        unit = unitDisplay,
+                        points = scaled.Select(p => new object[] { p.ts, p.val })
+                    });
+                }
+
+                continue;
+            }
+
+            var single = PhasePoints(phase!);
+            if (single.Count == 0)
+                continue;
+
+            var singleScaled = single
+                .Select(x => (x.ts, val: x.val * scale))
+                .ToList();
+
+            foreach (var p in singleScaled)
+                cachePoints.Add((any.IdName, p.ts, p.val));
+
+            if (buildFrontSeries)
+            {
+                series.Add(new
+                {
+                    pmu = any.IdName,
+                    pdc = any.PdcName,
+                    meta = new { phase },
+                    unit = unitDisplay,
+                    points = singleScaled.Select(p => new object[] { p.ts, p.val })
+                });
+            }
+        }
+
+        return (series, cachePoints);
+    }
+
+    private static double? CalculatePower(
+        double? vMag,
+        double? vAngDeg,
+        double? iMag,
+        double? iAngDeg,
         string which)
     {
-        vMag.Sort((a, b) => a.ts.CompareTo(b.ts));
-        vAng.Sort((a, b) => a.ts.CompareTo(b.ts));
-        iMag.Sort((a, b) => a.ts.CompareTo(b.ts));
-        iAng.Sort((a, b) => a.ts.CompareTo(b.ts));
+        if (!vMag.HasValue ||
+            !vAngDeg.HasValue ||
+            !iMag.HasValue ||
+            !iAngDeg.HasValue)
+        {
+            return null;
+        }
 
-        int ivm = 0, iva = 0, iim = 0, iia = 0;
         const double Deg2Rad = Math.PI / 180.0;
 
-        static void Adv(ref int idx, List<(DateTime ts, double v)> l, DateTime t, TimeSpan tol)
-        {
-            while (idx < l.Count && l[idx].ts < t && (t - l[idx].ts) > tol) idx++;
-        }
+        var apparent = vMag.Value * iMag.Value;
+        var angleDiff = (vAngDeg.Value - iAngDeg.Value) * Deg2Rad;
 
-        static bool Near(List<(DateTime ts, double v)> l, int idx, DateTime t, TimeSpan tol)
-            => idx < l.Count && Math.Abs((l[idx].ts - t).TotalMilliseconds) <= tol.TotalMilliseconds;
-
-        var outp = new List<(DateTime ts, double val)>();
-
-        while (ivm < vMag.Count && iim < iMag.Count)
-        {
-            var t = vMag[ivm].ts;
-            if (iMag[iim].ts > t) t = iMag[iim].ts;
-
-            Adv(ref ivm, vMag, t, tol);
-            Adv(ref iim, iMag, t, tol);
-            if (ivm >= vMag.Count || iim >= iMag.Count) break;
-
-            Adv(ref iva, vAng, t, tol);
-            Adv(ref iia, iAng, t, tol);
-            if (iva >= vAng.Count || iia >= iAng.Count) break;
-
-            if (!Near(vMag, ivm, t, tol) || !Near(iMag, iim, t, tol) ||
-                !Near(vAng, iva, t, tol) || !Near(iAng, iia, t, tol))
-            {
-                var min = vMag[ivm].ts < iMag[iim].ts ? vMag[ivm].ts : iMag[iim].ts;
-                if (min == vMag[ivm].ts) ivm++; else iim++;
-                continue;
-            }
-
-            var s = vMag[ivm].v * iMag[iim].v;
-            var d = (vAng[iva].v - iAng[iia].v) * Deg2Rad;
-
-            var val = (which == "active") ? (s * Math.Cos(d)) : (s * Math.Sin(d));
-            outp.Add((t, val));
-
-            ivm++; iim++; iva++; iia++;
-        }
-
-        return outp;
-    }
-
-    private static List<(DateTime ts, double val)> Sum3PhasePointwise(
-        List<(DateTime ts, double val)> a,
-        List<(DateTime ts, double val)> b,
-        List<(DateTime ts, double val)> c,
-        TimeSpan tol)
-    {
-        a.Sort((x, y) => x.ts.CompareTo(y.ts));
-        b.Sort((x, y) => x.ts.CompareTo(y.ts));
-        c.Sort((x, y) => x.ts.CompareTo(y.ts));
-
-        int ia = 0, ib = 0, ic = 0;
-        var outp = new List<(DateTime ts, double val)>();
-
-        while (ia < a.Count && ib < b.Count && ic < c.Count)
-        {
-            var t = a[ia].ts;
-            if (b[ib].ts > t) t = b[ib].ts;
-            if (c[ic].ts > t) t = c[ic].ts;
-
-            while (ia < a.Count && a[ia].ts < t && (t - a[ia].ts) > tol) ia++;
-            while (ib < b.Count && b[ib].ts < t && (t - b[ib].ts) > tol) ib++;
-            while (ic < c.Count && c[ic].ts < t && (t - c[ic].ts) > tol) ic++;
-
-            if (ia >= a.Count || ib >= b.Count || ic >= c.Count) break;
-
-            if (Math.Abs((a[ia].ts - t).TotalMilliseconds) > tol.TotalMilliseconds ||
-                Math.Abs((b[ib].ts - t).TotalMilliseconds) > tol.TotalMilliseconds ||
-                Math.Abs((c[ic].ts - t).TotalMilliseconds) > tol.TotalMilliseconds)
-            {
-                var min = a[ia].ts;
-                if (b[ib].ts < min) min = b[ib].ts;
-                if (c[ic].ts < min) min = c[ic].ts;
-
-                if (min == a[ia].ts) ia++;
-                else if (min == b[ib].ts) ib++;
-                else ic++;
-                continue;
-            }
-
-            outp.Add((t, a[ia].val + b[ib].val + c[ic].val));
-            ia++; ib++; ic++;
-        }
-
-        return outp;
-    }
-
-    private static IEnumerable<(DateTime ts, double val)> TimeBucketDownsampleMinMax(
-        IEnumerable<(DateTime ts, double val)> pts, int maxPoints)
-    {
-        var list = pts.OrderBy(p => p.ts).ToList();
-        if (list.Count <= maxPoints) return list;
-
-        int buckets = Math.Max(1, maxPoints / 2);
-        var start = list.First().ts;
-        var end = list.Last().ts;
-        var span = (end - start).Ticks;
-        if (span <= 0) return list.Take(maxPoints);
-
-        long bucket = span / buckets;
-        var result = new List<(DateTime, double)>(buckets * 2 + 2) { list.First() };
-
-        for (int i = 0; i < buckets; i++)
-        {
-            var bStart = start.AddTicks(bucket * i);
-            var bEnd = (i == buckets - 1) ? end : start.AddTicks(bucket * (i + 1));
-            double? minVal = null, maxVal = null;
-            DateTime minTs = default, maxTs = default;
-
-            foreach (var p in list)
-            {
-                if (p.ts < bStart || p.ts >= bEnd) continue;
-                if (minVal is null || p.val < minVal)
-                {
-                    minVal = p.val; minTs = p.ts;
-                }
-                if (maxVal is null || p.val > maxVal)
-                {
-                    maxVal = p.val; maxTs = p.ts;
-                }
-            }
-            if (minVal is null) continue;
-
-            if (minTs <= maxTs) { result.Add((minTs, minVal!.Value)); result.Add((maxTs, maxVal!.Value)); }
-            else { result.Add((maxTs, maxVal!.Value)); result.Add((minTs, minVal!.Value)); }
-        }
-
-        result.Add(list.Last());
-        return result;
+        return which == "active"
+            ? apparent * Math.Cos(angleDiff)
+            : apparent * Math.Sin(angleDiff);
     }
 }

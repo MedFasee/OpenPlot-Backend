@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Globalization;
+using Microsoft.Extensions.Logging;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Abstractions;
 using OpenPlot.Features.Runs.Handlers.Responses;
@@ -20,17 +22,20 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
     protected readonly IPlotMetaBuilder _metaBuilder;
     protected readonly ISeriesCacheService _cacheService;
     protected readonly IUiMenuService _uiMenus;
+    protected readonly ILogger _logger;
 
     protected BaseSeriesHandler(
         IRunContextRepository runRepository,
         IPlotMetaBuilder metaBuilder,
         ISeriesCacheService cacheService,
-        IUiMenuService uiMenus)
+        IUiMenuService uiMenus,
+        ILogger logger)
     {
         _runRepository = runRepository ?? throw new ArgumentNullException(nameof(runRepository));
         _metaBuilder = metaBuilder ?? throw new ArgumentNullException(nameof(metaBuilder));
         _cacheService = cacheService ?? throw new ArgumentNullException(nameof(cacheService));
         _uiMenus = uiMenus ?? throw new ArgumentNullException(nameof(uiMenus));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     /// <summary>
@@ -64,43 +69,105 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
                 return Results.NotFound("run_id não encontrado.");
             }
 
-            // Passo 3: Executar query específica do handler
-            var rows = await QueryDataAsync(query, runContext, window, ct);
+            // Passo 3: select rápido para resposta
+            var noDownsample = query.MaxPointsIsAll;
+            var maxPts = query.ResolveMaxPoints(@default: 5000);
+            var frontWatch = Stopwatch.StartNew();
+            _logger.LogInformation(
+                "[BYRUN][{Handler}][FRONT][START] runId={RunId} maxPoints={MaxPoints}",
+                typeof(TQuery).Name,
+                query.RunId,
+                noDownsample ? "all" : maxPts);
 
-            if (rows.Count == 0)
+            var frontRows = await QueryDataAsync(query, runContext, window, ct, noDownsample ? null : maxPts);
+
+            frontWatch.Stop();
+            _logger.LogInformation(
+                "[BYRUN][{Handler}][FRONT][END] runId={RunId} elapsedMs={ElapsedMs} rows={Rows}",
+                typeof(TQuery).Name,
+                query.RunId,
+                frontWatch.ElapsedMilliseconds,
+                frontRows.Count);
+
+            if (frontRows.Count == 0)
             {
                 return Results.NotFound(GetEmptyDataMessage());
             }
 
             // Passo 4: Resolver janela temporal definitiva
-            var windowFrom = window.FromUtc ?? rows.Min(r => r.Ts);
-            var windowTo = window.ToUtc ?? rows.Max(r => r.Ts);
+            var windowFrom = window.FromUtc ?? frontRows.Min(r => r.Ts);
+            var windowTo = window.ToUtc ?? frontRows.Max(r => r.Ts);
 
-            // Passo 5: Salvar em cache (se aplicável)
-            var cachePayload = BuildCachePayload(rows, windowFrom, windowTo, runContext);
-            var cacheId = cachePayload is not null
-                ? await _cacheService.SaveAsync(query.RunId, cachePayload, ct)
-                : null;
+            // Passo 5: preparar cache_id imediato e disparar persistência full em background
+            object? cacheId = null;
+            var cacheIdGuid = Guid.NewGuid();
+            cacheId = cacheIdGuid;
+
+            _ = Task.Run(async () =>
+            {
+                var bgWatch = Stopwatch.StartNew();
+                var fullRowsCount = 0;
+                var persisted = false;
+
+                _logger.LogInformation(
+                    "[BYRUN][{Handler}][CACHE-BG][START] runId={RunId} cacheId={CacheId}",
+                    typeof(TQuery).Name,
+                    query.RunId,
+                    cacheIdGuid);
+
+                try
+                {
+                    var fullRows = await QueryDataAsync(query, runContext, window, CancellationToken.None, null);
+                    fullRowsCount = fullRows.Count;
+                    if (fullRowsCount == 0)
+                    {
+                        return;
+                    }
+
+                    var cacheWindowFrom = window.FromUtc ?? fullRows.Min(r => r.Ts);
+                    var cacheWindowTo = window.ToUtc ?? fullRows.Max(r => r.Ts);
+                    var cachePayloadFull = BuildCachePayload(fullRows, cacheWindowFrom, cacheWindowTo, runContext);
+                    if (cachePayloadFull is null)
+                    {
+                        return;
+                    }
+
+                    await _cacheService.SaveAsync(cacheIdGuid, query.RunId, cachePayloadFull, CancellationToken.None);
+                    persisted = true;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Falha ao persistir cache assíncrono de by-run. runId={RunId}", query.RunId);
+                }
+                finally
+                {
+                    bgWatch.Stop();
+                    _logger.LogInformation(
+                        "[BYRUN][{Handler}][CACHE-BG][END] runId={RunId} cacheId={CacheId} elapsedMs={ElapsedMs} rows={Rows} persisted={Persisted}",
+                        typeof(TQuery).Name,
+                        query.RunId,
+                        cacheIdGuid,
+                        bgWatch.ElapsedMilliseconds,
+                        fullRowsCount,
+                        persisted);
+                }
+            });
 
             // Passo 6: Transformar dados para apresentação
-            var maxPts = query.ResolveMaxPoints(@default: 5000);
-            var noDownsample = query.MaxPointsIsAll;
-            var series = TransformData(rows, maxPts, noDownsample);
+            var series = TransformData(frontRows, maxPts, noDownsample);
 
             // Passo 7: Construir metadados
             var plotMeta = BuildPlotMeta(runContext, query, window);
             var resolvedModes = _uiMenus.RebuildForRun(
                 modes,
-                cachePayload is not null
-                    ? UiMenuContext.FromCache(cachePayload)
-                    : new UiMenuContext(windowFrom, windowTo, runContext.SelectRate));
+                new UiMenuContext(windowFrom, windowTo, runContext.SelectRate));
 
             // Passo 8: Montar resposta final
             var response = SeriesResponseBuilderExtensions
                 .BuildSeriesResponse(query.RunId, windowFrom, windowTo, series, plotMeta)
                 .WithModes(resolvedModes)
                 .WithCacheId(cacheId)
-                .WithResolved(rows.First().PdcName, GetPmuCount(rows, series))
+                .WithResolved(frontRows.First().PdcName, GetPmuCount(frontRows, series))
                 .Build();
 
             return Results.Ok(response);
@@ -144,7 +211,8 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
         TQuery query,
         RunContext runContext,
         WindowQuery window,
-        CancellationToken ct);
+        CancellationToken ct,
+        int? maxPoints);
 
     /// <summary>
     /// Transforma dados brutos em séries formatadas para resposta.
