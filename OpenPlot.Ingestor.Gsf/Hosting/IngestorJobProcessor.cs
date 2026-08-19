@@ -33,6 +33,9 @@ internal sealed class IngestorJobProcessor : IIngestorJobProcessor
 
     public void ProcessJob(SearchRunJob job, int workerId)
     {
+        var jobSw = Stopwatch.StartNew();
+        IngestorProgressReporter? progress = null;
+
         using var conn = new NpgsqlConnection(PgConnString);
         conn.Open();
 
@@ -54,7 +57,11 @@ internal sealed class IngestorJobProcessor : IIngestorJobProcessor
                 var pmuList = TryParsePmus(job.PmusJson);
                 var nPmus = pmuList is { Count: > 0 } ? pmuList.Count : 1;
                 var nIntervals = CountIntervals(fromUtc, toUtc);
-                var progress = new IngestorProgressReporter(PgConnString, job.Id, nPmus * nIntervals);
+                progress = new IngestorProgressReporter(
+                    PgConnString,
+                    job.Id,
+                    nPmus * nIntervals,
+                    nIntervals);
 
                 List<string>? pmusComDados = null;
                 if (pmuList is { Count: > 0 })
@@ -65,47 +72,77 @@ internal sealed class IngestorJobProcessor : IIngestorJobProcessor
                     {
                         ThrowIfJobCancellationRequested(job.Id);
 
-                        var term = TerminalResolver.Resolve(sysCfg, pmuIdName);
-                        var channels = _chunkPipeline.LoadChannels(job.Source ?? sysCfg.Name, pmuIdName);
-                        if (channels.Count == 0)
-                            throw new Exception("Nenhum canal encontrado no DB para a PMU '" + pmuIdName + "'.");
+                        var pmuSw = Stopwatch.StartNew();
+                        var reporterPmuName = pmuIdName;
 
-                        var teveDados = _chunkPipeline.FetchAndInsert(
-                            job.Id,
-                            job.Source ?? sysCfg.Name,
-                            sysCfg,
-                            term,
-                            channels,
-                            fromUtc,
-                            toUtc,
-                            job.SelectRate,
-                            progress,
-                            IsJobCancellationRequested,
-                            id => new JobCanceledException(id));
+                        try
+                        {
+                            var term = TerminalResolver.Resolve(sysCfg, pmuIdName);
+                            reporterPmuName = term.Id;
 
-                        if (teveDados)
-                            pmusComDados.Add(pmuIdName);
+                            var channels = _chunkPipeline.LoadChannels(job.Source ?? sysCfg.Name, pmuIdName);
+                            if (channels.Count == 0)
+                                throw new Exception("Nenhum canal encontrado no DB para a PMU '" + pmuIdName + "'.");
+
+                            var teveDados = _chunkPipeline.FetchAndInsert(
+                                job.Id,
+                                job.Source ?? sysCfg.Name,
+                                sysCfg,
+                                term,
+                                channels,
+                                fromUtc,
+                                toUtc,
+                                job.SelectRate,
+                                progress,
+                                IsJobCancellationRequested,
+                                id => new JobCanceledException(id));
+
+                            if (teveDados)
+                                pmusComDados.Add(pmuIdName);
+                        }
+                        finally
+                        {
+                            pmuSw.Stop();
+                            progress.CompletePmu(reporterPmuName, pmuSw.Elapsed);
+                        }
                     }
                 }
 
                 ThrowIfJobCancellationRequested(job.Id);
+
+                jobSw.Stop();
 
                 using var tx2 = conn.BeginTransaction();
                 SavePmusOk(conn, tx2, job.Id, pmusComDados);
 
                 if (pmusComDados is null || pmusComDados.Count == 0)
                 {
+                    var finalMessage = progress.BuildFinalMessage(
+                        jobSw.Elapsed,
+                        "no_data",
+                        "Consulta executada com sucesso, porém sem dados no intervalo solicitado");
+
                     DbOps.MarkFinished(
                         conn,
                         tx2,
                         job.Id,
                         "no_data",
                         100,
-                        "Consulta executada com sucesso, porém sem dados no intervalo solicitado");
+                        finalMessage);
                 }
                 else
                 {
-                    DbOps.MarkFinished(conn, tx2, job.Id, "done", 100, "Concluído");
+                    var finalMessage = progress.BuildFinalMessage(
+                        jobSw.Elapsed,
+                        "done");
+
+                    DbOps.MarkFinished(
+                        conn,
+                        tx2,
+                        job.Id,
+                        "done",
+                        100,
+                        finalMessage);
                 }
 
                 tx2.Commit();
@@ -114,11 +151,19 @@ internal sealed class IngestorJobProcessor : IIngestorJobProcessor
         }
         catch (JobCanceledException ex)
         {
+            jobSw.Stop();
             Console.WriteLine("[cancelado] job " + job.Id + ": " + ex.Message);
+
+            var message = progress?.BuildFinalMessage(
+                jobSw.Elapsed,
+                "canceled",
+                "Cancelado pelo usuário")
+                ?? "Cancelado pelo usuário";
+
             try
             {
                 using var tx2 = conn.BeginTransaction();
-                DbOps.MarkCanceled(conn, tx2, job.Id, "Cancelado pelo usuário");
+                DbOps.MarkCanceled(conn, tx2, job.Id, message);
                 tx2.Commit();
             }
             catch
@@ -127,16 +172,42 @@ internal sealed class IngestorJobProcessor : IIngestorJobProcessor
         }
         catch (InvalidConnectionException ex)
         {
+            jobSw.Stop();
             Console.WriteLine("[bad_connection] job " + job.Id + ": " + ex.Message);
-            MarkBadConnection(conn, job.Id, ex.Message);
+
+            var message = progress?.BuildFinalMessage(
+                jobSw.Elapsed,
+                "bad_connection",
+                ex.Message)
+                ?? ("bad_connection: " + ex.Message);
+
+            MarkBadConnection(
+                conn,
+                job.Id,
+                progress?.CurrentProgressPercent ?? 0,
+                message);
         }
         catch (Exception ex)
         {
+            jobSw.Stop();
             Console.WriteLine("[erro] job " + job.Id + ": " + ex.Message);
+
+            var message = progress?.BuildFinalMessage(
+                jobSw.Elapsed,
+                "failed",
+                ex.Message)
+                ?? ex.Message;
+
             try
             {
                 using var tx2 = conn.BeginTransaction();
-                DbOps.MarkFinished(conn, tx2, job.Id, "failed", 0, ex.Message);
+                DbOps.MarkFinished(
+                    conn,
+                    tx2,
+                    job.Id,
+                    "failed",
+                    progress?.CurrentProgressPercent ?? 0,
+                    message);
                 tx2.Commit();
             }
             catch
@@ -202,14 +273,22 @@ internal sealed class IngestorJobProcessor : IIngestorJobProcessor
         cmd.ExecuteNonQuery();
     }
 
-    private static void MarkBadConnection(NpgsqlConnection conn, Guid id, string? details = null)
+    private static void MarkBadConnection(
+        NpgsqlConnection conn,
+        Guid id,
+        int progress,
+        string message)
     {
-        var msg = string.IsNullOrWhiteSpace(details) ? "bad_connection" : "bad_connection: " + details;
-
         try
         {
             using var tx = conn.BeginTransaction();
-            DbOps.MarkFinished(conn, tx, id, "bad_connection", 0, msg);
+            DbOps.MarkFinished(
+                conn,
+                tx,
+                id,
+                "bad_connection",
+                progress,
+                message);
             tx.Commit();
         }
         catch

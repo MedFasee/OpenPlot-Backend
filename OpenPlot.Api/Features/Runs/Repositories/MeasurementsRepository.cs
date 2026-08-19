@@ -1187,10 +1187,43 @@ ORDER BY
     // ============================================================
     // WARM-UP
     // ============================================================
-    public Task WarmUpAsync(
+    public async Task WarmUpAsync(
         RunContext ctx,
         CancellationToken ct)
-        => Task.CompletedTask;
+    {
+        using var db = _dbf.Create();
+        await EnsureConnectionOpenAsync(db, ct);
+
+        var pmuScope = await ResolvePmuScopeAsync(db, ctx.PdcId, ctx.PmuNames, ct);
+        if (pmuScope.Count == 0)
+            return;
+
+        var pdcPmuIds = pmuScope.Select(r => r.PdcPmuId).ToArray();
+
+        const string sql = @"
+SELECT 1
+FROM openplot.measurements_wide mw
+WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
+  AND mw.ts >= @from_utc
+  AND mw.ts <  @to_utc
+LIMIT 1";
+
+        await db.ExecuteScalarAsync<int?>(
+            new CommandDefinition(
+                sql,
+                new
+                {
+                    pdc_pmu_ids = pdcPmuIds,
+                    from_utc    = ctx.FromUtc,
+                    to_utc      = ctx.ToUtc
+                },
+                commandTimeout: 60,
+                cancellationToken: ct));
+
+        _logger.LogDebug(
+            "[WARM-UP] measurements_wide aquecida: pdc={Pdc} pmuCount={Count} window=[{From:o}..{To:o}]",
+            ctx.PdcName, pdcPmuIds.Length, ctx.FromUtc, ctx.ToUtc);
+    }
 
     // ============================================================
     // METADATA RESOLUTION

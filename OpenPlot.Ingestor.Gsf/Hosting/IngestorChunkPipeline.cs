@@ -122,6 +122,15 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
         using var cts = new CancellationTokenSource();
         InvalidConnectionException? badConn = null;
 
+        // Contador atômico para rastrear o índice do chunk processado
+        var chunkCounterLock = new object();
+        var chunkIndexByInterval = new Dictionary<(DateTime cs, DateTime ce), int>();
+        var chunkIndexCounter = 0;
+        foreach (var interval in intervals)
+        {
+            chunkIndexByInterval[interval] = chunkIndexCounter++;
+        }
+
         var parallelOptions = new ParallelOptions
         {
             MaxDegreeOfParallelism = Math.Max(1, MaxParallelChunks),
@@ -132,6 +141,12 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
         {
             Parallel.ForEach(intervals, parallelOptions, (interval, state) =>
             {
+                // Obtém o índice do chunk de forma thread-safe
+                var chunkIndex = 0;
+                lock (chunkIndexByInterval)
+                {
+                    chunkIndexByInterval.TryGetValue(interval, out chunkIndex);
+                }
                 bool CheckCancellation()
                 {
                     if (!isJobCancellationRequested(jobId))
