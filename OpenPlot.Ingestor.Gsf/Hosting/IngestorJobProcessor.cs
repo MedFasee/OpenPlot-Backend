@@ -55,12 +55,26 @@ internal sealed class IngestorJobProcessor : IIngestorJobProcessor
                     TimeSpan.FromMinutes(10));
 
                 var pmuList = TryParsePmus(job.PmusJson);
+
+                // Normaliza a seleção antes de calcular o total do job.
+                // Isso evita contar/processar a mesma PMU duas vezes e mantém
+                // totalChunks coerente com as chaves agregadas por PMU+janela.
+                if (pmuList is { Count: > 0 })
+                {
+                    pmuList = pmuList
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Select(x => x.Trim())
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                }
+
                 var nPmus = pmuList is { Count: > 0 } ? pmuList.Count : 1;
                 var nIntervals = CountIntervals(fromUtc, toUtc);
                 progress = new IngestorProgressReporter(
                     PgConnString,
                     job.Id,
                     nPmus * nIntervals,
+                    nPmus,
                     nIntervals);
 
                 List<string>? pmusComDados = null;
@@ -83,6 +97,10 @@ internal sealed class IngestorJobProcessor : IIngestorJobProcessor
                             var channels = _chunkPipeline.LoadChannels(job.Source ?? sysCfg.Name, pmuIdName);
                             if (channels.Count == 0)
                                 throw new Exception("Nenhum canal encontrado no DB para a PMU '" + pmuIdName + "'.");
+
+                            // Publica imediatamente a PMU atual na message para o polling do front.
+                            // A linha será atualizada incrementalmente conforme os chunks terminarem.
+                            progress.StartPmu(reporterPmuName);
 
                             var teveDados = _chunkPipeline.FetchAndInsert(
                                 job.Id,

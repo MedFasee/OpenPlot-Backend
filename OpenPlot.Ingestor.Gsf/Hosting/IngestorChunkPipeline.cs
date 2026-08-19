@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -46,6 +47,8 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
     // Mantém folga sem ultrapassar metade do período, evitando ambiguidade
     // com o frame vizinho.
     private const double FrameToleranceFraction = 0.45;
+
+    private const string MetricsPipelineVersion = "v2";
 
     private readonly record struct SignalSample(
         DateTime Ts,
@@ -105,6 +108,17 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
             throw new Exception("Nenhum signal mapeado para os Channel.Id informados (verifique o catálogo).");
 
         var allSignalIds = signalMap.Values.Distinct().ToArray();
+
+        // Resolve uma única vez quais signals realmente possuem destino na tabela wide.
+        // Esse conjunto também define quais sinais participam da análise de completude
+        // do frame: um frame só é "presente" quando todos esses sinais possuem amostra
+        // real mapeada para a posição temporal esperada.
+        var wideColumnBySignal = LoadWideColumnBySignalId(conn, pdcPmuId, allSignalIds);
+        var trackedSignalIds = wideColumnBySignal.Keys.OrderBy(x => x).ToArray();
+
+        if (trackedSignalIds.Length == 0)
+            throw new Exception("Nenhum signal da PMU possui mapeamento para openplot.measurements_wide.");
+
         var totalSpan = toUtc - fromUtc;
         var chunkSize = TimeSpan.FromMinutes(Math.Max(1, ChunkMinutes));
         if (chunkSize > totalSpan)
@@ -122,15 +136,6 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
         using var cts = new CancellationTokenSource();
         InvalidConnectionException? badConn = null;
 
-        // Contador atômico para rastrear o índice do chunk processado
-        var chunkCounterLock = new object();
-        var chunkIndexByInterval = new Dictionary<(DateTime cs, DateTime ce), int>();
-        var chunkIndexCounter = 0;
-        foreach (var interval in intervals)
-        {
-            chunkIndexByInterval[interval] = chunkIndexCounter++;
-        }
-
         var parallelOptions = new ParallelOptions
         {
             MaxDegreeOfParallelism = Math.Max(1, MaxParallelChunks),
@@ -141,12 +146,6 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
         {
             Parallel.ForEach(intervals, parallelOptions, (interval, state) =>
             {
-                // Obtém o índice do chunk de forma thread-safe
-                var chunkIndex = 0;
-                lock (chunkIndexByInterval)
-                {
-                    chunkIndexByInterval.TryGetValue(interval, out chunkIndex);
-                }
                 bool CheckCancellation()
                 {
                     if (!isJobCancellationRequested(jobId))
@@ -168,6 +167,35 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                 var cs = interval.cs;
                 var ce = interval.ce;
                 IDisposable? lease = null;
+                Stopwatch? chunkSw = null;
+                DateTime[]? expectedFrames = null;
+                int? presentFrames = null;
+                int? missingFrames = null;
+                int? badQualityFrames = null;
+                var chunkReported = false;
+
+                void ReportChunk(string status, string? details = null)
+                {
+                    if (chunkReported || chunkSw == null)
+                        return;
+
+                    if (chunkSw.IsRunning)
+                        chunkSw.Stop();
+
+                    progress.CompleteChunk(new ChunkIngestMetrics(
+                        Pmu: term.Id,
+                        FromUtc: cs,
+                        ToUtc: ce,
+                        ProcessingTime: chunkSw.Elapsed,
+                        ExpectedFrames: expectedFrames?.Length ?? 0,
+                        PresentFrames: presentFrames,
+                        MissingFrames: missingFrames,
+                        BadQualityFrames: badQualityFrames,
+                        Status: status,
+                        Details: details));
+
+                    chunkReported = true;
+                }
 
                 try
                 {
@@ -176,15 +204,20 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                     if (parallelOptions.CancellationToken.IsCancellationRequested || CheckCancellation())
                         return;
 
-                    if (ChunkAlreadyPresentDb(PgConnString, pdcPmuId, allSignalIds, cs, ce))
-                    {
-                        Console.WriteLine(
-                            "[skip] " + cs.ToString("yyyy-MM-dd HH:mm") +
-                            "-" + ce.ToString("HH:mm") + " (já existente)");
-                        Interlocked.Exchange(ref hasData, 1);
-                        progress.Tick($"Processando: {term.Id}");
-                        return;
-                    }
+                    // O tempo do chunk começa somente após adquirir o lease global.
+                    // Assim não contabilizamos tempo de espera por concorrência como
+                    // tempo de processamento do terminal/chunk.
+                    chunkSw = Stopwatch.StartNew();
+                    Console.WriteLine($"[metric] pipeline={MetricsPipelineVersion} pmu={term.Id} chunk={cs:O}->{ce:O}");
+
+                    // Materializa uma única vez a grade nominal de [cs, ce).
+                    // A mesma grade é usada tanto na métrica quanto no hold-last.
+                    expectedFrames = EnumerateExpectedFrames(cs, ce, selectRate).ToArray();
+
+                    // IMPORTANTE: não fazemos mais short-circuit quando o chunk já
+                    // existe em measurements_wide. As métricas da search_run devem ser
+                    // calculadas para TODOS os chunks solicitados a partir da fonte real.
+                    // O UPSERT abaixo continua tornando a persistência idempotente.
 
                     var repo = RepositoryFactory.Create(systemCfg);
                     var terminalCode =
@@ -210,7 +243,11 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                         Console.WriteLine(
                             "[info] " + cs.ToString("yyyy-MM-dd HH:mm") +
                             "-" + ce.ToString("HH:mm") + " sem dados");
-                        progress.Tick($"Processando: {term.Id}");
+
+                        presentFrames = 0;
+                        missingFrames = expectedFrames.Length;
+                        badQualityFrames = 0;
+                        ReportChunk("no_data");
                         return;
                     }
 
@@ -223,6 +260,16 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                     // mais próximo, respeitando a tolerância explícita.
                     var receivedFramesBySignal =
                         BuildReceivedFramesBySignal(samplesBySignal, selectRate);
+
+                    // Métrica calculada ANTES do hold-last, usando somente amostras
+                    // reais do historiador. quality == 29 é a condição de qualidade
+                    // boa já adotada pelos repositórios Historian deste projeto.
+                    (presentFrames, missingFrames, badQualityFrames) =
+                        CalculateFrameMetrics(
+                            expectedFrames,
+                            trackedSignalIds,
+                            receivedFramesBySignal,
+                            selectRate);
 
                     using var connCopy = new NpgsqlConnection(PgConnString);
                     connCopy.Open();
@@ -261,7 +308,6 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                     }
 
                     var distinctSignalIds = signalMap.Values.Distinct().ToArray();
-                    var wideColumnBySignal = LoadWideColumnBySignalId(connCopy, pdcPmuId, distinctSignalIds);
                     var missingFilled = 0;
                     var missingWithoutLastValid = 0;
 
@@ -314,7 +360,7 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                             sid,
                             out var receivedFrames);
 
-                        foreach (var expectedTs in EnumerateExpectedFrames(cs, ce, selectRate))
+                        foreach (var expectedTs in expectedFrames)
                         {
                             var frameKey = GetExpectedFrameKey(expectedTs, selectRate);
 
@@ -436,18 +482,24 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
 
                     txCopy.Commit();
                     Interlocked.Exchange(ref hasData, 1);
+                    chunkSw.Stop();
 
                     Console.WriteLine(
                         "[ok] " + term.Id + " " +
                         cs.ToString("yyyy-MM-dd HH:mm") + "-" +
                         ce.ToString("HH:mm") +
-                        " inserido | hold-last=" + missingFilled +
+                        " inserido | frames=" + presentFrames + "/" + expectedFrames.Length +
+                        " | faltantes=" + missingFrames +
+                        " | qualidade-ruim=" + badQualityFrames +
+                        " | hold-last=" + missingFilled +
                         " | sem-last-valid=" + missingWithoutLastValid);
 
-                    progress.Tick($"Processando: {term.Id}");
+                    ReportChunk("ok");
                 }
                 catch (InvalidConnectionException ex)
                 {
+                    ReportChunk("bad_connection", ex.Message);
+
                     if (Interlocked.CompareExchange(ref badConn, ex, null) == null)
                     {
                         cts.Cancel();
@@ -456,6 +508,7 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                 }
                 catch (OperationCanceledException)
                 {
+                    ReportChunk("canceled");
                 }
                 catch (Exception ex)
                 {
@@ -464,10 +517,16 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                         cs.ToString("yyyy-MM-dd HH:mm") + "-" +
                         ce.ToString("HH:mm") + ": " + ex.Message);
 
-                    progress.Tick($"Processando: {term.Id}");
+                    ReportChunk("failed", ex.Message);
                 }
                 finally
                 {
+                    // Garantia defensiva: todo chunk que chegou a iniciar processamento
+                    // precisa deixar uma métrica. Se algum novo return for adicionado
+                    // futuramente sem ReportChunk(), o problema ficará explícito no log.
+                    if (chunkSw != null && !chunkReported)
+                        ReportChunk("unreported", "Fluxo encerrou sem status explícito de chunk");
+
                     lease?.Dispose();
                 }
             });
@@ -895,54 +954,67 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
             importer.WriteNull();
     }
 
-    private static bool ChunkAlreadyPresentDb(
-        string connString,
-        int pdcPmuId,
-        int[] signalIds,
-        DateTime from,
-        DateTime to)
-    {
-        if (signalIds.Length == 0)
-            return false;
-
-        using var conn = new NpgsqlConnection(connString);
-        conn.Open();
-
-        var wideMap = LoadWideColumnBySignalId(conn, pdcPmuId, signalIds);
-        var columns = wideMap.Values
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        if (columns.Length == 0)
-            return false;
-
-        foreach (var column in columns)
-        {
-            using var cmd = new NpgsqlCommand($@"
-                SELECT 1
-                  FROM openplot.measurements_wide mw
-                 WHERE mw.pdc_pmu_id = @pp
-                   AND mw.ts >= @from
-                   AND mw.ts <  @to
-                   AND mw.{column} IS NOT NULL
-                 LIMIT 1;", conn);
-
-            cmd.Parameters.AddWithValue("pp", pdcPmuId);
-            cmd.Parameters.AddWithValue("from", from);
-            cmd.Parameters.AddWithValue("to", to);
-
-            var exists = cmd.ExecuteScalar() != null;
-            if (!exists)
-                return false;
-        }
-
-        return true;
-    }
-
     private static DateTime FromOADateUtc(double oa)
     {
         var dt = DateTime.FromOADate(oa);
         return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+    }
+
+    /// <summary>
+    /// Calcula as métricas temporais do chunk sobre os frames REAIS recebidos,
+    /// antes de qualquer hold-last.
+    ///
+    /// Regras:
+    /// - esperado: cada posição da grade nominal em [cs, ce);
+    /// - presente: TODOS os signals mapeados para a wide chegaram naquele frame;
+    /// - faltante: pelo menos um signal esperado não chegou;
+    /// - qualidade ruim: pelo menos um signal REAL recebido no frame tem quality != 29.
+    ///
+    /// Portanto, ExpectedFrames = PresentFrames + MissingFrames.
+    /// MissingFrames e BadQualityFrames podem se sobrepor.
+    /// </summary>
+    private static (int PresentFrames, int MissingFrames, int BadQualityFrames)
+        CalculateFrameMetrics(
+            IReadOnlyList<DateTime> expectedFrames,
+            IReadOnlyList<int> trackedSignalIds,
+            Dictionary<int, Dictionary<(long SecTicks, int FrameIdx), MappedFrameSample>> receivedFramesBySignal,
+            int selectRate)
+    {
+        const int goodQualityCode = 29;
+
+        var present = 0;
+        var missing = 0;
+        var badQuality = 0;
+
+        foreach (var expectedTs in expectedFrames)
+        {
+            var frameKey = GetExpectedFrameKey(expectedTs, selectRate);
+            var allSignalsPresent = trackedSignalIds.Count > 0;
+            var hasBadQuality = false;
+
+            foreach (var signalId in trackedSignalIds)
+            {
+                if (!receivedFramesBySignal.TryGetValue(signalId, out var frames) ||
+                    !frames.TryGetValue(frameKey, out var mapped))
+                {
+                    allSignalsPresent = false;
+                    continue;
+                }
+
+                if (mapped.Sample.Quality != goodQualityCode)
+                    hasBadQuality = true;
+            }
+
+            if (allSignalsPresent)
+                present++;
+            else
+                missing++;
+
+            if (hasBadQuality)
+                badQuality++;
+        }
+
+        return (present, missing, badQuality);
     }
 
     /// <summary>
