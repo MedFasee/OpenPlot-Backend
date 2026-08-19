@@ -146,9 +146,9 @@ public static class Prony
 
         var n = commonTimes.Length;
 
-        var maxAllowedOrder = ComputeMaxAllowedOrder(n);
-        if (order > maxAllowedOrder)
-            throw new InvalidOperationException($"Ordem inválida para Prony. A ordem ({order}) deve ser menor ou igual a {maxAllowedOrder} (número de amostras / 4 arredondado para baixo para {n} amostras).");
+        //var maxAllowedOrder = ComputeMaxAllowedOrder(n);
+        //if (order > maxAllowedOrder)
+        //   throw new InvalidOperationException($"Ordem inválida para Prony. A ordem ({order}) deve ser menor ou igual a {maxAllowedOrder} (número de amostras / 4 arredondado para baixo para {n} amostras).");
 
         if (valid.Count * (n - order) < order)
             throw new InvalidOperationException("A janela possui poucas amostras para a ordem de Prony solicitada.");
@@ -278,8 +278,9 @@ public static class Prony
     private static double RadiansToDegrees(double radians) =>
         radians * (180.0 / Math.PI);
 
-    private static int ComputeMaxAllowedOrder(int sampleCount) =>
-        Math.Max(1, sampleCount / 4);
+    // Retirada de limitador da ordem prony
+    //private static int ComputeMaxAllowedOrder(int sampleCount) =>
+    //    Math.Max(1, sampleCount / 4);
 
     // Mesmo filtro usado na tabela do MedPlot:
     // frequência positiva abaixo de 10 Hz e energia acima de 1e-3.
