@@ -15,6 +15,22 @@
           }
         }
       },
+      "MathNet.Filtering/0.7.0": {
+        "type": "package",
+        "dependencies": {
+          "MathNet.Numerics": "4.9.1"
+        },
+        "compile": {
+          "lib/netstandard2.0/MathNet.Filtering.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/netstandard2.0/MathNet.Filtering.dll": {
+            "related": ".xml"
+          }
+        }
+      },
       "MathNet.Numerics/5.0.0": {
         "type": "package",
         "compile": {
@@ -484,6 +500,26 @@
         "lib/netstandard2.0/Dapper.dll",
         "lib/netstandard2.0/Dapper.xml",
         "readme.md"
+      ]
+    },
+    "MathNet.Filtering/0.7.0": {
+      "sha512": "Ghm/RaCS4+29PO1XGn83shZSwDJzAGxys60xh0QZH8Dz3dqxiTIwal8kksU8vcp3GtNVRDtSgM7O3FLuhep9vw==",
+      "type": "package",
+      "path": "mathnet.filtering/0.7.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "icon.png",
+        "lib/net40/MathNet.Filtering.dll",
+        "lib/net40/MathNet.Filtering.xml",
+        "lib/net461/MathNet.Filtering.dll",
+        "lib/net461/MathNet.Filtering.xml",
+        "lib/netstandard1.3/MathNet.Filtering.dll",
+        "lib/netstandard1.3/MathNet.Filtering.xml",
+        "lib/netstandard2.0/MathNet.Filtering.dll",
+        "lib/netstandard2.0/MathNet.Filtering.xml",
+        "mathnet.filtering.0.7.0.nupkg.sha512",
+        "mathnet.filtering.nuspec"
       ]
     },
     "MathNet.Numerics/5.0.0": {
@@ -1354,6 +1390,7 @@
   "projectFileDependencyGroups": {
     "net10.0": [
       "Dapper >= 2.1.66",
+      "MathNet.Filtering >= 0.7.0",
       "MathNet.Numerics >= 5.0.0",
       "Microsoft.AspNetCore.Authentication.JwtBearer >= 10.0.8",
       "Microsoft.AspNetCore.OpenApi >= 8.0.19",
@@ -1425,6 +1462,10 @@
           "Dapper": {
             "target": "Package",
             "version": "[2.1.66, )"
+          },
+          "MathNet.Filtering": {
+            "target": "Package",
+            "version": "[0.7.0, )"
           },
           "MathNet.Numerics": {
             "target": "Package",

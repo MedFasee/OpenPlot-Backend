@@ -147,7 +147,14 @@ public sealed class UnbalanceSeriesHandler
         var plotMeta = _meta.Build(w, ctx, meas);
         var resolvedModes = _uiMenus.RebuildForRun(
             modes,
-            new UiMenuContext(windowFrom, windowTo, ctx.SelectRate));
+            new UiMenuContext(
+                WindowFromUtc: windowFrom,
+                WindowToUtc: windowTo,
+                SelectRate: ctx.SelectRate,
+                TotalSeriesCount: series.Count,
+                ValidSeriesCount: series.Count,
+                Quantity: kind,
+                Component: "ratio"));
 
         var response = SeriesResponseBuilderExtensions
             .BuildSeriesResponse(q.RunId, windowFrom, windowTo, series, plotMeta)

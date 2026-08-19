@@ -201,9 +201,21 @@ public sealed class ThdSeriesHandler
         );
 
         var plotMeta = _metaBuilder.Build(window, ctx, meas);
+        var selectedPmuCount = frontRows
+            .Select(row => row.IdName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
         var resolvedModes = _uiMenus.RebuildForRun(
             modes,
-            new UiMenuContext(windowFrom, windowTo, ctx.SelectRate));
+            new UiMenuContext(
+                WindowFromUtc: windowFrom,
+                WindowToUtc: windowTo,
+                SelectRate: ctx.SelectRate,
+                TotalSeriesCount: selectedPmuCount,
+                ValidSeriesCount: selectedPmuCount,
+                Quantity: k,
+                Component: "thd",
+                Phase: tri ? "abc" : uphase?.Trim().ToLowerInvariant()));
 
         var response = SeriesResponseBuilderExtensions
             .BuildSeriesResponse(query.RunId, windowFrom, windowTo, series, plotMeta)

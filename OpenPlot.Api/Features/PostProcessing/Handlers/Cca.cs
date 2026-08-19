@@ -1,5 +1,7 @@
 using System.Numerics;
+using MathNet.Filtering.FIR;
 using MathNet.Numerics.LinearAlgebra;
+using MathNet.Numerics.LinearAlgebra.Factorization;
 using OpenPlot.Features.Runs.Contracts;
 
 namespace OpenPlot.Features.PostProcessing.Handlers;
@@ -196,18 +198,52 @@ public static class Cca
 
     private static List<InputSeries> PreprocessSignals(IReadOnlyList<InputSeries> signals, int samplingRate)
     {
-        var downsampleFactor = Math.Max(1, (int)Math.Floor(samplingRate / FilteredSamplingRateHz));
+        // GraficoCVA:
+        // int d = Convert.ToInt16(sr / fDown);
+        var downsampleFactor = Convert.ToInt16(samplingRate / FilteredSamplingRateHz);
+
+        if (downsampleFactor <= 0)
+            throw new InvalidOperationException("Fator de downsampling inválido para o CCA.");
+
         var processed = new List<InputSeries>(signals.Count);
 
         foreach (var signal in signals)
         {
             var samples = signal.Samples.ToArray();
+
+            // 1) Média móvel — mesma implementação do GraficoCVA.
             var movingAverage = MovingAverage(samples);
+
+            // 2) Desvio padrão amostral.
             var standardDeviation = StandardDeviation(samples);
-            var withoutOutliers = IdentifyOutliers(samples, movingAverage, standardDeviation, OutlierThreshold);
+
+            // 3) Identificação de outliers — mesma expressão do GraficoCVA.
+            var withoutOutliers = IdentifyOutliers(
+                samples,
+                movingAverage,
+                standardDeviation,
+                OutlierThreshold);
+
+            // 4) Interpolação dos outliers — mesma lógica do GraficoCVA.
             InterpolateNaNs(withoutOutliers);
+
+            // 5) Remoção da média.
             RemoveAverage(withoutOutliers);
-            var downsampled = Downsample(withoutOutliers, downsampleFactor);
+
+            // 6) Filtro FIR passa-banda EXATO usado no GraficoCVA:
+            //    FirCoefficients.BandPass(sr, 0.15, 2, 10)
+            //    OnlineFirFilter.ProcessSamples(...)
+            var coefficients = FirCoefficients.BandPass(
+                samplingRate,
+                0.15,
+                2.0,
+                10);
+
+            var firFilter = new OnlineFirFilter(coefficients);
+            var filtered = firFilter.ProcessSamples(withoutOutliers);
+
+            // 7) Downsampling após o FIR, como no legado.
+            var downsampled = Downsample(filtered, downsampleFactor);
 
             if (downsampled.Length >= 3)
                 processed.Add(new InputSeries(signal.Series, downsampled));
@@ -248,13 +284,61 @@ public static class Cca
             }
         }
 
-        var yp = y.SubMatrix(0, blockRows * p, 0, n);
-        var yf = y.SubMatrix(blockRows * p, blockRows * p, 0, n);
+        var blockDimension = blockRows * p;
 
-        var covarianceScale = 1.0 / n;
-        var rff = (yf * yf.Transpose()) * covarianceScale;
-        var rfp = (yf * yp.Transpose()) * covarianceScale;
-        var rpp = (yp * yp.Transpose()) * covarianceScale;
+        var yp = y.SubMatrix(0, blockDimension, 0, n);
+        var yf = y.SubMatrix(blockDimension, blockDimension, 0, n);
+
+        // GraficoCVA:
+        // H = [Yp; Yf]
+        // [Q,L] = qr(H',0)
+        //
+        // Como Y já é exatamente [Yp;Yf], H == Y.
+        var hTranspose = y.Transpose();
+
+        // Economy-size QR, equivalente ao qr(H',0).
+        var qr = hTranspose.QR(QRMethod.Thin);
+        var l = qr.R;
+
+        if (l.RowCount < 2 * blockDimension || l.ColumnCount < 2 * blockDimension)
+        {
+            throw new InvalidOperationException(
+                $"A janela processada é insuficiente para a decomposição QR do CCA. " +
+                $"R={l.RowCount}x{l.ColumnCount}; necessário pelo menos " +
+                $"{2 * blockDimension}x{2 * blockDimension}.");
+        }
+
+        // Ltr = L' / sqrt(N)
+        var lSquare = l.SubMatrix(
+            0,
+            2 * blockDimension,
+            0,
+            2 * blockDimension);
+
+        var ltr = lSquare.Transpose() / Math.Sqrt(n);
+
+        var l11 = ltr.SubMatrix(
+            0,
+            blockDimension,
+            0,
+            blockDimension);
+
+        var l21 = ltr.SubMatrix(
+            blockDimension,
+            blockDimension,
+            0,
+            blockDimension);
+
+        var l22 = ltr.SubMatrix(
+            blockDimension,
+            blockDimension,
+            blockDimension,
+            blockDimension);
+
+        // Mesmas matrizes de covariância do GraficoCVA.
+        var rff = (l21 * l21.Transpose()) + (l22 * l22.Transpose());
+        var rfp = l21 * l11.Transpose();
+        var rpp = l11 * l11.Transpose();
 
         var t = MatrixSquareRoot(rff);
         var tInv = MatrixSquareRootInverse(rff);
@@ -415,41 +499,44 @@ public static class Cca
     private static Matrix<double> MatrixSquareRootInverse(Matrix<double> matrix)
     {
         var svd = matrix.Svd(computeVectors: true);
+
         var inverseSqrt = Matrix<double>.Build.DenseDiagonal(
             svd.S.Count,
             svd.S.Count,
-            index => svd.S[index] > 1e-12 ? 1.0 / Math.Sqrt(svd.S[index]) : 0.0);
+            index =>
+            {
+                var singularValue = svd.S[index];
+
+                // GraficoCVA:
+                // sqrt(S) -> inverse().
+                //
+                // Não existe cutoff fixo em 1e-12. Valores positivos,
+                // mesmo muito pequenos, participam da solução.
+                if (singularValue == 0.0)
+                    throw new InvalidOperationException(
+                        $"Matriz singular: valor singular zero no índice {index}.");
+
+                return 1.0 / Math.Sqrt(singularValue);
+            });
 
         return svd.VT.Transpose() * inverseSqrt * svd.U.Transpose();
     }
 
     private static Matrix<double> SolveLeastSquares(Matrix<double> a, Matrix<double> b)
     {
-        try
-        {
-            return a.QR().Solve(b);
-        }
-        catch
-        {
-            var at = a.Transpose();
-            return (at * a).Solve(at * b);
-        }
+        // Correspondência do LinearLeastSquares.COFSolve do GraficoCVA.
+        // Sem fallback para (A'A)^-1 A'B, pois isso muda numericamente o método.
+        return a.QR(QRMethod.Thin).Solve(b);
     }
 
     private static Matrix<Complex> SolvePseudoInverse(Matrix<Complex> matrix)
     {
-        try
-        {
-            var conjugateTranspose = matrix.ConjugateTranspose();
-            return (conjugateTranspose * matrix).Inverse() * conjugateTranspose;
-        }
-        catch
-        {
-            var conjugateTranspose = matrix.ConjugateTranspose();
-            var gram = conjugateTranspose * matrix;
-            var regularized = gram + Matrix<Complex>.Build.DenseIdentity(gram.RowCount) * new Complex(1e-9, 0.0);
-            return regularized.Inverse() * conjugateTranspose;
-        }
+        // GraficoCVA:
+        // Z_inv = inv(Zᴴ Z) Zᴴ
+        //
+        // Sem regularização artificial.
+        var conjugateTranspose = matrix.ConjugateTranspose();
+        return (conjugateTranspose * matrix).Inverse() * conjugateTranspose;
     }
 
     private static DateTime[] BuildUniformTimes(int samplingRate, DateTime fromUtc, DateTime toUtc)
@@ -492,26 +579,68 @@ public static class Cca
 
     private static double[] MovingAverage(double[] values)
     {
+        double movingSum = 0.0;
         var movingAverage = new double[values.Length];
-        var halfWindow = MovingAverageOrder / 2;
 
-        for (var i = 0; i < values.Length; i++)
+        try
         {
-            var start = Math.Max(0, i - halfWindow);
-            var end = Math.Min(values.Length - 1, i + halfWindow);
-            var count = 0;
-            var sum = 0.0;
-
-            for (var j = start; j <= end; j++)
+            for (var j = 0; j < values.Length; j++)
             {
-                sum += values[j];
-                count++;
+                if (j == 0)
+                {
+                    movingAverage[j] = values[j];
+                }
+                else if (j > 0 && j < MovingAverageOrder / 2)
+                {
+                    movingSum = 0.0;
+
+                    for (var k = 1; k < j; k++)
+                        movingSum += values[j - k];
+
+                    for (var k = 0; k < MovingAverageOrder / 2; k++)
+                        movingSum += values[j + k];
+
+                    movingAverage[j] =
+                        movingSum / (j + (MovingAverageOrder / 2) - 1);
+                }
+                else if (j >= MovingAverageOrder / 2
+                         && j < values.Length - MovingAverageOrder / 2)
+                {
+                    movingSum = 0.0;
+
+                    for (var k = 1; k <= MovingAverageOrder / 2; k++)
+                    {
+                        movingSum += values[j - k];
+                        movingSum += values[j + k];
+                    }
+
+                    movingSum += values[j];
+
+                    movingAverage[j] =
+                        movingSum / (MovingAverageOrder + 1);
+                }
+                else if (j >= values.Length - MovingAverageOrder / 2)
+                {
+                    movingSum = 0.0;
+
+                    for (var k = 1; k < values.Length - j; k++)
+                        movingSum += values[j + k];
+
+                    for (var k = 0; k < MovingAverageOrder / 2; k++)
+                        movingSum += values[j - k];
+
+                    movingAverage[j] =
+                        movingSum /
+                        (values.Length - j + (MovingAverageOrder / 2) - 1);
+                }
             }
 
-            movingAverage[i] = count > 0 ? sum / count : values[i];
+            return movingAverage;
         }
-
-        return movingAverage;
+        catch
+        {
+            return movingAverage;
+        }
     }
 
     private static double StandardDeviation(double[] values)
@@ -524,52 +653,66 @@ public static class Cca
         return Math.Sqrt(Math.Max(variance, 0.0));
     }
 
-    private static double[] IdentifyOutliers(double[] values, double[] movingAverage, double standardDeviation, double threshold)
+    private static double[] IdentifyOutliers(
+        double[] values,
+        double[] movingAverage,
+        double standardDeviation,
+        double threshold)
     {
         var output = values.ToArray();
-        if (standardDeviation <= 0.0)
-            return output;
 
-        for (var i = 0; i < output.Length; i++)
+        try
         {
-            if (Math.Abs(output[i] - movingAverage[i]) > threshold * standardDeviation)
-                output[i] = double.NaN;
-        }
+            for (var j = 0; j < output.Length; j++)
+            {
+                if ((Math.Abs(output[j]) >
+                     Math.Abs(movingAverage[j]) + threshold * standardDeviation)
+                    ||
+                    (Math.Abs(output[j]) <
+                     Math.Abs(movingAverage[j]) - threshold * standardDeviation))
+                {
+                    output[j] = double.NaN;
+                }
+            }
 
-        return output;
+            return output;
+        }
+        catch
+        {
+            return output;
+        }
     }
 
     private static void InterpolateNaNs(double[] values)
     {
-        var lastKnownIndex = Array.FindIndex(values, value => !double.IsNaN(value));
-        if (lastKnownIndex < 0)
-            return;
+        var lastPointIndex = 0;
 
-        for (var i = 0; i < values.Length; i++)
+        for (var j = 0; j < values.Length; j++)
         {
-            if (!double.IsNaN(values[i]))
+            if (double.IsNaN(values[j]))
             {
-                lastKnownIndex = i;
-                continue;
-            }
+                var firstPointIndex =
+                    values.ToList().FindIndex(
+                        j,
+                        item => !double.IsNaN(item));
 
-            var nextKnownIndex = -1;
-            for (var j = i + 1; j < values.Length; j++)
-            {
-                if (!double.IsNaN(values[j]))
+                if (firstPointIndex > 0)
                 {
-                    nextKnownIndex = j;
-                    break;
+                    values[j] = LinearInterpolate(
+                        j,
+                        lastPointIndex,
+                        firstPointIndex,
+                        values[lastPointIndex],
+                        values[firstPointIndex]);
                 }
-            }
-
-            if (nextKnownIndex >= 0)
-            {
-                values[i] = LinearInterpolate(i, lastKnownIndex, nextKnownIndex, values[lastKnownIndex], values[nextKnownIndex]);
+                else
+                {
+                    values[j] = values[lastPointIndex];
+                }
             }
             else
             {
-                values[i] = values[lastKnownIndex];
+                lastPointIndex = j;
             }
         }
     }

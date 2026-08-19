@@ -128,6 +128,33 @@ public sealed class SimpleSeriesHandler : BaseSeriesHandler<SimpleSeriesQuery>
             cacheSeries);
     }
 
+    protected override UiMenuContext BuildUiMenuContext(
+        RunContext runContext,
+        DateTime windowFrom,
+        DateTime windowTo,
+        IReadOnlyList<MeasurementRow> rows)
+    {
+        var groupedRows = rows
+            .GroupBy(row => row.IdName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var pmuCount = groupedRows.Count;
+        var availablePointCount = groupedRows.Count == 0
+            ? 0
+            : groupedRows.Min(group => group.Count());
+
+        return new UiMenuContext(
+            WindowFromUtc: windowFrom,
+            WindowToUtc: windowTo,
+            SelectRate: runContext.SelectRate,
+            TotalSeriesCount: pmuCount,
+            ValidSeriesCount: pmuCount,
+            AvailablePointCount: availablePointCount,
+            Quantity: _currentMeasurement?.Quantity,
+            Component: _currentMeasurement?.Component,
+            Phase: _currentMeasurement?.Phase);
+    }
+
     protected override PlotMetaDto BuildPlotMeta(
         RunContext runContext,
         SimpleSeriesQuery query,

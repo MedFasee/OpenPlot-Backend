@@ -158,9 +158,8 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
 
             // Passo 7: Construir metadados
             var plotMeta = BuildPlotMeta(runContext, query, window);
-            var resolvedModes = _uiMenus.RebuildForRun(
-                modes,
-                new UiMenuContext(windowFrom, windowTo, runContext.SelectRate));
+            var menuContext = BuildUiMenuContext(runContext, windowFrom, windowTo, frontRows);
+            var resolvedModes = _uiMenus.RebuildForRun(modes, menuContext);
 
             // Passo 8: Montar resposta final
             var response = SeriesResponseBuilderExtensions
@@ -234,6 +233,34 @@ public abstract class BaseSeriesHandler<TQuery> : ISeriesHandler<TQuery>
         RunContext runContext)
     {
         return null; // Default: não cachear
+    }
+
+    /// <summary>
+    /// Constrói contexto para resolução dinâmica dos modos de UI.
+    /// Subclasses podem sobrescrever para informar quantidade/componente/fase.
+    /// </summary>
+    protected virtual UiMenuContext BuildUiMenuContext(
+        RunContext runContext,
+        DateTime windowFrom,
+        DateTime windowTo,
+        IReadOnlyList<MeasurementRow> rows)
+    {
+        var groupedRows = rows
+            .GroupBy(row => row.IdName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var pmuCount = groupedRows.Count;
+        var availablePointCount = groupedRows.Count == 0
+            ? 0
+            : groupedRows.Min(group => group.Count());
+
+        return new UiMenuContext(
+            WindowFromUtc: windowFrom,
+            WindowToUtc: windowTo,
+            SelectRate: runContext.SelectRate,
+            TotalSeriesCount: pmuCount,
+            ValidSeriesCount: pmuCount,
+            AvailablePointCount: availablePointCount);
     }
 
     /// <summary>

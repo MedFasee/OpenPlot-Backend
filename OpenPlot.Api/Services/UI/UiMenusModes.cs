@@ -27,12 +27,16 @@ public sealed record UiMenuContext(
     int? EffectivePointCount = null,
     int? TotalSeriesCount = null,
     int? ValidSeriesCount = null,
-    int? AvailablePointCount = null)
+    int? AvailablePointCount = null,
+    string? Quantity = null,
+    string? Component = null,
+    string? Phase = null)
 {
     public static UiMenuContext FromCache(RowsCacheV2 payload)
     {
         ArgumentNullException.ThrowIfNull(payload);
 
+        var firstSeries = payload.Series?.FirstOrDefault();
         var totalSeriesCount = payload.Series?.Count ?? 0;
         var validSeriesCount = payload.Series?.Count(s => s.Points.Count >= 2) ?? 0;
         var availablePointCount = payload.Series is { Count: > 0 }
@@ -50,7 +54,10 @@ public sealed record UiMenuContext(
             EffectivePointCount: ComputeUniformPointCount(payload.From, payload.To, payload.SelectRate),
             TotalSeriesCount: totalSeriesCount,
             ValidSeriesCount: validSeriesCount,
-            AvailablePointCount: availablePointCount);
+            AvailablePointCount: availablePointCount,
+            Quantity: NormalizeText(firstSeries?.Quantity),
+            Component: NormalizeText(firstSeries?.Component),
+            Phase: NormalizeText(firstSeries?.Phase));
     }
 
     public int ResolveEffectivePointCount()
@@ -60,6 +67,17 @@ public sealed record UiMenuContext(
 
         return ComputeUniformPointCount(WindowFromUtc, WindowToUtc, SelectRate);
     }
+
+    public int ResolveAvailablePointCount()
+    {
+        if (AvailablePointCount is > 0)
+            return AvailablePointCount.Value;
+
+        return ResolveEffectivePointCount();
+    }
+
+    public int ResolveSelectedSeriesCount()
+        => TotalSeriesCount ?? ValidSeriesCount ?? 0;
 
     private static int ComputeUniformPointCount(DateTime fromUtc, DateTime toUtc, int? selectRate)
     {
@@ -71,6 +89,14 @@ public sealed record UiMenuContext(
             return 0;
 
         return (int)Math.Floor(duration.TotalSeconds * selectRate.Value) + 1;
+    }
+
+    private static string? NormalizeText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        return value.Trim().ToLowerInvariant();
     }
 }
 
@@ -211,49 +237,95 @@ public sealed class UiMenuService : IUiMenuService
         if (context.SelectRate is null || context.SelectRate <= 0)
             return false;
 
-        var sampleCount = context.ResolveEffectivePointCount();
-        if (sampleCount < 4)
+        var selectedSeriesCount = context.ResolveSelectedSeriesCount();
+        if (selectedSeriesCount <= 0 || selectedSeriesCount > 25)
             return false;
 
-        if ((double)sampleCount / context.SelectRate.Value > 60.0)
+        var pointCount = context.ResolveAvailablePointCount();
+        if (pointCount < 4)
             return false;
 
-        if (context.TotalSeriesCount is > 25)
+        if ((double)pointCount / context.SelectRate.Value > 60.0)
             return false;
 
-        var validSeriesCount = context.ValidSeriesCount ?? context.TotalSeriesCount ?? 0;
-        if (validSeriesCount <= 0)
+        if (order < 1 || order > 300)
             return false;
 
-        var maxAllowedOrder = Math.Min(ComputeMaxAllowedPronyOrder(sampleCount), 300);
-        if (order <= 0 || order > maxAllowedOrder)
+        if (order >= pointCount)
             return false;
 
-        return validSeriesCount * (sampleCount - order) >= order;
+        return true;
     }
 
     private static int ComputeMaxAllowedPronyOrder(int sampleCount) =>
         Math.Max(1, sampleCount / 4);
+
+    private static bool TryResolveCcaSelectionLimit(UiMenuContext context, out int maxSelectedSeries)
+    {
+        maxSelectedSeries = 0;
+
+        var quantity = context.Quantity;
+        var component = context.Component;
+        var phase = context.Phase;
+
+        if (quantity == "frequency" && (component == "freq" || component == "dfreq"))
+        {
+            maxSelectedSeries = 3;
+            return true;
+        }
+
+        if (component == "angle_diff_phase" && (quantity == "voltage" || quantity == "current"))
+        {
+            maxSelectedSeries = 4;
+            return true;
+        }
+
+        if (component == "angle_diff_sequence" && (quantity == "voltage" || quantity == "current"))
+        {
+            if (phase != "pos")
+                return false;
+
+            maxSelectedSeries = 4;
+            return true;
+        }
+
+        if (component == "seq" && (quantity == "voltage" || quantity == "current"))
+        {
+            if (phase != "pos")
+                return false;
+
+            maxSelectedSeries = 3;
+            return true;
+        }
+
+        if (component == "mag" && (quantity == "voltage" || quantity == "current"))
+        {
+            if (phase is not ("a" or "b" or "c"))
+                return false;
+
+            maxSelectedSeries = 3;
+            return true;
+        }
+
+        return false;
+    }
 
     private static bool IsCcaEnabled(UiMenuContext context)
     {
         if (context.SelectRate is null || context.SelectRate <= 0)
             return false;
 
-        var validSeriesCount = context.ValidSeriesCount ?? context.TotalSeriesCount ?? 0;
-        if (validSeriesCount <= 0)
+        if (context.SelectRate == 1)
             return false;
 
-        var availablePointCount = context.AvailablePointCount ?? context.ResolveEffectivePointCount();
-        if (availablePointCount <= 0)
+        var selectedSeriesCount = context.ResolveSelectedSeriesCount();
+        if (selectedSeriesCount <= 0)
             return false;
 
-        var windowPointCount = DefaultCcaWindowMinutes * 60 * context.SelectRate.Value;
-
-        if (windowPointCount <= 2 * DefaultCcaBlockRows)
+        if (!TryResolveCcaSelectionLimit(context, out var maxSelectedSeries))
             return false;
 
-        return windowPointCount <= availablePointCount;
+        return selectedSeriesCount <= maxSelectedSeries;
     }
 
     private static UiMenuSet InferSet(Dictionary<string, object?>? modes)

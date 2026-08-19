@@ -202,9 +202,21 @@ public sealed class CurrentSeriesHandler
             .ToList();
 
         var plotMeta = _meta.Build(w, ctx, meas);
+        var selectedPmuCount = frontRows
+            .Select(row => row.IdName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
         var resolvedModes = _uiMenus.RebuildForRun(
             modes,
-            new UiMenuContext(windowFrom, windowTo2, ctx.SelectRate));
+            new UiMenuContext(
+                WindowFromUtc: windowFrom,
+                WindowToUtc: windowTo2,
+                SelectRate: ctx.SelectRate,
+                TotalSeriesCount: selectedPmuCount,
+                ValidSeriesCount: selectedPmuCount,
+                Quantity: "current",
+                Component: "mag",
+                Phase: tri ? "abc" : uphase?.Trim().ToLowerInvariant()));
 
         var response = SeriesResponseBuilderExtensions
             .BuildSeriesResponse(q.RunId, windowFrom, windowTo2, series, plotMeta)
