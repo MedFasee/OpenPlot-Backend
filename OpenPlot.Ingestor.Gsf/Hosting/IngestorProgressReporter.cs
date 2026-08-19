@@ -14,13 +14,17 @@ namespace OpenPlot.Ingestor.Gsf.Hosting;
 /// uma visão sintética orientada ao usuário.
 ///
 /// Regras de apresentação:
-/// - a PMU atualmente em processamento sempre aparece com métricas parciais;
-/// - PMUs concluídas sem faltantes/qualidade ruim deixam de ocupar a lista;
-/// - PMUs concluídas com ocorrências permanecem visíveis;
+/// - o início da message sempre informa o status da consulta;
+/// - o início da message sempre informa quantas PMUs estão pendentes;
+/// - o início da message sempre informa quantas PMUs estão em processamento;
+/// - cada PMU visível informa somente seu status e o percentual de dados válidos;
+/// - dados válidos = frames presentes - frames com qualidade ruim;
+/// - o percentual de dados válidos usa os frames esperados como denominador;
 /// - a ordem visual das PMUs é fixa pela primeira aparição;
 /// - novas PMUs são sempre adicionadas ao fim da lista visível;
-/// - métricas/faltantes/qualidade nunca reordenam linhas já exibidas;
-/// - o resumo parcial/global é atualizado incrementalmente a cada chunk;
+/// - PMUs concluídas permanecem visíveis para preservar o acompanhamento;
+/// - o resumo técnico detalhado foi suprimido da message;
+/// - ao final, são exibidos somente o tempo total e o percentual geral de dados válidos;
 /// - detalhes individuais de chunk NÃO são publicados na message.
 /// </summary>
 internal sealed class IngestorProgressReporter
@@ -33,7 +37,7 @@ internal sealed class IngestorProgressReporter
     private readonly int _totalPmus;
     private readonly int _chunksPerPmu;
     private readonly object _sync = new();
-    private readonly long _createdTick;
+    // [LEGADO] private readonly long _createdTick; // usado apenas pelo antigo cabeçalho com tempo decorrido
 
     private readonly Dictionary<string, ChunkIngestMetrics> _chunks =
         new(StringComparer.OrdinalIgnoreCase);
@@ -78,7 +82,7 @@ internal sealed class IngestorProgressReporter
         _totalChunks = Math.Max(1, totalChunks);
         _totalPmus = Math.Max(1, totalPmus);
         _chunksPerPmu = Math.Max(1, chunksPerPmu);
-        _createdTick = Stopwatch.GetTimestamp();
+        // [LEGADO] _createdTick = Stopwatch.GetTimestamp(); // usado apenas pelo antigo cabeçalho com tempo decorrido
     }
 
     public int CurrentProgressPercent =>
@@ -86,7 +90,7 @@ internal sealed class IngestorProgressReporter
 
     /// <summary>
     /// Torna a PMU visível imediatamente no polling, antes mesmo do primeiro
-    /// chunk terminar. Enquanto ativa, o tempo exibido é o tempo decorrido.
+    /// chunk terminar. Enquanto ativa, seu status é exibido como EM PROCESSAMENTO.
     /// </summary>
     public void StartPmu(string pmu)
     {
@@ -115,7 +119,8 @@ internal sealed class IngestorProgressReporter
 
     /// <summary>
     /// Registra um chunk concluído. As métricas do chunk permanecem internas;
-    /// a message é reconstruída como agregado por PMU + resumo do job.
+    /// a message é reconstruída como agregado por PMU, exibindo apenas status
+    /// e percentual de dados válidos.
     /// </summary>
     public void CompleteChunk(ChunkIngestMetrics metrics)
     {
@@ -203,42 +208,47 @@ internal sealed class IngestorProgressReporter
     {
         var sb = new StringBuilder(4096);
 
-        var chunksDone = _chunks.Count;
-        var runningPct = CalculateRunningPercent(chunksDone);
-        var successfulFinal = IsSuccessfulFinal(finalStatus);
-        var isRunning = string.Equals(finalStatus, "running", StringComparison.OrdinalIgnoreCase);
+        var aggregates = GetAllPmuAggregatesNoLock()
+            .OrderBy(x => GetPmuOrderNoLock(x.Pmu))
+            .ToArray();
 
-        if (isRunning)
-        {
-            sb.Append("PROCESSANDO | ")
-              .Append(chunksDone)
-              .Append('/')
-              .Append(_totalChunks)
-              .Append(" chunks (")
-              .Append(runningPct)
-              .Append("%) | tempo decorrido=")
-              .Append(FormatDuration(GetElapsedSince(_createdTick)))
-              .AppendLine();
-        }
-        else if (successfulFinal)
-        {
-            sb.Append("PROCESSAMENTO CONCLUÍDO");
+        //var pmuColumnWidth = aggregates.Length > 0
+        //? aggregates.Max(x => x.Pmu.Length) + 4
+        //: 4;
 
-            if (jobProcessingTime.HasValue)
-                sb.Append(" | tempo total=").Append(FormatDuration(jobProcessingTime.Value));
+        //var statusColumnWidth = 30;
 
-            sb.AppendLine();
-        }
-        else
-        {
-            sb.Append("PROCESSAMENTO FINALIZADO | status=")
-              .Append(finalStatus);
+        var isRunning = string.Equals(
+            finalStatus,
+            "running",
+            StringComparison.OrdinalIgnoreCase);
 
-            if (jobProcessingTime.HasValue)
-                sb.Append(" | tempo total=").Append(FormatDuration(jobProcessingTime.Value));
+        var completedPmus = aggregates.Count(x => x.IsCompleted);
 
-            sb.AppendLine();
-        }
+        // Qualquer PMU já conhecida e ainda não concluída é considerada
+        // "em processamento". Isso também cobre fluxos legados que possam
+        // registrar chunk antes de StartPmu().
+        var processingPmus = isRunning
+            ? aggregates.Count(x => !x.IsCompleted)
+            : 0;
+
+        // Durante a execução, pendentes = ainda não iniciadas/observadas.
+        // Após a finalização, qualquer PMU não concluída volta a ser tratada
+        // como pendente, pois já não existe processamento em curso.
+        var pendingPmus = Math.Max(
+            0,
+            _totalPmus - completedPmus - processingPmus);
+
+        sb.Append("STATUS DA CONSULTA: ")
+          .Append(GetQueryStatusText(finalStatus))
+          .AppendLine()
+          .Append("PMUs consultadas:")
+          .Append(completedPmus)
+          .Append(" \t PMUs pendentes:")
+          .Append(pendingPmus)
+          .Append(" \t PMUs em consulta:")
+          .Append(processingPmus)
+          .AppendLine();
 
         if (!string.IsNullOrWhiteSpace(details))
         {
@@ -246,162 +256,390 @@ internal sealed class IngestorProgressReporter
               .AppendLine(Sanitize(details));
         }
 
-        var aggregates = GetAllPmuAggregatesNoLock();
-
-        // A lista visível é sempre ordenada pela PRIMEIRA APARIÇÃO da PMU.
-        //
-        // Consequências:
-        // - uma nova PMU entra sempre no fim;
-        // - uma PMU já exibida nunca sobe/desce por quantidade de faltantes;
-        // - uma PMU ativa que termina com ocorrência permanece na mesma posição;
-        // - uma PMU concluída sem ocorrência pode sair da lista, reduzindo ruído.
-        var visible = aggregates
-            .Where(x =>
-                x.IsActive ||
-                (x.IsCompleted && (x.HasOccurrences || x.HasTechnicalIssue)))
-            .OrderBy(x => GetPmuOrderNoLock(x.Pmu))
-            .ToArray();
-
-        var completedWithoutData = aggregates.Count(x =>
-            x.IsCompleted && IsPmuWithoutData(x));
-
         sb.AppendLine();
-        sb.AppendLine("PMUs");
 
-        if (visible.Length == 0)
+        if (aggregates.Length == 0)
         {
-            sb.AppendLine("Nenhuma PMU em processamento ou com ocorrência até o momento.");
+            sb.AppendLine("Nenhuma PMU iniciada até o momento.");
         }
         else
         {
-            foreach (var pmu in visible)
-                AppendPmuLine(sb, pmu);
+            var pmuColumnWidth = Math.Max(
+                "PMU".Length,
+                aggregates.Max(x => x.Pmu.Length)) + 4;
+
+            var statusColumnWidth = Math.Max(
+                "STATUS".Length,
+                aggregates.Max(x => GetPmuStatusText(x).Length)) + 4;
+
+            sb.Append("PMU".PadRight(pmuColumnWidth))
+              .Append("STATUS".PadRight(statusColumnWidth))
+              .Append("DADOS VÁLIDOS")
+              .AppendLine();
+
+            foreach (var pmu in aggregates)
+            {
+                AppendPmuLine(
+                    sb,
+                    pmu,
+                    pmuColumnWidth,
+                    statusColumnWidth);
+            }
         }
 
-        var completedPmus = aggregates.Count(x => x.IsCompleted);
-        var completedWithData = aggregates.Count(x =>
-            x.IsCompleted && x.Present > 0);
+        // O antigo RESUMO/RESUMO PARCIAL foi suprimido.
+        // Durante o processamento não repetimos métricas globais.
+        // Na conclusão, mostramos somente o solicitado:
+        // tempo total da consulta + percentual geral de dados válidos.
+        if (!isRunning)
+        {
+            sb.AppendLine();
 
-        sb.Append("PMUs concluídas=")
-          .Append(completedPmus)
-          .Append('/')
-          .Append(_totalPmus)
-          .Append(" | sem dados=")
-          .Append(completedWithoutData)
-          .Append(" | com dados=")
-          .Append(completedWithData)
-          .AppendLine();
-
-        sb.AppendLine();
-        AppendJobSummary(sb, jobProcessingTime, finalStatus, aggregates);
+            sb.Append("Tempo total=")
+              .Append(
+                  jobProcessingTime.HasValue
+                      ? FormatDuration(jobProcessingTime.Value)
+                      : "n/d")
+              .Append(" \t Dados válidos=")
+              .Append(CalculateOverallValidPercent())
+              .AppendLine();
+        }
 
         return sb.ToString().TrimEnd();
     }
 
-    private void AppendPmuLine(StringBuilder sb, PmuAggregate pmu)
+    private void AppendPmuLine(
+    StringBuilder sb,
+    PmuAggregate pmu,
+    int pmuColumnWidth,
+    int statusColumnWidth)
     {
-        sb.Append(pmu.Pmu)
-          .Append(" | tempo=");
+        var validPercent = FormatValidPercent(
+            present: pmu.Present,
+            badQuality: pmu.BadQuality,
+            expected: pmu.Expected,
+            complete: pmu.MetricsComplete);
 
+        sb.Append(pmu.Pmu.PadRight(pmuColumnWidth))
+          .Append(GetPmuStatusText(pmu).PadRight(statusColumnWidth))
+          .Append(validPercent)
+          .AppendLine();
+    }
+
+    private static string GetPmuStatusText(PmuAggregate pmu)
+    {
         if (pmu.IsCompleted)
         {
-            sb.Append(FormatDuration(pmu.ProcessingTime));
-        }
-        else
-        {
-            sb.Append(FormatDuration(pmu.ProcessingTime))
-              .Append(" (em processamento)");
+            return pmu.HasTechnicalIssue
+                ? "CONCLUÍDA COM ALERTA"
+                : "CONCLUÍDA";
         }
 
-        sb.Append(" | esperados=")
-          .Append(FormatNumber(pmu.Expected))
-          .Append(" | presentes=")
-          .Append(FormatMetricWithPercent(
-              pmu.Present,
-              pmu.Expected,
-              pmu.MetricsComplete,
-              "dos esperados"))
-          .Append(" | faltantes=")
-          .Append(FormatMetricWithPercent(
-              pmu.Missing,
-              pmu.Expected,
-              pmu.MetricsComplete,
-              "dos esperados"))
-          .Append(" | qualidade ruim=")
-          .Append(FormatMetricWithPercent(
-              pmu.BadQuality,
-              pmu.Present,
-              pmu.MetricsComplete,
-              "dos presentes"));
+        if (pmu.IsActive || pmu.CompletedChunks > 0)
+            return "EM PROCESSAMENTO";
 
-        if (pmu.HasTechnicalIssue)
-            sb.Append(" | atenção=métrica incompleta/falha técnica");
-
-        sb.AppendLine();
-        sb.AppendLine();
+        return "PENDENTE";
     }
 
-    private void AppendJobSummary(
-        StringBuilder sb,
-        TimeSpan? jobProcessingTime,
-        string finalStatus,
-        IReadOnlyCollection<PmuAggregate> aggregates)
+    private static string GetQueryStatusText(string finalStatus)
+    {
+        if (string.Equals(
+                finalStatus,
+                "running",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return "EM PROCESSAMENTO";
+        }
+
+        if (IsSuccessfulFinal(finalStatus))
+            return "CONCLUÍDA";
+
+        return "FINALIZADA - " + Sanitize(finalStatus).ToUpperInvariant();
+    }
+
+    /// <summary>
+    /// Dados válidos = presentes - qualidade ruim.
+    ///
+    /// O denominador permanece sendo o total esperado, pois assim uma ausência
+    /// de dados reduz diretamente o percentual de validade.
+    ///
+    /// Exemplo:
+    /// esperados=100, presentes=95, qualidade ruim=5
+    /// válidos=90 => 90,000%.
+    /// </summary>
+    private static string FormatValidPercent(
+        long present,
+        long badQuality,
+        long expected,
+        bool complete)
+    {
+        if (expected <= 0)
+            return complete ? "n/d" : "n/d [parcial]";
+
+        var valid = Math.Max(0L, present - badQuality);
+        var pct = 100.0 * valid / expected;
+
+        var text = pct.ToString("F2", PtBr) + "%";
+
+        if (!complete)
+            text += " [parcial]";
+
+        return text;
+    }
+
+    private string CalculateOverallValidPercent()
     {
         var chunks = _chunks.Values.ToArray();
-        var normalized = chunks.Select(NormalizeChunkMetrics).ToArray();
+        var normalized = chunks
+            .Select(NormalizeChunkMetrics)
+            .ToArray();
 
         var expected = chunks.Sum(x => (long)x.ExpectedFrames);
-        var present = normalized.Where(x => x.Present.HasValue).Sum(x => (long)x.Present!.Value);
-        var missing = normalized.Where(x => x.Missing.HasValue).Sum(x => (long)x.Missing!.Value);
-        var bad = normalized.Where(x => x.BadQuality.HasValue).Sum(x => (long)x.BadQuality!.Value);
 
-        var completeChunks = normalized.Count(x => x.IsComplete);
+        if (expected <= 0)
+            return "n/d";
+
+        var present = normalized
+            .Where(x => x.Present.HasValue)
+            .Sum(x => (long)x.Present!.Value);
+
+        var badQuality = normalized
+            .Where(x => x.BadQuality.HasValue)
+            .Sum(x => (long)x.BadQuality!.Value);
+
+        var valid = Math.Max(0L, present - badQuality);
+        var pct = 100.0 * valid / expected;
+
         var metricsComplete =
             chunks.Length == _totalChunks &&
-            completeChunks == chunks.Length;
+            normalized.All(x => x.IsComplete);
 
-        var title = string.Equals(finalStatus, "running", StringComparison.OrdinalIgnoreCase)
-            ? "RESUMO PARCIAL"
-            : "RESUMO";
-
-        sb.Append(title)
-          .Append(" | PMUs=")
-          .Append(aggregates.Count(x => x.IsCompleted))
-          .Append('/')
-          .Append(_totalPmus)
-          .Append(" | chunks=")
-          .Append(chunks.Length)
-          .Append('/')
-          .Append(_totalChunks);
-
-        if (!string.Equals(finalStatus, "running", StringComparison.OrdinalIgnoreCase) &&
-            jobProcessingTime.HasValue)
-        {
-            // O tempo já aparece no cabeçalho final. Não o repetimos aqui.
-        }
-
-        sb.AppendLine();
-
-        sb.Append("Esperados=")
-          .Append(FormatNumber(expected))
-          .Append(" | presentes=")
-          .Append(FormatMetricWithPercent(present, expected, metricsComplete, "dos esperados"))
-          .Append(" | faltantes=")
-          .Append(FormatMetricWithPercent(missing, expected, metricsComplete, "dos esperados"))
-          .Append(" | qualidade ruim=")
-          .Append(FormatMetricWithPercent(bad, present, metricsComplete, "dos presentes"))
-          .AppendLine()
-          .AppendLine();
+        var text = pct.ToString("F2", PtBr) + "%";
 
         if (!metricsComplete)
-        {
-            sb.Append("Métricas consolidadas em ")
-              .Append(completeChunks)
-              .Append('/')
-              .Append(_totalChunks)
-              .AppendLine(" chunks concluídos até o momento.");
-        }
+            text += " [parcial]";
+
+        return text;
     }
+
+    // =====================================================================
+    // CÓDIGO LEGADO DE APRESENTAÇÃO
+    // =====================================================================
+    // Mantido comentado propositalmente para permitir restauração futura
+    // das métricas detalhadas (tempo por PMU, esperados, presentes,
+    // faltantes, qualidade ruim e RESUMO/RESUMO PARCIAL).
+    //
+    // [LEGADO]     private string BuildMessageNoLock(
+    // [LEGADO]         TimeSpan? jobProcessingTime,
+    // [LEGADO]         string finalStatus,
+    // [LEGADO]         string? details)
+    // [LEGADO]     {
+    // [LEGADO]         var sb = new StringBuilder(4096);
+    // [LEGADO] 
+    // [LEGADO]         var chunksDone = _chunks.Count;
+    // [LEGADO]         var runningPct = CalculateRunningPercent(chunksDone);
+    // [LEGADO]         var successfulFinal = IsSuccessfulFinal(finalStatus);
+    // [LEGADO]         var isRunning = string.Equals(finalStatus, "running", StringComparison.OrdinalIgnoreCase);
+    // [LEGADO] 
+    // [LEGADO]         if (isRunning)
+    // [LEGADO]         {
+    // [LEGADO]             sb.Append("PROCESSANDO | ")
+    // [LEGADO]               .Append(chunksDone)
+    // [LEGADO]               .Append('/')
+    // [LEGADO]               .Append(_totalChunks)
+    // [LEGADO]               .Append(" chunks (")
+    // [LEGADO]               .Append(runningPct)
+    // [LEGADO]               .Append("%) | tempo decorrido=")
+    // [LEGADO]               .Append(FormatDuration(GetElapsedSince(_createdTick)))
+    // [LEGADO]               .AppendLine();
+    // [LEGADO]         }
+    // [LEGADO]         else if (successfulFinal)
+    // [LEGADO]         {
+    // [LEGADO]             sb.Append("PROCESSAMENTO CONCLUÍDO");
+    // [LEGADO] 
+    // [LEGADO]             if (jobProcessingTime.HasValue)
+    // [LEGADO]                 sb.Append(" | tempo total=").Append(FormatDuration(jobProcessingTime.Value));
+    // [LEGADO] 
+    // [LEGADO]             sb.AppendLine();
+    // [LEGADO]         }
+    // [LEGADO]         else
+    // [LEGADO]         {
+    // [LEGADO]             sb.Append("PROCESSAMENTO FINALIZADO | status=")
+    // [LEGADO]               .Append(finalStatus);
+    // [LEGADO] 
+    // [LEGADO]             if (jobProcessingTime.HasValue)
+    // [LEGADO]                 sb.Append(" | tempo total=").Append(FormatDuration(jobProcessingTime.Value));
+    // [LEGADO] 
+    // [LEGADO]             sb.AppendLine();
+    // [LEGADO]         }
+    // [LEGADO] 
+    // [LEGADO]         if (!string.IsNullOrWhiteSpace(details))
+    // [LEGADO]         {
+    // [LEGADO]             sb.Append("Detalhes: ")
+    // [LEGADO]               .AppendLine(Sanitize(details));
+    // [LEGADO]         }
+    // [LEGADO] 
+    // [LEGADO]         var aggregates = GetAllPmuAggregatesNoLock();
+    // [LEGADO] 
+    // [LEGADO]         // A lista visível é sempre ordenada pela PRIMEIRA APARIÇÃO da PMU.
+    // [LEGADO]         //
+    // [LEGADO]         // Consequências:
+    // [LEGADO]         // - uma nova PMU entra sempre no fim;
+    // [LEGADO]         // - uma PMU já exibida nunca sobe/desce por quantidade de faltantes;
+    // [LEGADO]         // - uma PMU ativa que termina com ocorrência permanece na mesma posição;
+    // [LEGADO]         // - uma PMU concluída sem ocorrência pode sair da lista, reduzindo ruído.
+    // [LEGADO]         var visible = aggregates
+    // [LEGADO]             .Where(x =>
+    // [LEGADO]                 x.IsActive ||
+    // [LEGADO]                 (x.IsCompleted && (x.HasOccurrences || x.HasTechnicalIssue)))
+    // [LEGADO]             .OrderBy(x => GetPmuOrderNoLock(x.Pmu))
+    // [LEGADO]             .ToArray();
+    // [LEGADO] 
+    // [LEGADO]         var completedWithoutData = aggregates.Count(x =>
+    // [LEGADO]             x.IsCompleted && IsPmuWithoutData(x));
+    // [LEGADO] 
+    // [LEGADO]         sb.AppendLine();
+    // [LEGADO]         sb.AppendLine("PMUs");
+    // [LEGADO] 
+    // [LEGADO]         if (visible.Length == 0)
+    // [LEGADO]         {
+    // [LEGADO]             sb.AppendLine("Nenhuma PMU em processamento ou com ocorrência até o momento.");
+    // [LEGADO]         }
+    // [LEGADO]         else
+    // [LEGADO]         {
+    // [LEGADO]             foreach (var pmu in visible)
+    // [LEGADO]                 AppendPmuLine(sb, pmu);
+    // [LEGADO]         }
+    // [LEGADO] 
+    // [LEGADO]         var completedPmus = aggregates.Count(x => x.IsCompleted);
+    // [LEGADO]         var completedWithData = aggregates.Count(x =>
+    // [LEGADO]             x.IsCompleted && x.Present > 0);
+    // [LEGADO] 
+    // [LEGADO]         sb.Append("PMUs concluídas=")
+    // [LEGADO]           .Append(completedPmus)
+    // [LEGADO]           .Append('/')
+    // [LEGADO]           .Append(_totalPmus)
+    // [LEGADO]           .Append(" | sem dados=")
+    // [LEGADO]           .Append(completedWithoutData)
+    // [LEGADO]           .Append(" | com dados=")
+    // [LEGADO]           .Append(completedWithData)
+    // [LEGADO]           .AppendLine();
+    // [LEGADO] 
+    // [LEGADO]         sb.AppendLine();
+    // [LEGADO]         AppendJobSummary(sb, jobProcessingTime, finalStatus, aggregates);
+    // [LEGADO] 
+    // [LEGADO]         return sb.ToString().TrimEnd();
+    // [LEGADO]     }
+    // [LEGADO] 
+    // [LEGADO]     private void AppendPmuLine(StringBuilder sb, PmuAggregate pmu)
+    // [LEGADO]     {
+    // [LEGADO]         sb.Append(pmu.Pmu)
+    // [LEGADO]           .Append(" | tempo=");
+    // [LEGADO] 
+    // [LEGADO]         if (pmu.IsCompleted)
+    // [LEGADO]         {
+    // [LEGADO]             sb.Append(FormatDuration(pmu.ProcessingTime));
+    // [LEGADO]         }
+    // [LEGADO]         else
+    // [LEGADO]         {
+    // [LEGADO]             sb.Append(FormatDuration(pmu.ProcessingTime))
+    // [LEGADO]               .Append(" (em processamento)");
+    // [LEGADO]         }
+    // [LEGADO] 
+    // [LEGADO]         sb.Append(" | esperados=")
+    // [LEGADO]           .Append(FormatNumber(pmu.Expected))
+    // [LEGADO]           .Append(" | presentes=")
+    // [LEGADO]           .Append(FormatMetricWithPercent(
+    // [LEGADO]               pmu.Present,
+    // [LEGADO]               pmu.Expected,
+    // [LEGADO]               pmu.MetricsComplete,
+    // [LEGADO]               "dos esperados"))
+    // [LEGADO]           .Append(" | faltantes=")
+    // [LEGADO]           .Append(FormatMetricWithPercent(
+    // [LEGADO]               pmu.Missing,
+    // [LEGADO]               pmu.Expected,
+    // [LEGADO]               pmu.MetricsComplete,
+    // [LEGADO]               "dos esperados"))
+    // [LEGADO]           .Append(" | qualidade ruim=")
+    // [LEGADO]           .Append(FormatMetricWithPercent(
+    // [LEGADO]               pmu.BadQuality,
+    // [LEGADO]               pmu.Present,
+    // [LEGADO]               pmu.MetricsComplete,
+    // [LEGADO]               "dos presentes"));
+    // [LEGADO] 
+    // [LEGADO]         if (pmu.HasTechnicalIssue)
+    // [LEGADO]             sb.Append(" | atenção=métrica incompleta/falha técnica");
+    // [LEGADO] 
+    // [LEGADO]         sb.AppendLine();
+    // [LEGADO]         sb.AppendLine();
+    // [LEGADO]     }
+    // [LEGADO] 
+    // [LEGADO]     private void AppendJobSummary(
+    // [LEGADO]         StringBuilder sb,
+    // [LEGADO]         TimeSpan? jobProcessingTime,
+    // [LEGADO]         string finalStatus,
+    // [LEGADO]         IReadOnlyCollection<PmuAggregate> aggregates)
+    // [LEGADO]     {
+    // [LEGADO]         var chunks = _chunks.Values.ToArray();
+    // [LEGADO]         var normalized = chunks.Select(NormalizeChunkMetrics).ToArray();
+    // [LEGADO] 
+    // [LEGADO]         var expected = chunks.Sum(x => (long)x.ExpectedFrames);
+    // [LEGADO]         var present = normalized.Where(x => x.Present.HasValue).Sum(x => (long)x.Present!.Value);
+    // [LEGADO]         var missing = normalized.Where(x => x.Missing.HasValue).Sum(x => (long)x.Missing!.Value);
+    // [LEGADO]         var bad = normalized.Where(x => x.BadQuality.HasValue).Sum(x => (long)x.BadQuality!.Value);
+    // [LEGADO] 
+    // [LEGADO]         var completeChunks = normalized.Count(x => x.IsComplete);
+    // [LEGADO]         var metricsComplete =
+    // [LEGADO]             chunks.Length == _totalChunks &&
+    // [LEGADO]             completeChunks == chunks.Length;
+    // [LEGADO] 
+    // [LEGADO]         var title = string.Equals(finalStatus, "running", StringComparison.OrdinalIgnoreCase)
+    // [LEGADO]             ? "RESUMO PARCIAL"
+    // [LEGADO]             : "RESUMO";
+    // [LEGADO] 
+    // [LEGADO]         sb.Append(title)
+    // [LEGADO]           .Append(" | PMUs=")
+    // [LEGADO]           .Append(aggregates.Count(x => x.IsCompleted))
+    // [LEGADO]           .Append('/')
+    // [LEGADO]           .Append(_totalPmus)
+    // [LEGADO]           .Append(" | chunks=")
+    // [LEGADO]           .Append(chunks.Length)
+    // [LEGADO]           .Append('/')
+    // [LEGADO]           .Append(_totalChunks);
+    // [LEGADO] 
+    // [LEGADO]         if (!string.Equals(finalStatus, "running", StringComparison.OrdinalIgnoreCase) &&
+    // [LEGADO]             jobProcessingTime.HasValue)
+    // [LEGADO]         {
+    // [LEGADO]             // O tempo já aparece no cabeçalho final. Não o repetimos aqui.
+    // [LEGADO]         }
+    // [LEGADO] 
+    // [LEGADO]         sb.AppendLine();
+    // [LEGADO] 
+    // [LEGADO]         sb.Append("Esperados=")
+    // [LEGADO]           .Append(FormatNumber(expected))
+    // [LEGADO]           .Append(" | presentes=")
+    // [LEGADO]           .Append(FormatMetricWithPercent(present, expected, metricsComplete, "dos esperados"))
+    // [LEGADO]           .Append(" | faltantes=")
+    // [LEGADO]           .Append(FormatMetricWithPercent(missing, expected, metricsComplete, "dos esperados"))
+    // [LEGADO]           .Append(" | qualidade ruim=")
+    // [LEGADO]           .Append(FormatMetricWithPercent(bad, present, metricsComplete, "dos presentes"))
+    // [LEGADO]           .AppendLine()
+    // [LEGADO]           .AppendLine();
+    // [LEGADO] 
+    // [LEGADO]         if (!metricsComplete)
+    // [LEGADO]         {
+    // [LEGADO]             sb.Append("Métricas consolidadas em ")
+    // [LEGADO]               .Append(completeChunks)
+    // [LEGADO]               .Append('/')
+    // [LEGADO]               .Append(_totalChunks)
+    // [LEGADO]               .AppendLine(" chunks concluídos até o momento.");
+    // [LEGADO]         }
+    // [LEGADO]     }
+    // [LEGADO] 
+
+    // =====================================================================
+    // FIM DO CÓDIGO LEGADO DE APRESENTAÇÃO
+    // =====================================================================
 
     private PmuAggregate[] GetAllPmuAggregatesNoLock()
     {
@@ -519,12 +757,13 @@ internal sealed class IngestorProgressReporter
         string.Equals(status, "done", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(status, "no_data", StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsPmuWithoutData(PmuAggregate pmu) =>
-        pmu.Expected > 0 &&
-        pmu.Present == 0 &&
-        pmu.Missing == pmu.Expected &&
-        pmu.BadQuality == 0 &&
-        !pmu.HasTechnicalIssue;
+    // [LEGADO]     private static bool IsPmuWithoutData(PmuAggregate pmu) =>
+    // [LEGADO]         pmu.Expected > 0 &&
+    // [LEGADO]         pmu.Present == 0 &&
+    // [LEGADO]         pmu.Missing == pmu.Expected &&
+    // [LEGADO]         pmu.BadQuality == 0 &&
+    // [LEGADO]         !pmu.HasTechnicalIssue;
+    // [LEGADO] 
 
     private void EnsurePmuOrderNoLock(string pmu)
     {
@@ -547,32 +786,33 @@ internal sealed class IngestorProgressReporter
             : long.MaxValue;
     }
 
-    private static string FormatMetricWithPercent(
-        long value,
-        long denominator,
-        bool complete,
-        string denominatorLabel)
-    {
-        var text = FormatNumber(value);
-
-        if (denominator > 0)
-        {
-            var pct = 100.0 * value / denominator;
-            text += $" ({pct.ToString("F3", PtBr)}% {denominatorLabel})";
-        }
-        else if (value == 0)
-        {
-            text += " (0,000%)";
-        }
-
-        if (!complete)
-            text += " [parcial]";
-
-        return text;
-    }
-
-    private static string FormatNumber(long value) =>
-        value.ToString("N0", PtBr);
+    // [LEGADO]     private static string FormatMetricWithPercent(
+    // [LEGADO]         long value,
+    // [LEGADO]         long denominator,
+    // [LEGADO]         bool complete,
+    // [LEGADO]         string denominatorLabel)
+    // [LEGADO]     {
+    // [LEGADO]         var text = FormatNumber(value);
+    // [LEGADO] 
+    // [LEGADO]         if (denominator > 0)
+    // [LEGADO]         {
+    // [LEGADO]             var pct = 100.0 * value / denominator;
+    // [LEGADO]             text += $" ({pct.ToString("F3", PtBr)}% {denominatorLabel})";
+    // [LEGADO]         }
+    // [LEGADO]         else if (value == 0)
+    // [LEGADO]         {
+    // [LEGADO]             text += " (0,000%)";
+    // [LEGADO]         }
+    // [LEGADO] 
+    // [LEGADO]         if (!complete)
+    // [LEGADO]             text += " [parcial]";
+    // [LEGADO] 
+    // [LEGADO]         return text;
+    // [LEGADO]     }
+    // [LEGADO] 
+    // [LEGADO]     private static string FormatNumber(long value) =>
+    // [LEGADO]         value.ToString("N0", PtBr);
+    // [LEGADO] 
 
     private static string FormatDuration(TimeSpan value)
     {
