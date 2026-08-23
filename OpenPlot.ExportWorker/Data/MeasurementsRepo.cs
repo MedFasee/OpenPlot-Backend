@@ -21,7 +21,7 @@ public sealed class MeasurementsRepo
     /// <summary>
     /// Resolve a seleção de PMUs a partir do run_id,
     /// encontra os sinais associados a cada PDC/PMU
-    /// e busca os valores na measurements_wide.
+    /// e busca os valores na measurements_wide_2.
     ///
     /// A fase dos canais é obtida exclusivamente de openplot.signal.phase.
     ///
@@ -170,8 +170,8 @@ CASE
 
     WHEN LOWER(s.quantity) IN ('digital', 'd')
          AND s.component = 'DIG'
-         AND UPPER(COALESCE(s.signal_name, '')) = 'CFDS'
-        THEN mw.cfds
+         AND UPPER(COALESCE(s.signal_name, '')) = 'cfds_dig'
+        THEN mw.cfds_dig
 
     ELSE NULL
 END";
@@ -425,7 +425,7 @@ sig AS
 
         -- --------------------------------------------------------
         -- Fase original do catálogo.
-        -- É ela que também determina a coluna da measurements_wide.
+        -- É ela que também determina a coluna da measurements_wide_2.
         -- --------------------------------------------------------
         UPPER(s.phase::text) AS phase_raw,
 
@@ -558,7 +558,7 @@ SELECT
 
 FROM sig s
 
-JOIN openplot.measurements_wide mw
+JOIN openplot.measurements_wide_2 mw
   ON mw.pdc_pmu_id = s.pdc_pmu_id
 
 WHERE mw.ts >= (SELECT from_utc FROM win)

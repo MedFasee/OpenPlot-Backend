@@ -75,7 +75,7 @@ public sealed record PhasorAbcRow(
 
 /// <summary>
 /// Frame Wide para cálculo de diferença angular.
-/// No modo RAW, corresponde diretamente a uma linha de measurements_wide.
+/// No modo RAW, corresponde diretamente a uma linha de measurements_wide_2.
 /// No modo amostrado, corresponde à linha real escolhida como representante
 /// do bucket hierárquico. O Ts é sempre um timestamp real do banco.
 /// </summary>
@@ -95,7 +95,7 @@ public sealed record AngleFrameRow(
 
 /// <summary>
 /// Frame Wide para cálculo de potência.
-/// No modo RAW, corresponde diretamente a uma linha de measurements_wide.
+/// No modo RAW, corresponde diretamente a uma linha de measurements_wide_2.
 /// No modo amostrado, corresponde à linha real escolhida como representante
 /// de um bucket temporal fixo e hierárquico.
 /// </summary>
@@ -149,7 +149,8 @@ public interface IMeasurementsRepository
         DateTime? fromUtc,
         DateTime? toUtc,
         CancellationToken ct,
-        int? maxPoints = null);
+        int? maxPoints = null,
+        string? phase = null);
 
     Task<IReadOnlyList<PowerFrameRow>> QueryPowerFramesAsync(
         RunContext ctx,
@@ -178,7 +179,7 @@ public sealed class MeasurementsRepository : IMeasurementsRepository
     // INVARIANTE TEMPORAL:
     // todos os níveis de downsampling usam a mesma origem global.
     // O timestamp devolvido pela API NUNCA é o início do bucket: é sempre
-    // mw.ts de uma linha realmente existente em measurements_wide.
+    // mw.ts de uma linha realmente existente em measurements_wide_2.
     private static readonly DateTime BucketOriginUtc = DateTime.UnixEpoch;
 
     // Quantum da hierarquia de seleção. Não é timestamp de saída.
@@ -228,7 +229,7 @@ public sealed class MeasurementsRepository : IMeasurementsRepository
         if (signals.Count == 0)
             return Array.Empty<MeasurementRow>();
 
-        var projection = BuildProjection(q.Quantity, q.Component);
+        var projection = BuildProjection(q.Quantity, q.Component, q.PhaseMode, q.Phase);
 
         var pdcPmuIds = signals
             .Select(x => x.PdcPmuId)
@@ -240,14 +241,15 @@ public sealed class MeasurementsRepository : IMeasurementsRepository
             ctx.FromUtc,
             ctx.ToUtc,
             maxPoints,
-            projection.MinimumBucket);
+            projection.MinimumBucket,
+            projection.ForceSampling);
 
         var rawSql = $@"
 SELECT
     mw.pdc_pmu_id AS PdcPmuId,
     mw.ts AS Ts,
     {projection.RawSelectSql}
-FROM openplot.measurements_wide mw
+FROM openplot.measurements_wide_2 mw
 WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
   AND mw.ts >= @from_utc
   AND mw.ts <  @to_utc
@@ -274,7 +276,7 @@ representatives AS (
     SELECT
         mw.pdc_pmu_id AS pdc_pmu_id,
         min(mw.ts) AS ts
-    FROM openplot.measurements_wide mw
+    FROM openplot.measurements_wide_2 mw
     CROSS JOIN bounds b
     WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
       AND mw.ts >= b.aligned_from
@@ -293,7 +295,7 @@ SELECT
     mw.ts AS Ts,
     {projection.RawSelectSql}
 FROM representatives r
-JOIN openplot.measurements_wide mw
+JOIN openplot.measurements_wide_2 mw
   ON mw.pdc_pmu_id = r.pdc_pmu_id
  AND mw.ts = r.ts
 WHERE r.ts >= @from_utc
@@ -408,7 +410,7 @@ ORDER BY
         if (signals.Count == 0)
             return Array.Empty<PhasorMeasurementRow>();
 
-        var projection = BuildProjection(q.Quantity, q.Component);
+        var projection = BuildProjection(q.Quantity, q.Component, q.PhaseMode, q.Phase);
 
         var pdcPmuIds = signals
             .Select(x => x.PdcPmuId)
@@ -420,14 +422,15 @@ ORDER BY
             ctx.FromUtc,
             ctx.ToUtc,
             maxPoints,
-            projection.MinimumBucket);
+            projection.MinimumBucket,
+            projection.ForceSampling);
 
         var rawSql = $@"
 SELECT
     mw.pdc_pmu_id AS PdcPmuId,
     mw.ts AS Ts,
     {projection.RawSelectSql}
-FROM openplot.measurements_wide mw
+FROM openplot.measurements_wide_2 mw
 WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
   AND mw.ts >= @from_utc
   AND mw.ts <  @to_utc
@@ -454,7 +457,7 @@ representatives AS (
     SELECT
         mw.pdc_pmu_id AS pdc_pmu_id,
         min(mw.ts) AS ts
-    FROM openplot.measurements_wide mw
+    FROM openplot.measurements_wide_2 mw
     CROSS JOIN bounds b
     WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
       AND mw.ts >= b.aligned_from
@@ -473,7 +476,7 @@ SELECT
     mw.ts AS Ts,
     {projection.RawSelectSql}
 FROM representatives r
-JOIN openplot.measurements_wide mw
+JOIN openplot.measurements_wide_2 mw
   ON mw.pdc_pmu_id = r.pdc_pmu_id
  AND mw.ts = r.ts
 WHERE r.ts >= @from_utc
@@ -564,7 +567,7 @@ ORDER BY
     // ABC MAG+ANG
     //
     // O catálogo é resolvido em consulta pequena.
-    // A consulta pesada toca SOMENTE measurements_wide por pdc_pmu_id[].
+    // A consulta pesada toca SOMENTE measurements_wide_2 por pdc_pmu_id[].
     // A expansão em 6 SignalIds acontece em C# depois da seleção da linha real.
     // ============================================================
     public async Task<IReadOnlyList<PhasorAbcRow>> QueryAbcMagAngAsync(
@@ -634,7 +637,7 @@ SELECT
     mw.pdc_pmu_id AS PdcPmuId,
     mw.ts AS Ts,
     {rawColumns}
-FROM openplot.measurements_wide mw
+FROM openplot.measurements_wide_2 mw
 WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
   AND mw.ts >= @from_utc
   AND mw.ts <  @to_utc
@@ -661,7 +664,7 @@ representatives AS (
     SELECT
         mw.pdc_pmu_id AS pdc_pmu_id,
         min(mw.ts) AS ts
-    FROM openplot.measurements_wide mw
+    FROM openplot.measurements_wide_2 mw
     CROSS JOIN bounds b
     WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
       AND mw.ts >= b.aligned_from
@@ -680,7 +683,7 @@ SELECT
     mw.ts AS Ts,
     {rawColumns}
 FROM representatives r
-JOIN openplot.measurements_wide mw
+JOIN openplot.measurements_wide_2 mw
   ON mw.pdc_pmu_id = r.pdc_pmu_id
  AND mw.ts = r.ts
 WHERE r.ts >= @from_utc
@@ -784,7 +787,8 @@ ORDER BY
         DateTime? fromUtc,
         DateTime? toUtc,
         CancellationToken ct,
-        int? maxPoints = null)
+        int? maxPoints = null,
+        string? phase = null)
     {
         var totalWatch = Stopwatch.StartNew();
 
@@ -796,6 +800,18 @@ ORDER BY
             throw new ArgumentException(
                 "kind deve ser 'voltage' ou 'current'.",
                 nameof(kind));
+
+        var normalizedPhase = string.IsNullOrWhiteSpace(phase)
+            ? null
+            : phase.Trim().ToUpperInvariant();
+
+        if (normalizedPhase is not null &&
+            normalizedPhase is not ("A" or "B" or "C"))
+        {
+            throw new ArgumentException(
+                "phase deve ser A, B ou C quando informada.",
+                nameof(phase));
+        }
 
         var effFrom = fromUtc ?? ctx.FromUtc;
         var effTo = toUtc ?? ctx.ToUtc;
@@ -829,26 +845,14 @@ ORDER BY
             maxPoints,
             DefaultMinBucket);
 
-        var rawColumns = k == "voltage"
-            ? @"mw.va_mod_v   AS AMod,
-                mw.va_ang_deg AS AAng,
-                mw.vb_mod_v   AS BMod,
-                mw.vb_ang_deg AS BAng,
-                mw.vc_mod_v   AS CMod,
-                mw.vc_ang_deg AS CAng"
-            : @"mw.ia_mod_a   AS AMod,
-                mw.ia_ang_deg AS AAng,
-                mw.ib_mod_a   AS BMod,
-                mw.ib_ang_deg AS BAng,
-                mw.ic_mod_a   AS CMod,
-                mw.ic_ang_deg AS CAng";
+        var rawColumns = BuildAngleFrameColumns(k, normalizedPhase);
 
         var rawSql = $@"
 SELECT
     mw.pdc_pmu_id AS PdcPmuId,
     mw.ts AS Ts,
     {rawColumns}
-FROM openplot.measurements_wide mw
+FROM openplot.measurements_wide_2 mw
 WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
   AND mw.ts >= @from_utc
   AND mw.ts <  @to_utc
@@ -875,7 +879,7 @@ representatives AS (
     SELECT
         mw.pdc_pmu_id AS pdc_pmu_id,
         min(mw.ts) AS ts
-    FROM openplot.measurements_wide mw
+    FROM openplot.measurements_wide_2 mw
     CROSS JOIN bounds b
     WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
       AND mw.ts >= b.aligned_from
@@ -894,7 +898,7 @@ SELECT
     mw.ts AS Ts,
     {rawColumns}
 FROM representatives r
-JOIN openplot.measurements_wide mw
+JOIN openplot.measurements_wide_2 mw
   ON mw.pdc_pmu_id = r.pdc_pmu_id
  AND mw.ts = r.ts
 WHERE r.ts >= @from_utc
@@ -908,9 +912,10 @@ ORDER BY
             : sampledSql;
 
         _logger.LogInformation(
-            "[DATA-REQ][QueryAngleFramesAsync][START] pdc={Pdc} kind={Kind} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} hotQuery=angle_wide_frame",
+            "[DATA-REQ][QueryAngleFramesAsync][START] pdc={Pdc} kind={Kind} phase={Phase} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} hotQuery=angle_wide_frame",
             ctx.PdcName,
             k,
+            normalizedPhase ?? "SEQ",
             effFrom,
             effTo,
             string.Join(',', selectedPmus),
@@ -1042,7 +1047,7 @@ SELECT
     mw.ic_mod_a   AS IcMod,
     mw.ic_ang_deg AS IcAng
 
-FROM openplot.measurements_wide mw
+FROM openplot.measurements_wide_2 mw
 WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
   AND mw.ts >= @from_utc
   AND mw.ts <  @to_utc
@@ -1069,7 +1074,7 @@ representatives AS (
     SELECT
         mw.pdc_pmu_id AS pdc_pmu_id,
         min(mw.ts) AS ts
-    FROM openplot.measurements_wide mw
+    FROM openplot.measurements_wide_2 mw
     CROSS JOIN bounds b
     WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
       AND mw.ts >= b.aligned_from
@@ -1102,7 +1107,7 @@ SELECT
     mw.ic_ang_deg AS IcAng
 
 FROM representatives r
-JOIN openplot.measurements_wide mw
+JOIN openplot.measurements_wide_2 mw
   ON mw.pdc_pmu_id = r.pdc_pmu_id
  AND mw.ts = r.ts
 WHERE r.ts >= @from_utc
@@ -1202,7 +1207,7 @@ ORDER BY
 
         const string sql = @"
 SELECT 1
-FROM openplot.measurements_wide mw
+FROM openplot.measurements_wide_2 mw
 WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
   AND mw.ts >= @from_utc
   AND mw.ts <  @to_utc
@@ -1221,7 +1226,7 @@ LIMIT 1";
                 cancellationToken: ct));
 
         _logger.LogDebug(
-            "[WARM-UP] measurements_wide aquecida: pdc={Pdc} pmuCount={Count} window=[{From:o}..{To:o}]",
+            "[WARM-UP] measurements_wide_2 aquecida: pdc={Pdc} pmuCount={Count} window=[{From:o}..{To:o}]",
             ctx.PdcName, pdcPmuIds.Length, ctx.FromUtc, ctx.ToUtc);
     }
 
@@ -1274,7 +1279,7 @@ ORDER BY pp.pdc_pmu_id;";
         var phaseModeName = phaseMode switch
         {
             PhaseMode.Single => "single",
-            PhaseMode.ABC => "abc",
+            PhaseMode.ABC or PhaseMode.ThreePhase => "abc",
             _ => "any"
         };
 
@@ -1303,7 +1308,7 @@ WHERE pp.pdc_id = @pdc_id
   AND LOWER(s.component::text) = @component
   AND (
        @quantity <> 'digital'
-       OR UPPER(COALESCE(s.name, '')) = 'CFDS'
+       OR UPPER(COALESCE(s.name, '')) = 'cfds_dig'
   )
   AND (
        @phase_mode = 'any'
@@ -1422,7 +1427,8 @@ ORDER BY
         DateTime fromUtc,
         DateTime toUtc,
         int? maxPoints,
-        TimeSpan minimumBucket)
+        TimeSpan minimumBucket,
+        bool forceSampling = false)
     {
         if (toUtc <= fromUtc)
             throw new ArgumentException("A janela deve satisfazer fromUtc < toUtc.");
@@ -1432,20 +1438,29 @@ ORDER BY
                 nameof(minimumBucket),
                 "minimumBucket deve ser maior que zero.");
 
-        // Sem limite de preview, o consumidor está pedindo fidelidade integral.
-        // Não existe motivo para agrupar: consulta diretamente as linhas reais.
+        // Sem limite de preview, normalmente o consumidor pede fidelidade
+        // integral. FREQ/DFREQ são a exceção: são produtos a 1 fps e, por
+        // isso, continuam amostrados mesmo quando maxPoints=null.
         if (maxPoints is null || maxPoints <= 0)
-            return new SamplingPlan(
-                UseRaw: true,
-                BucketWidth: minimumBucket);
+        {
+            return forceSampling
+                ? new SamplingPlan(
+                    UseRaw: false,
+                    BucketWidth: minimumBucket)
+                : new SamplingPlan(
+                    UseRaw: true,
+                    BucketWidth: minimumBucket);
+        }
 
         // Para as fontes atuais de até 120 fps, se toda a janela já cabe no
         // orçamento, a consulta RAW é simultaneamente mais fiel e mais barata
-        // que GROUP BY + time_bucket.
+        // que GROUP BY + time_bucket. Produtos com forceSampling nunca usam
+        // este atalho.
         var expectedRawPointsPerPmu =
             (toUtc - fromUtc).TotalSeconds * PreviewMaxExpectedFps;
 
-        if (expectedRawPointsPerPmu <= maxPoints.Value)
+        if (!forceSampling &&
+            expectedRawPointsPerPmu <= maxPoints.Value)
         {
             return new SamplingPlan(
                 UseRaw: true,
@@ -1531,11 +1546,14 @@ ORDER BY
     private sealed record WideProjection(
         string RawSelectSql,
         TimeSpan MinimumBucket,
+        bool ForceSampling,
         Func<WideSampleRow, string, double?> ResolveValue);
 
     private static WideProjection BuildProjection(
         string quantity,
-        string component)
+        string component,
+        PhaseMode phaseMode,
+        string? phase)
     {
         var q = NormalizeQuantity(quantity);
         var c = (component ?? string.Empty).Trim().ToUpperInvariant();
@@ -1545,6 +1563,7 @@ ORDER BY
             return new WideProjection(
                 "mw.frequency_hz AS ValueAny",
                 DefaultMinBucket,
+                true,
                 (row, _) => row.ValueAny);
         }
 
@@ -1553,14 +1572,16 @@ ORDER BY
             return new WideProjection(
                 "mw.delta_freq_hz AS ValueAny",
                 DefaultMinBucket,
+                true,
                 (row, _) => row.ValueAny);
         }
 
         if (q == "digital" && c == "DIG")
         {
             return new WideProjection(
-                "mw.cfds AS ValueAny",
+                "mw.cfds_dig AS ValueAny",
                 DefaultMinBucket,
+                false,
                 (row, _) => row.ValueAny);
         }
 
@@ -1568,9 +1589,18 @@ ORDER BY
         {
             return c switch
             {
-                "MAG" => PhaseProjection("va_mod_v", "vb_mod_v", "vc_mod_v"),
-                "ANG" => PhaseProjection("va_ang_deg", "vb_ang_deg", "vc_ang_deg"),
-                "THD" => PhaseProjection("vthd_a_pct", "vthd_b_pct", "vthd_c_pct"),
+                "MAG" => PhaseProjection(
+                    "va_mod_v", "vb_mod_v", "vc_mod_v",
+                    phaseMode, phase),
+
+                "ANG" => PhaseProjection(
+                    "va_ang_deg", "vb_ang_deg", "vc_ang_deg",
+                    phaseMode, phase),
+
+                "THD" => PhaseProjection(
+                    "vthd_a_pct", "vthd_b_pct", "vthd_c_pct",
+                    phaseMode, phase),
+
                 _ => throw new NotSupportedException(
                     $"Componente de tensão não suportado na Wide: '{component}'.")
             };
@@ -1580,9 +1610,18 @@ ORDER BY
         {
             return c switch
             {
-                "MAG" => PhaseProjection("ia_mod_a", "ib_mod_a", "ic_mod_a"),
-                "ANG" => PhaseProjection("ia_ang_deg", "ib_ang_deg", "ic_ang_deg"),
-                "THD" => PhaseProjection("cthd_a_pct", "cthd_b_pct", "cthd_c_pct"),
+                "MAG" => PhaseProjection(
+                    "ia_mod_a", "ib_mod_a", "ic_mod_a",
+                    phaseMode, phase),
+
+                "ANG" => PhaseProjection(
+                    "ia_ang_deg", "ib_ang_deg", "ic_ang_deg",
+                    phaseMode, phase),
+
+                "THD" => PhaseProjection(
+                    "cthd_a_pct", "cthd_b_pct", "cthd_c_pct",
+                    phaseMode, phase),
+
                 _ => throw new NotSupportedException(
                     $"Componente de corrente não suportado na Wide: '{component}'.")
             };
@@ -1595,20 +1634,80 @@ ORDER BY
     private static WideProjection PhaseProjection(
         string colA,
         string colB,
-        string colC)
+        string colC,
+        PhaseMode phaseMode,
+        string? phase)
     {
+        // Em PhaseMode.Single a hypertable columnar deve descomprimir somente
+        // a coluna física realmente pedida.
+        if (phaseMode == PhaseMode.Single)
+        {
+            var p = (phase ?? string.Empty).Trim().ToUpperInvariant();
+
+            var selectedColumn = p switch
+            {
+                "A" => colA,
+                "B" => colB,
+                "C" => colC,
+                _ => throw new ArgumentException(
+                    "PhaseMode.Single exige phase=A, B ou C.",
+                    nameof(phase))
+            };
+
+            return new WideProjection(
+                $"mw.{selectedColumn} AS ValueAny",
+                DefaultMinBucket,
+                false,
+                (row, _) => row.ValueAny);
+        }
+
         return new WideProjection(
             $@"mw.{colA} AS ValueA,
                 mw.{colB} AS ValueB,
                 mw.{colC} AS ValueC",
             DefaultMinBucket,
-            (row, phase) => phase.ToUpperInvariant() switch
+            false,
+            (row, currentPhase) => currentPhase.ToUpperInvariant() switch
             {
                 "A" => row.ValueA,
                 "B" => row.ValueB,
                 "C" => row.ValueC,
                 _ => null
             });
+    }
+
+    private static string BuildAngleFrameColumns(
+        string kind,
+        string? normalizedPhase)
+    {
+        if (normalizedPhase is not null)
+        {
+            return (kind, normalizedPhase) switch
+            {
+                ("voltage", "A") => "mw.va_ang_deg AS AAng",
+                ("voltage", "B") => "mw.vb_ang_deg AS BAng",
+                ("voltage", "C") => "mw.vc_ang_deg AS CAng",
+                ("current", "A") => "mw.ia_ang_deg AS AAng",
+                ("current", "B") => "mw.ib_ang_deg AS BAng",
+                ("current", "C") => "mw.ic_ang_deg AS CAng",
+                _ => throw new NotSupportedException(
+                    $"AngleDiff não suportado: kind='{kind}', phase='{normalizedPhase}'.")
+            };
+        }
+
+        return kind == "voltage"
+            ? @"mw.va_mod_v   AS AMod,
+                mw.va_ang_deg AS AAng,
+                mw.vb_mod_v   AS BMod,
+                mw.vb_ang_deg AS BAng,
+                mw.vc_mod_v   AS CMod,
+                mw.vc_ang_deg AS CAng"
+            : @"mw.ia_mod_a   AS AMod,
+                mw.ia_ang_deg AS AAng,
+                mw.ib_mod_a   AS BMod,
+                mw.ib_ang_deg AS BAng,
+                mw.ic_mod_a   AS CMod,
+                mw.ic_ang_deg AS CAng";
     }
 
     private static double? ResolveAbcValue(

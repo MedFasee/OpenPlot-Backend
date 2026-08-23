@@ -117,7 +117,7 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
         var trackedSignalIds = wideColumnBySignal.Keys.OrderBy(x => x).ToArray();
 
         if (trackedSignalIds.Length == 0)
-            throw new Exception("Nenhum signal da PMU possui mapeamento para openplot.measurements_wide.");
+            throw new Exception("Nenhum signal da PMU possui mapeamento para openplot.measurements_wide_2.");
 
         var totalSpan = toUtc - fromUtc;
         var chunkSize = TimeSpan.FromMinutes(Math.Max(1, ChunkMinutes));
@@ -215,7 +215,7 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                     expectedFrames = EnumerateExpectedFrames(cs, ce, selectRate).ToArray();
 
                     // IMPORTANTE: não fazemos mais short-circuit quando o chunk já
-                    // existe em measurements_wide. As métricas da search_run devem ser
+                    // existe em measurements_wide_2. As métricas da search_run devem ser
                     // calculadas para TODOS os chunks solicitados a partir da fonte real.
                     // O UPSERT abaixo continua tornando a persistência idempotente.
 
@@ -300,7 +300,7 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                             vthd_c_pct      double precision  NULL,
                             frequency_hz    double precision  NULL,
                             delta_freq_hz   double precision  NULL,
-                            cfds            double precision  NULL
+                            cfds_dig            double precision  NULL
                         ) ON COMMIT DROP;
                         TRUNCATE measurements_wide_stage_tmp;", connCopy, txCopy))
                     {
@@ -392,7 +392,7 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                          ia_mod_a, ia_ang_deg, ib_mod_a, ib_ang_deg, ic_mod_a, ic_ang_deg,
                          cthd_a_pct, cthd_b_pct, cthd_c_pct,
                          vthd_a_pct, vthd_b_pct, vthd_c_pct,
-                         frequency_hz, delta_freq_hz, cfds)
+                         frequency_hz, delta_freq_hz, cfds_dig)
                         FROM STDIN (FORMAT BINARY)"))
                     {
                         foreach (var frame in stagedFrames.Values.OrderBy(x => x.Ts))
@@ -425,55 +425,55 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
                             WriteNullableDouble(importer, frame.VthdCPct);
                             WriteNullableDouble(importer, frame.FrequencyHz);
                             WriteNullableDouble(importer, frame.DeltaFreqHz);
-                            WriteNullableDouble(importer, frame.Cfds);
+                            WriteNullableDouble(importer, frame.cfds_dig);
                         }
 
                         importer.Complete();
                     }
 
                     using (var upsert = new NpgsqlCommand(@"
-                        INSERT INTO openplot.measurements_wide
+                        INSERT INTO openplot.measurements_wide_2
                             (ts, pdc_pmu_id, quality,
                              va_mod_v, va_ang_deg, vb_mod_v, vb_ang_deg, vc_mod_v, vc_ang_deg,
                              ia_mod_a, ia_ang_deg, ib_mod_a, ib_ang_deg, ic_mod_a, ic_ang_deg,
                              cthd_a_pct, cthd_b_pct, cthd_c_pct,
                              vthd_a_pct, vthd_b_pct, vthd_c_pct,
-                             frequency_hz, delta_freq_hz, cfds)
+                             frequency_hz, delta_freq_hz, cfds_dig)
                         SELECT
                             ts, pdc_pmu_id, quality,
                             va_mod_v, va_ang_deg, vb_mod_v, vb_ang_deg, vc_mod_v, vc_ang_deg,
                             ia_mod_a, ia_ang_deg, ib_mod_a, ib_ang_deg, ic_mod_a, ic_ang_deg,
                             cthd_a_pct, cthd_b_pct, cthd_c_pct,
                             vthd_a_pct, vthd_b_pct, vthd_c_pct,
-                            frequency_hz, delta_freq_hz, cfds
+                            frequency_hz, delta_freq_hz, cfds_dig
                         FROM measurements_wide_stage_tmp
                         ON CONFLICT (pdc_pmu_id, ts) DO UPDATE
                         SET
                             quality = CASE
-                                WHEN openplot.measurements_wide.quality = 2 OR EXCLUDED.quality = 2 THEN 2
-                                ELSE COALESCE(EXCLUDED.quality, openplot.measurements_wide.quality)
+                                WHEN openplot.measurements_wide_2.quality = 2 OR EXCLUDED.quality = 2 THEN 2
+                                ELSE COALESCE(EXCLUDED.quality, openplot.measurements_wide_2.quality)
                             END,
-                            va_mod_v      = COALESCE(EXCLUDED.va_mod_v, openplot.measurements_wide.va_mod_v),
-                            va_ang_deg    = COALESCE(EXCLUDED.va_ang_deg, openplot.measurements_wide.va_ang_deg),
-                            vb_mod_v      = COALESCE(EXCLUDED.vb_mod_v, openplot.measurements_wide.vb_mod_v),
-                            vb_ang_deg    = COALESCE(EXCLUDED.vb_ang_deg, openplot.measurements_wide.vb_ang_deg),
-                            vc_mod_v      = COALESCE(EXCLUDED.vc_mod_v, openplot.measurements_wide.vc_mod_v),
-                            vc_ang_deg    = COALESCE(EXCLUDED.vc_ang_deg, openplot.measurements_wide.vc_ang_deg),
-                            ia_mod_a      = COALESCE(EXCLUDED.ia_mod_a, openplot.measurements_wide.ia_mod_a),
-                            ia_ang_deg    = COALESCE(EXCLUDED.ia_ang_deg, openplot.measurements_wide.ia_ang_deg),
-                            ib_mod_a      = COALESCE(EXCLUDED.ib_mod_a, openplot.measurements_wide.ib_mod_a),
-                            ib_ang_deg    = COALESCE(EXCLUDED.ib_ang_deg, openplot.measurements_wide.ib_ang_deg),
-                            ic_mod_a      = COALESCE(EXCLUDED.ic_mod_a, openplot.measurements_wide.ic_mod_a),
-                            ic_ang_deg    = COALESCE(EXCLUDED.ic_ang_deg, openplot.measurements_wide.ic_ang_deg),
-                            cthd_a_pct    = COALESCE(EXCLUDED.cthd_a_pct, openplot.measurements_wide.cthd_a_pct),
-                            cthd_b_pct    = COALESCE(EXCLUDED.cthd_b_pct, openplot.measurements_wide.cthd_b_pct),
-                            cthd_c_pct    = COALESCE(EXCLUDED.cthd_c_pct, openplot.measurements_wide.cthd_c_pct),
-                            vthd_a_pct    = COALESCE(EXCLUDED.vthd_a_pct, openplot.measurements_wide.vthd_a_pct),
-                            vthd_b_pct    = COALESCE(EXCLUDED.vthd_b_pct, openplot.measurements_wide.vthd_b_pct),
-                            vthd_c_pct    = COALESCE(EXCLUDED.vthd_c_pct, openplot.measurements_wide.vthd_c_pct),
-                            frequency_hz  = COALESCE(EXCLUDED.frequency_hz, openplot.measurements_wide.frequency_hz),
-                            delta_freq_hz = COALESCE(EXCLUDED.delta_freq_hz, openplot.measurements_wide.delta_freq_hz),
-                            cfds          = COALESCE(EXCLUDED.cfds, openplot.measurements_wide.cfds);",
+                            va_mod_v      = COALESCE(EXCLUDED.va_mod_v, openplot.measurements_wide_2.va_mod_v),
+                            va_ang_deg    = COALESCE(EXCLUDED.va_ang_deg, openplot.measurements_wide_2.va_ang_deg),
+                            vb_mod_v      = COALESCE(EXCLUDED.vb_mod_v, openplot.measurements_wide_2.vb_mod_v),
+                            vb_ang_deg    = COALESCE(EXCLUDED.vb_ang_deg, openplot.measurements_wide_2.vb_ang_deg),
+                            vc_mod_v      = COALESCE(EXCLUDED.vc_mod_v, openplot.measurements_wide_2.vc_mod_v),
+                            vc_ang_deg    = COALESCE(EXCLUDED.vc_ang_deg, openplot.measurements_wide_2.vc_ang_deg),
+                            ia_mod_a      = COALESCE(EXCLUDED.ia_mod_a, openplot.measurements_wide_2.ia_mod_a),
+                            ia_ang_deg    = COALESCE(EXCLUDED.ia_ang_deg, openplot.measurements_wide_2.ia_ang_deg),
+                            ib_mod_a      = COALESCE(EXCLUDED.ib_mod_a, openplot.measurements_wide_2.ib_mod_a),
+                            ib_ang_deg    = COALESCE(EXCLUDED.ib_ang_deg, openplot.measurements_wide_2.ib_ang_deg),
+                            ic_mod_a      = COALESCE(EXCLUDED.ic_mod_a, openplot.measurements_wide_2.ic_mod_a),
+                            ic_ang_deg    = COALESCE(EXCLUDED.ic_ang_deg, openplot.measurements_wide_2.ic_ang_deg),
+                            cthd_a_pct    = COALESCE(EXCLUDED.cthd_a_pct, openplot.measurements_wide_2.cthd_a_pct),
+                            cthd_b_pct    = COALESCE(EXCLUDED.cthd_b_pct, openplot.measurements_wide_2.cthd_b_pct),
+                            cthd_c_pct    = COALESCE(EXCLUDED.cthd_c_pct, openplot.measurements_wide_2.cthd_c_pct),
+                            vthd_a_pct    = COALESCE(EXCLUDED.vthd_a_pct, openplot.measurements_wide_2.vthd_a_pct),
+                            vthd_b_pct    = COALESCE(EXCLUDED.vthd_b_pct, openplot.measurements_wide_2.vthd_b_pct),
+                            vthd_c_pct    = COALESCE(EXCLUDED.vthd_c_pct, openplot.measurements_wide_2.vthd_c_pct),
+                            frequency_hz  = COALESCE(EXCLUDED.frequency_hz, openplot.measurements_wide_2.frequency_hz),
+                            delta_freq_hz = COALESCE(EXCLUDED.delta_freq_hz, openplot.measurements_wide_2.delta_freq_hz),
+                            cfds_dig          = COALESCE(EXCLUDED.cfds_dig, openplot.measurements_wide_2.cfds_dig);",
                         connCopy,
                         txCopy))
                     {
@@ -841,8 +841,8 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
 
         if (q is "digital" or "d")
         {
-            if (c == "DIG" && n == "CFDS")
-                return "cfds";
+            if (c == "DIG" && n == "cfds_dig")
+                return "cfds_dig";
         }
 
         return string.Empty;
@@ -878,7 +878,7 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
 
         public double? FrequencyHz { get; set; }
         public double? DeltaFreqHz { get; set; }
-        public double? Cfds { get; set; }
+        public double? cfds_dig { get; set; }
     }
 
     private static WideFrameRow GetOrCreateWideFrame(
@@ -942,7 +942,7 @@ internal sealed class IngestorChunkPipeline : IIngestorChunkPipeline
 
             case "frequency_hz": row.FrequencyHz ??= value; break;
             case "delta_freq_hz": row.DeltaFreqHz ??= value; break;
-            case "cfds": row.Cfds ??= value; break;
+            case "cfds_dig": row.cfds_dig ??= value; break;
         }
     }
 

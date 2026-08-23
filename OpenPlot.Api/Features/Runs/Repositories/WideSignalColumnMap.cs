@@ -27,11 +27,11 @@ internal static class WideSignalColumnMap
         "vthd_c_pct",
         "frequency_hz",
         "delta_freq_hz",
-        "cfds"
+        "cfds_dig"
     };
 
     /// <summary>
-    /// Projeta o valor narrow (m.value) a partir de measurements_wide sem interpolar coluna de usuário.
+    /// Projeta o valor narrow (m.value) a partir de measurements_wide_2 sem interpolar coluna de usuário.
     /// </summary>
     public static string BuildValueCaseSql(string signalAlias, string wideAlias)
     {
@@ -64,8 +64,8 @@ CASE
 
   WHEN LOWER({signalAlias}.quantity::text) IN ('digital','d')
        AND UPPER({signalAlias}.component::text) = 'DIG'
-       AND UPPER(COALESCE({signalAlias}.name, '')) = 'CFDS'
-    THEN {wideAlias}.cfds
+       AND UPPER(COALESCE({signalAlias}.name, '')) = 'cfds_dig'
+    THEN {wideAlias}.cfds_dig
 
   ELSE NULL
 END";

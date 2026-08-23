@@ -295,12 +295,14 @@ internal sealed class IngestorProgressReporter
         {
             sb.AppendLine();
 
-            sb.Append("Tempo total=")
+            sb.Append("Resumo da consulta");
+            sb.AppendLine();
+            sb.Append("Tempo total= ")
               .Append(
                   jobProcessingTime.HasValue
                       ? FormatDuration(jobProcessingTime.Value)
                       : "n/d")
-              .Append(" \t Dados válidos=")
+              .Append(" \t Percentual médio de dados válidos= ")
               .Append(CalculateOverallValidPercent())
               .AppendLine();
         }

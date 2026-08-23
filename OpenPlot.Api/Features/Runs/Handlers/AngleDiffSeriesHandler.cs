@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
@@ -7,42 +7,57 @@ using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Abstractions;
 using OpenPlot.Features.Runs.Repositories;
 using OpenPlot.Services.UI;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using OpenPlot.Services.BackgroundCache;
 
 namespace OpenPlot.Features.Runs.Handlers;
 
-/// <summary>
-/// Query parameters for angle difference series handler.
-/// </summary>
 public sealed class AngleDiffQuery : ISeriesQuery
 {
     public Guid RunId { get; init; }
     public string? MaxPoints { get; init; }
-    public string? Kind { get; init; } // voltage|current
-    public string? Reference { get; init; } // PMU reference name
-    public string? Phase { get; init; } // A|B|C
-    public string? Sequence { get; init; } // pos|neg|zero
+    public string? Kind { get; init; }       // voltage|current
+    public string? Reference { get; init; }  // PMU referência
+    public string? Phase { get; init; }      // A|B|C
+    public string? Sequence { get; init; }   // pos|neg|zero
 
     public bool MaxPointsIsAll =>
-        string.Equals(MaxPoints?.Trim(), "all", StringComparison.OrdinalIgnoreCase);
+        string.Equals(
+            MaxPoints?.Trim(),
+            "all",
+            StringComparison.OrdinalIgnoreCase);
 
     public int ResolveMaxPoints(int @default = 5000)
     {
-        if (MaxPointsIsAll) return int.MaxValue;
-        if (string.IsNullOrWhiteSpace(MaxPoints)) return @default;
-        return int.TryParse(MaxPoints, out var n) && n > 0 ? n : @default;
+        if (MaxPointsIsAll)
+            return int.MaxValue;
+
+        if (string.IsNullOrWhiteSpace(MaxPoints))
+            return @default;
+
+        return int.TryParse(MaxPoints, out var n) && n > 0
+            ? n
+            : @default;
     }
 }
 
 /// <summary>
-/// Handler for calculating phase angle differences between reference and measurement PMUs.
-/// Supports both phase-based (A|B|C) and sequence-based (pos|neg|zero) calculations.
-/// 
-/// Architecture:
-/// - Validates input parameters (kind, reference, phase XOR sequence)
-/// - Executes complex SQL query with PMU/signal resolution
-/// - Calculates sequence angles using Complex number math
-/// - Computes angle differences with time-series alignment
-/// - Applies min/max downsampling for visualization
+/// Diferença angular entre uma PMU de referência e as PMUs medidas.
+///
+/// A metodologia elétrica é mantida:
+/// - diferença angular normalizada em [-180, 180];
+/// - componentes simétricas com a=e^(j120°);
+/// - tolerância temporal de 3 ms;
+/// - fallback por retenção do último resultado válido.
+///
+/// Otimização:
+/// - phase A/B/C usa somente a coluna angular da fase pedida;
+/// - sequence usa um AngleFrameRow Wide por PMU/timestamp;
+/// - maxPoints é aplicado no repository antes do processamento;
+/// - não há expansão em seis PhasorAbcRow;
+/// - preview não sofre um segundo downsampling em memória;
+/// - cache integral é preenchido em background.
 /// </summary>
 public sealed class AngleDiffSeriesHandler
 {
@@ -50,11 +65,12 @@ public sealed class AngleDiffSeriesHandler
     private readonly IRunContextRepository _runRepository;
     private readonly ILogger<AngleDiffSeriesHandler> _logger;
     private readonly IAnalysisCacheRepository _cacheRepo;
-    private readonly ITimeSeriesDownsampler _downsampler;
     private readonly IPmuQueryHelper _pmuHelper;
     private readonly ISeriesAssemblyService _seriesAssembly;
     private readonly IPlotMetaBuilder _metaBuilder;
     private readonly IUiMenuService _uiMenus;
+    private readonly IBackgroundCacheQueue _backgroundCacheQueue;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
     public AngleDiffSeriesHandler(
         IRunContextRepository runRepository,
@@ -65,22 +81,45 @@ public sealed class AngleDiffSeriesHandler
         ISeriesAssemblyService seriesAssembly,
         IPlotMetaBuilder metaBuilder,
         IUiMenuService uiMenus,
+        IBackgroundCacheQueue backgroundCacheQueue,
+        IHttpContextAccessor httpContextAccessor,
         ILogger<AngleDiffSeriesHandler> logger)
     {
-        _runRepository = runRepository ?? throw new ArgumentNullException(nameof(runRepository));
-        _measurementsRepository = measurementsRepository ?? throw new ArgumentNullException(nameof(measurementsRepository));
-        _cacheRepo = cacheRepo ?? throw new ArgumentNullException(nameof(cacheRepo));
-        _downsampler = downsampler ?? throw new ArgumentNullException(nameof(downsampler));
-        _pmuHelper = pmuHelper ?? throw new ArgumentNullException(nameof(pmuHelper));
-        _seriesAssembly = seriesAssembly ?? throw new ArgumentNullException(nameof(seriesAssembly));
-        _metaBuilder = metaBuilder ?? throw new ArgumentNullException(nameof(metaBuilder));
-        _uiMenus = uiMenus ?? throw new ArgumentNullException(nameof(uiMenus));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _runRepository = runRepository
+            ?? throw new ArgumentNullException(nameof(runRepository));
+
+        _measurementsRepository = measurementsRepository
+            ?? throw new ArgumentNullException(nameof(measurementsRepository));
+
+        _cacheRepo = cacheRepo
+            ?? throw new ArgumentNullException(nameof(cacheRepo));
+
+        // Mantido na assinatura para não quebrar DI/testes antigos.
+        _ = downsampler
+            ?? throw new ArgumentNullException(nameof(downsampler));
+
+        _pmuHelper = pmuHelper
+            ?? throw new ArgumentNullException(nameof(pmuHelper));
+
+        _seriesAssembly = seriesAssembly
+            ?? throw new ArgumentNullException(nameof(seriesAssembly));
+
+        _metaBuilder = metaBuilder
+            ?? throw new ArgumentNullException(nameof(metaBuilder));
+
+        _uiMenus = uiMenus
+            ?? throw new ArgumentNullException(nameof(uiMenus));
+
+        _backgroundCacheQueue = backgroundCacheQueue
+            ?? throw new ArgumentNullException(nameof(backgroundCacheQueue));
+
+        _httpContextAccessor = httpContextAccessor
+            ?? throw new ArgumentNullException(nameof(httpContextAccessor));
+
+        _logger = logger
+            ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    /// <summary>
-    /// Main handler method for angle difference series calculation.
-    /// </summary>
     public async Task<IResult> HandleAsync(
         AngleDiffQuery query,
         WindowQuery window,
@@ -88,557 +127,666 @@ public sealed class AngleDiffSeriesHandler
         Dictionary<string, object?>? modes,
         CancellationToken ct)
     {
-        // Validate input
         var validation = ValidateInput(query);
         if (!validation.isValid)
             return Results.BadRequest(validation.errorMessage);
 
         try
         {
-            var processingWatch = Stopwatch.StartNew();
-            var kind = query.Kind!.Trim().ToLowerInvariant();
-            var refPmu = query.Reference!.Trim();
-            var hasPhase = !string.IsNullOrWhiteSpace(query.Phase);
-            var hasSeq = !string.IsNullOrWhiteSpace(query.Sequence);
-
-            // Process PMU list
-            var pmuList = _pmuHelper.NormalizeExcluding(refPmu, pmuArray).ToList();
-
-            _logger.LogInformation(
-                "[PROCESS][AngleDiff][START] runId={RunId} kind={Kind} reference={Reference} phase={Phase} sequence={Sequence}",
-                query.RunId,
-                kind,
-                refPmu,
-                query.Phase,
-                query.Sequence);
-            var queryPmuList = pmuList.Count > 0
-                ? _pmuHelper.Normalize(pmuList, new[] { refPmu }).ToList()
-                : pmuList;
-
-            var maxPts = query.ResolveMaxPoints(@default: 5000);
-            var fromUtc = window.FromUtc;
-            var toUtc = window.ToUtc;
-
-            var ctx = await _runRepository.ResolveAsync(query.RunId, fromUtc, toUtc, ct);
-            if (ctx is null)
-                return Results.NotFound("run_id n�o encontrado.");
-
-            var effectiveWindowFrom = fromUtc ?? ctx.FromUtc;
-            var effectiveWindowTo = toUtc ?? ctx.ToUtc;
-            var expectedFrames = BuildExpectedFrames(effectiveWindowFrom, effectiveWindowTo, ctx.SelectRate);
-
-            // Query data
-            var rows = await QueryDataAsync(query, ctx, window, queryPmuList, ct);
-            if (rows.Count == 0)
-                return Results.NotFound("Nenhuma s�rie encontrada para este run/filtros.");
-
-            // Separate reference and measurement data
-            var refRows = rows
-                .Where(r => (r.IdName ?? "").Equals(refPmu, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            if (refRows.Count == 0)
-                return Results.BadRequest("PMU de refer�ncia n�o encontrada dentro do run/filtros.");
-
-            // Calculate reference angle series
-            var refAngSeries = hasPhase
-                ? ExtractPhaseSeries(refRows)
-                : CalculateSequenceSeries(refRows, query.Sequence!);
-
-            if (refAngSeries.Count == 0)
-                return Results.BadRequest("N�o foi poss�vel calcular s�rie de refer�ncia (�ngulo).");
-
-            // Process target PMUs
-            IEnumerable<IGrouping<string, (string IdName, string PdcName, string Phase, string Component, DateTime Ts, double Value)>> targetGroups;
-
-            if (pmuList.Count > 0)
-            {
-                targetGroups = rows
-                    .Where(r => pmuList.Contains(r.IdName ?? "", StringComparer.OrdinalIgnoreCase))
-                    .GroupBy(r => r.IdName!);
-            }
-            else
-            {
-                targetGroups = rows
-                    .Where(r => !(r.IdName ?? "").Equals(refPmu, StringComparison.OrdinalIgnoreCase))
-                    .GroupBy(r => r.IdName!);
-            }
-
-            var series = new List<object>();
-            var cachePoints = new List<(string pmuId, DateTime ts, double value)>();
-            var tol = TimeSpan.FromMilliseconds(3);
-
-            foreach (var g in targetGroups)
-            {
-                var sigRows = g.ToList();
-                if (sigRows.Count == 0) continue;
-
-                var first = sigRows.First();
-                var pmuName = g.Key;
-                var pdcName = first.PdcName;
-
-                var measAngSeries = hasPhase
-                    ? ExtractPhaseSeries(sigRows.Select(s => (s.IdName, s.PdcName, s.Phase, s.Component, s.Ts, s.Value)))
-                    : CalculateSequenceSeries(sigRows.Select(s => (s.IdName, s.PdcName, s.Phase, s.Component, s.Ts, s.Value)), query.Sequence!);
-
-                if (measAngSeries.Count == 0) continue;
-
-                var dif = expectedFrames.Count > 0
-                    ? ComputeAngleDifferenceWithMissingFallback(measAngSeries, refAngSeries, expectedFrames, tol)
-                    : ComputeAngleDifference(measAngSeries, refAngSeries, tol);
-                if (dif.Count == 0) continue;
-
-                foreach (var p in dif)
-                    cachePoints.Add((pmuName, p.ts, p.difDeg));
-
-                var points = _seriesAssembly.BuildPoints(
-                    dif.Select(x => (x.ts, x.difDeg)),
-                    noDownsample: query.MaxPointsIsAll,
-                    maxPoints: maxPts,
-                    downsampler: _downsampler);
-
-                series.Add(new
-                {
-                    pmu = pmuName,
-                    pdc = pdcName,
-                    reference = refPmu,
-                    kind = kind,
-                    mode = hasPhase ? "phase" : "sequence",
-                    phase = hasPhase ? query.Phase!.ToUpperInvariant() : null,
-                    seq = hasSeq ? NormalizeSeq(query.Sequence!) : null,
-                    unit = "deg",
-                    points
-                });
-            }
-
-            if (series.Count == 0)
-                return Results.BadRequest("Nenhuma PMU p�de ser processada (faltam sinais ou alinhamento falhou).");
-
-            var windowFrom = expectedFrames.Count > 0 ? expectedFrames[0] : (fromUtc ?? rows.Min(r => r.Ts));
-            var windowTo = expectedFrames.Count > 0 ? expectedFrames[^1] : (toUtc ?? rows.Max(r => r.Ts));
-            var dataStr = windowFrom.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
-
-            var modeLabel = hasPhase ? "phase" : "sequence";
-            var componentLabel = hasPhase ? "angle_diff_phase" : "angle_diff_sequence";
-
-            var cacheSeries = cachePoints
-                .GroupBy(x => x.pmuId)
-                .Select(g => _seriesAssembly.BuildCacheSeries(
-                    signalId: 0,
-                    pdcPmuId: 0,
-                    idName: g.Key,
-                    pdcName: ctx.PdcName,
-                    referenceTerminal: refPmu,
-                    unit: "deg",
-                    phase: hasPhase ? query.Phase?.ToUpperInvariant() : NormalizeSeq(query.Sequence!),
-                    quantity: kind,
-                    component: componentLabel,
-                    points: g.Select(x => (x.ts, x.value))))
-                .ToList();
-
-            var cachePayload = _seriesAssembly.BuildCachePayload(
-                windowFrom,
-                windowTo,
-                ctx.SelectRate ?? 0,
-                cacheSeries);
-
-            var cacheId = await _cacheRepo.SaveAsync(query.RunId, cachePayload, ct);
-
-            // Build plot metadata with reference terminal
-            var measQuery = new MeasurementsQuery(
-                Quantity: kind,
-                Component: componentLabel,
-                PhaseMode: hasPhase ? PhaseMode.Single : PhaseMode.Any,
-                Phase: hasPhase ? query.Phase : null,
-                PmuNames: pmuList.Count > 0 ? pmuList : null,
-                Unit: "deg",
-                ReferenceTerminal: refPmu
-            );
-            var plotMeta = _metaBuilder.Build(new WindowQuery(fromUtc, toUtc), ctx, measQuery);
-            var resolvedModes = _uiMenus.RebuildForRun(
+            return await HandleCoreAsync(
+                query,
+                window,
+                pmuArray,
                 modes,
-                UiMenuContext.FromCache(cachePayload));
-
-            processingWatch.Stop();
-            _logger.LogInformation(
-                "[PROCESS][AngleDiff][END] runId={RunId} elapsedMs={ElapsedMs} pmuCount={PmuCount}",
-                query.RunId,
-                processingWatch.ElapsedMilliseconds,
-                series.Count);
-
-            return Results.Ok(new
-            {
-                run_id = query.RunId,
-                data = dataStr,
-                kind = kind,
-                reference = refPmu,
-                mode = modeLabel,
-                phase = hasPhase ? query.Phase!.ToUpperInvariant() : null,
-                seq = hasSeq ? NormalizeSeq(query.Sequence!) : null,
-                unit = "deg",
-                cache_id = cacheId.ToString(),
-                pmu_count = series.Count,
-                window = new { from = windowFrom, to = windowTo },
-                modes = resolvedModes,
-                plot_meta = new { title = plotMeta.Title, x_label = plotMeta.XLabel, y_label = plotMeta.YLabel },
-                series
-            });
+                ct);
         }
         catch (OperationCanceledException)
         {
-            return Results.StatusCode(StatusCodes.Status408RequestTimeout);
+            return Results.StatusCode(
+                StatusCodes.Status408RequestTimeout);
         }
         catch (Exception)
         {
-            return Results.StatusCode(StatusCodes.Status500InternalServerError);
+            return Results.StatusCode(
+                StatusCodes.Status500InternalServerError);
         }
     }
 
-    /// <summary>
-    /// Validates input parameters for angle difference calculation.
-    /// </summary>
-    private (bool isValid, string? errorMessage) ValidateInput(AngleDiffQuery query)
+    private async Task<IResult> HandleCoreAsync(
+        AngleDiffQuery query,
+        WindowQuery window,
+        string[]? pmuArray,
+        Dictionary<string, object?>? modes,
+        CancellationToken ct)
     {
-        if (query.RunId == Guid.Empty)
-            return (false, "run_id � obrigat�rio.");
+        var totalWatch = Stopwatch.StartNew();
 
-        if (string.IsNullOrWhiteSpace(query.Kind))
-            return (false, "kind � obrigat�rio (voltage|current).");
-
-        var kind = query.Kind.Trim().ToLowerInvariant();
-        if (kind is not ("voltage" or "current"))
-            return (false, "kind deve ser 'voltage' ou 'current'.");
-
-        if (string.IsNullOrWhiteSpace(query.Reference))
-            return (false, "ref � obrigat�rio (id_name da PMU refer�ncia).");
-
+        var kind = query.Kind!.Trim().ToLowerInvariant();
+        var refPmu = query.Reference!.Trim();
         var hasPhase = !string.IsNullOrWhiteSpace(query.Phase);
-        var hasSeq = !string.IsNullOrWhiteSpace(query.Sequence);
 
-        if (hasPhase == hasSeq)
-            return (false, "informe exatamente um dos par�metros: phase (A|B|C) OU seq (pos|neg|zero).");
+        var normalizedPhase = hasPhase
+            ? query.Phase!.Trim().ToUpperInvariant()
+            : null;
 
-        if (hasPhase)
+        var normalizedSequence = hasPhase
+            ? null
+            : NormalizeSeq(query.Sequence!);
+
+        var selectedTargets = _pmuHelper
+            .NormalizeExcluding(refPmu, pmuArray)
+            .ToList();
+
+        IReadOnlyList<string>? queryPmus =
+            selectedTargets.Count > 0
+                ? _pmuHelper
+                    .Normalize(selectedTargets, new[] { refPmu })
+                    .ToList()
+                : null;
+
+        var maxPts = query.ResolveMaxPoints(@default: 5000);
+
+        int? frontMaxPoints = query.MaxPointsIsAll
+            ? null
+            : maxPts;
+
+        var fromUtc = window.FromUtc;
+        var toUtc = window.ToUtc;
+
+        if (fromUtc.HasValue &&
+            toUtc.HasValue &&
+            fromUtc.Value >= toUtc.Value)
         {
-            var phase = query.Phase!.Trim().ToUpperInvariant();
-            if (phase is not ("A" or "B" or "C"))
-                return (false, "phase deve ser A, B ou C.");
+            return Results.BadRequest("from < to");
+        }
+
+        _logger.LogInformation(
+            "[PROCESS][AngleDiff][START] runId={RunId} kind={Kind} reference={Reference} phase={Phase} sequence={Sequence} maxPoints={MaxPoints}",
+            query.RunId,
+            kind,
+            refPmu,
+            normalizedPhase,
+            normalizedSequence,
+            query.MaxPointsIsAll ? "all" : maxPts);
+
+        var ctx = await _runRepository.ResolveAsync(
+            query.RunId,
+            fromUtc,
+            toUtc,
+            ct);
+
+        if (ctx is null)
+            return Results.NotFound("run_id não encontrado.");
+
+        var queryWatch = Stopwatch.StartNew();
+
+        var frames = await _measurementsRepository.QueryAngleFramesAsync(
+            ctx,
+            kind,
+            queryPmus,
+            fromUtc,
+            toUtc,
+            ct,
+            frontMaxPoints,
+            normalizedPhase);
+
+        queryWatch.Stop();
+
+        if (frames.Count == 0)
+            return Results.NotFound(
+                "Nenhuma série encontrada para este run/filtros.");
+
+        var processWatch = Stopwatch.StartNew();
+
+        var projection = BuildProjection(
+            frames,
+            kind,
+            refPmu,
+            selectedTargets,
+            normalizedPhase,
+            normalizedSequence,
+            buildFrontSeries: true);
+
+        processWatch.Stop();
+
+        if (projection.Series.Count == 0)
+        {
+            return Results.BadRequest(
+                "Nenhuma PMU pôde ser processada (faltam sinais ou alinhamento falhou).");
+        }
+
+        var modeLabel = hasPhase
+            ? "phase"
+            : "sequence";
+
+        var componentLabel = hasPhase
+            ? "angle_diff_phase"
+            : "angle_diff_sequence";
+
+        var cacheSeries = projection.CachePoints
+            .GroupBy(
+                x => x.pmuId,
+                StringComparer.OrdinalIgnoreCase)
+            .Select(g => _seriesAssembly.BuildCacheSeries(
+                signalId: 0,
+                pdcPmuId: 0,
+                idName: g.Key,
+                pdcName: ctx.PdcName,
+                referenceTerminal: refPmu,
+                unit: "deg",
+                phase: hasPhase
+                    ? normalizedPhase
+                    : normalizedSequence,
+                quantity: kind,
+                component: componentLabel,
+                points: g.Select(x => (x.ts, x.value))))
+            .ToList();
+
+        var cachePayload = _seriesAssembly.BuildCachePayload(
+            projection.WindowFrom,
+            projection.WindowTo,
+            ctx.SelectRate ?? 0,
+            cacheSeries,
+            normalizeMissingFrames: false);
+
+        var cacheId = Guid.NewGuid();
+
+        // Preview não é mais persistido sincronicamente.
+        // O cache integral entra na fila somente após o HTTP terminar.
+        var bgRunId = query.RunId;
+        var bgKind = kind;
+        var bgReference = refPmu;
+        var bgQueryPmus = queryPmus?.ToArray();
+        var bgSelectedTargets = selectedTargets.ToArray();
+        var bgPhase = normalizedPhase;
+        var bgSequence = normalizedSequence;
+        var bgFromUtc = fromUtc;
+        var bgToUtc = toUtc;
+        var bgHasPhase = hasPhase;
+        var bgComponentLabel = componentLabel;
+
+        BackgroundCacheWorkItem workItem;
+
+        if (query.MaxPointsIsAll)
+        {
+            // O request já carregou massa integral. Evita reconsulta.
+            var fullPayloadAlreadyLoaded = _seriesAssembly.BuildCachePayload(
+                projection.WindowFrom,
+                projection.WindowTo,
+                ctx.SelectRate ?? 0,
+                cacheSeries);
+
+            workItem = new BackgroundCacheWorkItem(
+                Name: "AngleDiff",
+                RunId: bgRunId,
+                CacheId: cacheId,
+                ExecuteAsync: async (sp, bgCt) =>
+                {
+                    var cacheRepo =
+                        sp.GetRequiredService<IAnalysisCacheRepository>();
+
+                    await cacheRepo.SaveAsync(
+                        cacheId,
+                        bgRunId,
+                        fullPayloadAlreadyLoaded,
+                        bgCt);
+                });
         }
         else
         {
-            var seq = query.Sequence!.Trim().ToLowerInvariant();
-            var normalized = NormalizeSeq(seq);
-            if (normalized == "")
-                return (false, "seq inv�lida. Use pos|neg|zero (ou seq+|seq-|seq0).");
+            workItem = new BackgroundCacheWorkItem(
+                Name: "AngleDiff",
+                RunId: bgRunId,
+                CacheId: cacheId,
+                ExecuteAsync: async (sp, bgCt) =>
+                {
+                    var runRepository =
+                        sp.GetRequiredService<IRunContextRepository>();
+
+                    var measurementsRepository =
+                        sp.GetRequiredService<IMeasurementsRepository>();
+
+                    var seriesAssembly =
+                        sp.GetRequiredService<ISeriesAssemblyService>();
+
+                    var cacheRepo =
+                        sp.GetRequiredService<IAnalysisCacheRepository>();
+
+                    var logger =
+                        sp.GetRequiredService<ILogger<AngleDiffSeriesHandler>>();
+
+                    var bgCtx = await runRepository.ResolveAsync(
+                        bgRunId,
+                        bgFromUtc,
+                        bgToUtc,
+                        bgCt);
+
+                    if (bgCtx is null)
+                        throw new InvalidOperationException(
+                            $"Run não encontrado durante cache integral: {bgRunId}");
+
+                    // maxPoints=null => RAW integral.
+                    var fullFrames =
+                        await measurementsRepository.QueryAngleFramesAsync(
+                            bgCtx,
+                            bgKind,
+                            bgQueryPmus,
+                            bgFromUtc,
+                            bgToUtc,
+                            bgCt,
+                            maxPoints: null,
+                            phase: bgPhase);
+
+                    if (fullFrames.Count == 0)
+                        throw new InvalidOperationException(
+                            $"Cache integral AngleDiff sem frames. runId={bgRunId}");
+
+                    // Mesma metodologia de cálculo do preview.
+                    var fullProjection = BuildProjection(
+                        fullFrames,
+                        bgKind,
+                        bgReference,
+                        bgSelectedTargets,
+                        bgPhase,
+                        bgSequence,
+                        buildFrontSeries: false);
+
+                    if (fullProjection.CachePoints.Count == 0)
+                        throw new InvalidOperationException(
+                            $"Cache integral AngleDiff sem pontos processados. runId={bgRunId}");
+
+                    var fullCacheSeries =
+                        fullProjection.CachePoints
+                            .GroupBy(
+                                x => x.pmuId,
+                                StringComparer.OrdinalIgnoreCase)
+                            .Select(g => seriesAssembly.BuildCacheSeries(
+                                signalId: 0,
+                                pdcPmuId: 0,
+                                idName: g.Key,
+                                pdcName: bgCtx.PdcName,
+                                referenceTerminal: bgReference,
+                                unit: "deg",
+                                phase: bgHasPhase
+                                    ? bgPhase
+                                    : bgSequence,
+                                quantity: bgKind,
+                                component: bgComponentLabel,
+                                points: g.Select(x => (x.ts, x.value))))
+                            .ToList();
+
+                    // Massa integral; sem downsampling.
+                    // normalizeMissingFrames default=true apenas mantém
+                    // a política existente de hold-last para frames faltantes.
+                    var fullPayload =
+                        seriesAssembly.BuildCachePayload(
+                            fullProjection.WindowFrom,
+                            fullProjection.WindowTo,
+                            bgCtx.SelectRate ?? 0,
+                            fullCacheSeries);
+
+                    await cacheRepo.SaveAsync(
+                        cacheId,
+                        bgRunId,
+                        fullPayload,
+                        bgCt);
+
+                    logger.LogInformation(
+                        "[BYRUN][AngleDiff][CACHE-FULL][PERSISTED] runId={RunId} cacheId={CacheId} frames={Frames}",
+                        bgRunId,
+                        cacheId,
+                        fullFrames.Count);
+                });
         }
 
-        return (true, null);
-    }
-
-    /// <summary>
-    /// Executa busca de dados pelo motor central orientado por PMU.
-    /// </summary>
-    private async Task<List<(string IdName, string PdcName, string Phase, string Component, DateTime Ts, double Value)>>
-        QueryDataAsync(
-            AngleDiffQuery query,
-            RunContext ctx,
-            WindowQuery window,
-            IReadOnlyList<string> pmuList,
-            CancellationToken ct)
-    {
-        var kind = query.Kind!.Trim().ToLowerInvariant();
-        var hasSeq = !string.IsNullOrWhiteSpace(query.Sequence);
-        var pmuFilter = pmuList.Count > 0 ? pmuList : null;
-
-        if (hasSeq)
+        if (!_backgroundCacheQueue.ScheduleAfterResponse(
+                _httpContextAccessor.HttpContext,
+                workItem))
         {
-            var rows = await _measurementsRepository.QueryAbcMagAngAsync(
-                ctx,
-                kind,
-                pmuFilter,
-                window.FromUtc,
-                window.ToUtc,
-                ct);
-
-            return rows
-                .Select(r => (
-                    IdName: r.IdName,
-                    PdcName: r.PdcName,
-                    Phase: r.Phase,
-                    Component: r.Component,
-                    Ts: r.Ts,
-                    Value: r.Value))
-                .ToList();
+            return Results.StatusCode(
+                StatusCodes.Status503ServiceUnavailable);
         }
+
+        var dataStr = projection.WindowFrom.Date.ToString(
+            "dd/MM/yyyy",
+            CultureInfo.InvariantCulture);
 
         var measQuery = new MeasurementsQuery(
             Quantity: kind,
-            Component: "ang",
-            PhaseMode: PhaseMode.Single,
-            Phase: query.Phase,
-            PmuNames: pmuFilter,
-            Unit: "deg");
+            Component: componentLabel,
+            PhaseMode: hasPhase
+                ? PhaseMode.Single
+                : PhaseMode.Any,
+            Phase: normalizedPhase,
+            PmuNames: selectedTargets.Count > 0
+                ? selectedTargets
+                : null,
+            Unit: "deg",
+            ReferenceTerminal: refPmu);
 
-        var phaseRows = await _measurementsRepository.QueryPhasorAsync(ctx, measQuery, ct);
-        return phaseRows
-            .Select(r => (
-                IdName: r.IdName,
-                PdcName: r.PdcName,
-                Phase: r.Phase,
-                Component: r.Component,
-                Ts: r.Ts,
-                Value: r.Value))
-            .ToList();
+        var plotMeta = _metaBuilder.Build(
+            new WindowQuery(fromUtc, toUtc),
+            ctx,
+            measQuery);
+
+        var resolvedModes = _uiMenus.RebuildForRun(
+            modes,
+            UiMenuContext.FromCache(cachePayload));
+
+        totalWatch.Stop();
+
+        _logger.LogInformation(
+            "[PROCESS][AngleDiff][END] runId={RunId} elapsedMs={ElapsedMs} queryMs={QueryMs} processMs={ProcessMs} cacheSchedule=after_http frames={Frames} pmuCount={PmuCount}",
+            query.RunId,
+            totalWatch.ElapsedMilliseconds,
+            queryWatch.ElapsedMilliseconds,
+            processWatch.ElapsedMilliseconds,
+            frames.Count,
+            projection.Series.Count);
+
+        return Results.Ok(new
+        {
+            run_id = query.RunId,
+            data = dataStr,
+            kind,
+            reference = refPmu,
+            mode = modeLabel,
+            phase = normalizedPhase,
+            seq = normalizedSequence,
+            unit = "deg",
+            cache_id = cacheId.ToString(),
+            pmu_count = projection.Series.Count,
+            window = new
+            {
+                from = projection.WindowFrom,
+                to = projection.WindowTo
+            },
+            modes = resolvedModes,
+            plot_meta = new
+            {
+                title = plotMeta.Title,
+                x_label = plotMeta.XLabel,
+                y_label = plotMeta.YLabel
+            },
+            series = projection.Series
+        });
     }
 
-    /// <summary>
-    /// Extracts phase angle series from measurement rows (mode: phase A|B|C).
-    /// </summary>
-    private static List<(DateTime ts, double angDeg)> ExtractPhaseSeries(
-        IEnumerable<(string IdName, string PdcName, string Phase, string Component, DateTime Ts, double Value)> rows)
+    private static AngleProjection BuildProjection(
+        IReadOnlyList<AngleFrameRow> frames,
+        string kind,
+        string referencePmu,
+        IReadOnlyList<string> selectedTargets,
+        string? phase,
+        string? sequence,
+        bool buildFrontSeries)
     {
-        return rows
-            .Where(r => r.Component.Equals("ANG", StringComparison.OrdinalIgnoreCase))
-            .Select(r => (r.Ts, r.Value))
+        var hasPhase = phase is not null;
+
+        var refFrames = frames
+            .Where(x => x.IdName.Equals(
+                referencePmu,
+                StringComparison.OrdinalIgnoreCase))
             .OrderBy(x => x.Ts)
             .ToList();
-    }
 
-    /// <summary>
-    /// Calculates sequence angle series from measurement rows (mode: sequence pos/neg/zero).
-    /// Uses complex number math: a = e^(j*120�), a� = e^(j*240�)
-    /// </summary>
-    private static List<(DateTime ts, double angDeg)> CalculateSequenceSeries(
-        IEnumerable<(string IdName, string PdcName, string Phase, string Component, DateTime Ts, double Value)> rows,
-        string seq)
-    {
-        var rowList = rows.ToList();
-        
-        var vaMod = new List<(DateTime ts, double mag)>();
-        var vbMod = new List<(DateTime ts, double mag)>();
-        var vcMod = new List<(DateTime ts, double mag)>();
-        var vaAng = new List<(DateTime ts, double angDeg)>();
-        var vbAng = new List<(DateTime ts, double angDeg)>();
-        var vcAng = new List<(DateTime ts, double angDeg)>();
+        if (refFrames.Count == 0)
+            return AngleProjection.Empty;
 
-        foreach (var r in rowList)
+        var refAngles = hasPhase
+            ? ExtractPhaseSeries(refFrames, phase!)
+            : CalculateSequenceSeries(refFrames, sequence!);
+
+        if (refAngles.Count == 0)
+            return AngleProjection.Empty;
+
+        HashSet<string>? selectedTargetSet = null;
+
+        if (selectedTargets.Count > 0)
         {
-            var ph = r.Phase.ToUpperInvariant();
-            var cp = r.Component.ToUpperInvariant();
-
-            if (ph == "A" && cp == "MAG") vaMod.Add((r.Ts, r.Value));
-            else if (ph == "A" && cp == "ANG") vaAng.Add((r.Ts, r.Value));
-            else if (ph == "B" && cp == "MAG") vbMod.Add((r.Ts, r.Value));
-            else if (ph == "B" && cp == "ANG") vbAng.Add((r.Ts, r.Value));
-            else if (ph == "C" && cp == "MAG") vcMod.Add((r.Ts, r.Value));
-            else if (ph == "C" && cp == "ANG") vcAng.Add((r.Ts, r.Value));
+            selectedTargetSet = new HashSet<string>(
+                selectedTargets,
+                StringComparer.OrdinalIgnoreCase);
         }
 
-        if (vaMod.Count == 0 || vbMod.Count == 0 || vcMod.Count == 0 ||
-            vaAng.Count == 0 || vbAng.Count == 0 || vcAng.Count == 0)
-            return new List<(DateTime ts, double angDeg)>();
+        var groups = frames
+            .Where(x =>
+                !x.IdName.Equals(
+                    referencePmu,
+                    StringComparison.OrdinalIgnoreCase)
+                &&
+                (selectedTargetSet is null ||
+                 selectedTargetSet.Contains(x.IdName)))
+            .GroupBy(
+                x => x.IdName,
+                StringComparer.OrdinalIgnoreCase);
 
-        vaMod.Sort((a, b) => a.ts.CompareTo(b.ts));
-        vbMod.Sort((a, b) => a.ts.CompareTo(b.ts));
-        vcMod.Sort((a, b) => a.ts.CompareTo(b.ts));
-        vaAng.Sort((a, b) => a.ts.CompareTo(b.ts));
-        vbAng.Sort((a, b) => a.ts.CompareTo(b.ts));
-        vcAng.Sort((a, b) => a.ts.CompareTo(b.ts));
+        var series = new List<object>();
 
-        return ComputeSequenceAngle(vaMod, vbMod, vcMod, vaAng, vbAng, vcAng, seq);
+        var cachePoints =
+            new List<(string pmuId, DateTime ts, double value)>();
+
+        var tolerance = TimeSpan.FromMilliseconds(3);
+
+        foreach (var group in groups)
+        {
+            var targetFrames = group
+                .OrderBy(x => x.Ts)
+                .ToList();
+
+            if (targetFrames.Count == 0)
+                continue;
+
+            var targetAngles = hasPhase
+                ? ExtractPhaseSeries(targetFrames, phase!)
+                : CalculateSequenceSeries(
+                    targetFrames,
+                    sequence!);
+
+            if (targetAngles.Count == 0)
+                continue;
+
+            var differences =
+                ComputeAngleDifferenceWithFallback(
+                    targetAngles,
+                    refAngles,
+                    tolerance);
+
+            if (differences.Count == 0)
+                continue;
+
+            foreach (var point in differences)
+            {
+                cachePoints.Add((
+                    group.Key,
+                    point.ts,
+                    point.difDeg));
+            }
+
+            if (!buildFrontSeries)
+                continue;
+
+            var first = targetFrames[0];
+
+            series.Add(new
+            {
+                pmu = group.Key,
+                pdc = first.PdcName,
+                reference = referencePmu,
+                kind,
+                mode = hasPhase
+                    ? "phase"
+                    : "sequence",
+                phase,
+                seq = sequence,
+                unit = "deg",
+
+                // O repository já entregou o orçamento do preview.
+                points = differences
+                    .Select(p => new object[]
+                    {
+                        p.ts,
+                        p.difDeg
+                    })
+                    .ToList()
+            });
+        }
+
+        if (cachePoints.Count == 0)
+            return AngleProjection.Empty;
+
+        return new AngleProjection(
+            series,
+            cachePoints,
+            cachePoints.Min(x => x.ts),
+            cachePoints.Max(x => x.ts));
+    }
+
+    private static List<(DateTime ts, double angDeg)>
+        ExtractPhaseSeries(
+            IEnumerable<AngleFrameRow> frames,
+            string phase)
+    {
+        var p = phase.Trim().ToUpperInvariant();
+
+        return frames
+            .Select(frame =>
+            {
+                double? angle = p switch
+                {
+                    "A" => frame.AAng,
+                    "B" => frame.BAng,
+                    "C" => frame.CAng,
+                    _ => null
+                };
+
+                return (frame.Ts, angle);
+            })
+            .Where(x => x.angle.HasValue)
+            .Select(x => (
+                ts: x.Ts,
+                angDeg: x.angle!.Value))
+            .OrderBy(x => x.ts)
+            .ToList();
     }
 
     /// <summary>
-    /// Computes sequence angle from three-phase measurements using complex number math.
-    /// Sequence operators: a = e^(j*120�), a� = e^(j*240�)
+    /// Mesma transformação de componentes simétricas do handler anterior,
+    /// agora aplicada diretamente à linha Wide, onde A/B/C já compartilham
+    /// o mesmo timestamp físico.
     /// </summary>
-    private static List<(DateTime ts, double angDeg)> ComputeSequenceAngle(
-        List<(DateTime ts, double mag)> vaMod,
-        List<(DateTime ts, double mag)> vbMod,
-        List<(DateTime ts, double mag)> vcMod,
-        List<(DateTime ts, double angDeg)> vaAng,
-        List<(DateTime ts, double angDeg)> vbAng,
-        List<(DateTime ts, double angDeg)> vcAng,
-        string seq)
+    private static List<(DateTime ts, double angDeg)>
+        CalculateSequenceSeries(
+            IEnumerable<AngleFrameRow> frames,
+            string sequence)
     {
-        var result = new List<(DateTime ts, double angDeg)>();
-        var tolerance = TimeSpan.FromMilliseconds(3);
-
-        int ia = 0, ib = 0, ic = 0;
         const double Deg2Rad = Math.PI / 180.0;
         const double Rad2Deg = 180.0 / Math.PI;
 
-        var a = Complex.FromPolarCoordinates(1.0, 120.0 * Deg2Rad);
-        var a2 = Complex.FromPolarCoordinates(1.0, 240.0 * Deg2Rad);
+        var a = Complex.FromPolarCoordinates(
+            1.0,
+            120.0 * Deg2Rad);
 
-        while (ia < vaMod.Count && ib < vbMod.Count && ic < vcMod.Count)
+        var a2 = Complex.FromPolarCoordinates(
+            1.0,
+            240.0 * Deg2Rad);
+
+        var result = new List<(DateTime ts, double angDeg)>();
+
+        foreach (var frame in frames.OrderBy(x => x.Ts))
         {
-            var tA = vaMod[ia].ts;
-            var tB = vbMod[ib].ts;
-            var tC = vcMod[ic].ts;
-            var maxTime = new[] { tA, tB, tC }.Max();
-
-            while (ia < vaMod.Count && vaMod[ia].ts < maxTime && (maxTime - vaMod[ia].ts) > tolerance) ia++;
-            while (ib < vbMod.Count && vbMod[ib].ts < maxTime && (maxTime - vbMod[ib].ts) > tolerance) ib++;
-            while (ic < vcMod.Count && vcMod[ic].ts < maxTime && (maxTime - vcMod[ic].ts) > tolerance) ic++;
-
-            if (ia >= vaMod.Count || ib >= vbMod.Count || ic >= vcMod.Count) break;
-
-            tA = vaMod[ia].ts;
-            tB = vbMod[ib].ts;
-            tC = vcMod[ic].ts;
-
-            if (Math.Abs((tA - maxTime).TotalMilliseconds) > 3 ||
-                Math.Abs((tB - maxTime).TotalMilliseconds) > 3 ||
-                Math.Abs((tC - maxTime).TotalMilliseconds) > 3)
+            if (!frame.AMod.HasValue ||
+                !frame.AAng.HasValue ||
+                !frame.BMod.HasValue ||
+                !frame.BAng.HasValue ||
+                !frame.CMod.HasValue ||
+                !frame.CAng.HasValue)
             {
-                var minTime = new[] { tA, tB, tC }.Min();
-                if (minTime == tA && ia < vaMod.Count) ia++;
-                else if (minTime == tB && ib < vbMod.Count) ib++;
-                else if (minTime == tC && ic < vcMod.Count) ic++;
                 continue;
             }
 
-            var Va = Complex.FromPolarCoordinates(vaMod[ia].mag, vaAng[ia].angDeg * Deg2Rad);
-            var Vb = Complex.FromPolarCoordinates(vbMod[ib].mag, vbAng[ib].angDeg * Deg2Rad);
-            var Vc = Complex.FromPolarCoordinates(vcMod[ic].mag, vcAng[ic].angDeg * Deg2Rad);
+            var va = Complex.FromPolarCoordinates(
+                frame.AMod.Value,
+                frame.AAng.Value * Deg2Rad);
 
-            var Vseq = seq switch
+            var vb = Complex.FromPolarCoordinates(
+                frame.BMod.Value,
+                frame.BAng.Value * Deg2Rad);
+
+            var vc = Complex.FromPolarCoordinates(
+                frame.CMod.Value,
+                frame.CAng.Value * Deg2Rad);
+
+            var vSeq = sequence switch
             {
-                "pos" => (Va + a * Vb + a2 * Vc) / 3.0,
-                "neg" => (Va + a2 * Vb + a * Vc) / 3.0,
-                "zero" => (Va + Vb + Vc) / 3.0,
-                _ => throw new ArgumentException("seq deve ser: pos | neg | zero")
+                "pos" => (va + a * vb + a2 * vc) / 3.0,
+                "neg" => (va + a2 * vb + a * vc) / 3.0,
+                "zero" => (va + vb + vc) / 3.0,
+                _ => throw new ArgumentException(
+                    "seq deve ser: pos | neg | zero")
             };
 
-            result.Add((maxTime, Vseq.Phase * Rad2Deg));
-            ia++; ib++; ic++;
+            result.Add((
+                frame.Ts,
+                vSeq.Phase * Rad2Deg));
         }
 
         return result;
     }
 
     /// <summary>
-    /// Computes angle difference between measurement and reference series with time-series alignment.
+    /// Mantém tolerância de 3 ms e o conceito de fallback do handler antigo,
+    /// mas não cria uma grade temporal artificial: o timestamp de saída é
+    /// sempre o timestamp real da série medida.
     /// </summary>
-    private static List<DateTime> BuildExpectedFrames(
-        DateTime fromUtc,
-        DateTime toUtc,
-        int? selectRate)
+    private static List<(DateTime ts, double difDeg)>
+        ComputeAngleDifferenceWithFallback(
+            IReadOnlyList<(DateTime ts, double angDeg)> measured,
+            IReadOnlyList<(DateTime ts, double angDeg)> reference,
+            TimeSpan tolerance)
     {
-        if (!selectRate.HasValue || selectRate.Value <= 0 || fromUtc > toUtc)
-            return new List<DateTime>();
-
-        var ticksPerFrame = Math.Max(1L, (long)Math.Round(TimeSpan.TicksPerSecond / (double)selectRate.Value));
-        var spanTicks = Math.Max(0L, (toUtc - fromUtc).Ticks);
-        var count = (int)(spanTicks / ticksPerFrame) + 1;
-        var frames = new List<DateTime>(count);
-
-        for (var i = 0; i < count; i++)
-            frames.Add(fromUtc.AddTicks(i * ticksPerFrame));
-
-        return frames;
-    }
-
-    private static List<(DateTime ts, double difDeg)> ComputeAngleDifference(
-        List<(DateTime ts, double angDeg)> meas,
-        List<(DateTime ts, double angDeg)> refe,
-        TimeSpan tol)
-    {
-        meas.Sort((a, b) => a.ts.CompareTo(b.ts));
-        refe.Sort((a, b) => a.ts.CompareTo(b.ts));
-
-        int im = 0, ir = 0;
-        var outp = new List<(DateTime ts, double difDeg)>();
-
-        while (im < meas.Count && ir < refe.Count)
+        if (measured.Count == 0 ||
+            reference.Count == 0)
         {
-            var tm = meas[im].ts;
-            var tr = refe[ir].ts;
-            var t = tm > tr ? tm : tr;
-
-            while (im < meas.Count && meas[im].ts < t && (t - meas[im].ts) > tol) im++;
-            while (ir < refe.Count && refe[ir].ts < t && (t - refe[ir].ts) > tol) ir++;
-
-            if (im >= meas.Count || ir >= refe.Count) break;
-
-            tm = meas[im].ts;
-            tr = refe[ir].ts;
-
-            if (Math.Abs((tm - t).TotalMilliseconds) > tol.TotalMilliseconds ||
-                Math.Abs((tr - t).TotalMilliseconds) > tol.TotalMilliseconds)
-            {
-                var minT = tm < tr ? tm : tr;
-                if (minT == tm) im++; else ir++;
-                continue;
-            }
-
-            var dif = Wrap180(meas[im].angDeg - refe[ir].angDeg);
-            outp.Add((t, dif));
-            im++; ir++;
-        }
-
-        return outp;
-    }
-
-    private static List<(DateTime ts, double difDeg)> ComputeAngleDifferenceWithMissingFallback(
-        List<(DateTime ts, double angDeg)> meas,
-        List<(DateTime ts, double angDeg)> refe,
-        IReadOnlyList<DateTime> frames,
-        TimeSpan tol)
-    {
-        if (frames.Count == 0)
-            return ComputeAngleDifference(meas, refe, tol);
-
-        var measProjection = ProjectSeriesOntoFrames(meas, frames, tol);
-        var refProjection = ProjectSeriesOntoFrames(refe, frames, tol);
-        var firstValid = FindFirstValidDifference(measProjection, refProjection, frames);
-
-        if (!firstValid.HasValue)
             return new List<(DateTime ts, double difDeg)>();
-
-        var diffs = new List<(DateTime ts, double difDeg)>(frames.Count);
-        var lastDifference = firstValid.Value.difDeg;
-
-        for (var i = 0; i < frames.Count; i++)
-        {
-            if (measProjection[i].hasValue && refProjection[i].hasValue)
-            {
-                lastDifference = Wrap180(measProjection[i].value - refProjection[i].value);
-            }
-
-            diffs.Add((frames[i], lastDifference));
         }
 
-        return diffs;
-    }
+        // Primeiro identifica, para cada timestamp REAL da PMU medida,
+        // se existe referência dentro da mesma tolerância de 3 ms.
+        var candidates =
+            new List<(DateTime ts, double? difDeg)>(
+                measured.Count);
 
-    private static List<(bool hasValue, double value)> ProjectSeriesOntoFrames(
-        List<(DateTime ts, double angDeg)> source,
-        IReadOnlyList<DateTime> frames,
-        TimeSpan tol)
-    {
-        var ordered = source
-            .OrderBy(item => item.ts)
-            .ToList();
-        var projected = new List<(bool hasValue, double value)>(frames.Count);
-        var sourceIndex = 0;
+        var referenceIndex = 0;
 
-        for (var frameIndex = 0; frameIndex < frames.Count; frameIndex++)
+        foreach (var measuredPoint in measured)
         {
-            var frame = frames[frameIndex];
-            while (sourceIndex < ordered.Count && ordered[sourceIndex].ts < frame - tol)
-                sourceIndex++;
+            while (referenceIndex < reference.Count &&
+                   reference[referenceIndex].ts <
+                   measuredPoint.ts - tolerance)
+            {
+                referenceIndex++;
+            }
 
             var bestIndex = -1;
             var bestDelta = long.MaxValue;
-            for (var candidateIndex = sourceIndex; candidateIndex < ordered.Count; candidateIndex++)
-            {
-                var candidateTs = ordered[candidateIndex].ts;
-                if (candidateTs > frame + tol)
-                    break;
 
-                var delta = Math.Abs((candidateTs - frame).Ticks);
+            for (var candidateIndex = referenceIndex;
+                 candidateIndex < reference.Count;
+                 candidateIndex++)
+            {
+                var candidate = reference[candidateIndex];
+
+                if (candidate.ts >
+                    measuredPoint.ts + tolerance)
+                {
+                    break;
+                }
+
+                var delta = Math.Abs(
+                    (candidate.ts -
+                     measuredPoint.ts).Ticks);
+
                 if (delta < bestDelta)
                 {
                     bestDelta = delta;
@@ -646,56 +794,156 @@ public sealed class AngleDiffSeriesHandler
                 }
             }
 
+            double? difference = null;
+
             if (bestIndex >= 0)
             {
-                projected.Add((true, ordered[bestIndex].angDeg));
-                sourceIndex = bestIndex + 1;
-                continue;
+                difference = Wrap180(
+                    measuredPoint.angDeg -
+                    reference[bestIndex].angDeg);
+
+                referenceIndex = bestIndex + 1;
             }
 
-            projected.Add((false, 0d));
+            candidates.Add((
+                measuredPoint.ts,
+                difference));
         }
 
-        return projected;
-    }
+        var firstValid = candidates
+            .FirstOrDefault(x => x.difDeg.HasValue);
 
-    private static (int index, double difDeg)? FindFirstValidDifference(
-        IReadOnlyList<(bool hasValue, double value)> measProjection,
-        IReadOnlyList<(bool hasValue, double value)> refProjection,
-        IReadOnlyList<DateTime> frames)
-    {
-        for (var i = 0; i < frames.Count; i++)
+        if (!firstValid.difDeg.HasValue)
         {
-            if (!measProjection[i].hasValue || !refProjection[i].hasValue)
-                continue;
-
-            return (i, Wrap180(measProjection[i].value - refProjection[i].value));
+            return new List<(DateTime ts, double difDeg)>();
         }
 
-        return null;
+        // Preserva o comportamento de fallback do handler anterior:
+        // antes/depois de uma lacuna, repete o último resultado válido.
+        // A diferença é apenas temporal: não inventamos uma grade de
+        // timestamps; usamos exclusivamente os timestamps reais medidos.
+        var output =
+            new List<(DateTime ts, double difDeg)>(
+                candidates.Count);
+
+        var lastDifference =
+            firstValid.difDeg.Value;
+
+        foreach (var candidate in candidates)
+        {
+            if (candidate.difDeg.HasValue)
+            {
+                lastDifference =
+                    candidate.difDeg.Value;
+            }
+
+            output.Add((
+                candidate.ts,
+                lastDifference));
+        }
+
+        return output;
     }
 
-    /// <summary>
-    /// Normalizes angle to [-180, +180] range.
-    /// </summary>
-    private static double Wrap180(double difDeg)
+    private static (
+        bool isValid,
+        string? errorMessage)
+        ValidateInput(
+            AngleDiffQuery query)
     {
-        if (difDeg > 180.0) return difDeg - 360.0;
-        if (difDeg < -180.0) return difDeg + 360.0;
-        return difDeg;
+        if (query.RunId == Guid.Empty)
+            return (false, "run_id é obrigatório.");
+
+        if (string.IsNullOrWhiteSpace(query.Kind))
+            return (
+                false,
+                "kind é obrigatório (voltage|current).");
+
+        var kind = query.Kind
+            .Trim()
+            .ToLowerInvariant();
+
+        if (kind is not ("voltage" or "current"))
+            return (
+                false,
+                "kind deve ser 'voltage' ou 'current'.");
+
+        if (string.IsNullOrWhiteSpace(query.Reference))
+            return (
+                false,
+                "ref é obrigatório (id_name da PMU referência).");
+
+        var hasPhase =
+            !string.IsNullOrWhiteSpace(query.Phase);
+
+        var hasSequence =
+            !string.IsNullOrWhiteSpace(query.Sequence);
+
+        if (hasPhase == hasSequence)
+        {
+            return (
+                false,
+                "informe exatamente um dos parâmetros: phase (A|B|C) OU seq (pos|neg|zero).");
+        }
+
+        if (hasPhase)
+        {
+            var phase = query.Phase!
+                .Trim()
+                .ToUpperInvariant();
+
+            if (phase is not ("A" or "B" or "C"))
+                return (
+                    false,
+                    "phase deve ser A, B ou C.");
+        }
+        else if (NormalizeSeq(query.Sequence!) == "")
+        {
+            return (
+                false,
+                "seq inválida. Use pos|neg|zero (ou seq+|seq-|seq0).");
+        }
+
+        return (true, null);
     }
 
-    /// <summary>
-    /// Normalizes sequence notation (pos/neg/zero).
-    /// </summary>
-    private static string NormalizeSeq(string seq)
+    private static double Wrap180(
+        double angle)
     {
-        return seq.Trim().ToLowerInvariant() switch
+        angle %= 360.0;
+
+        if (angle > 180.0)
+            angle -= 360.0;
+
+        if (angle < -180.0)
+            angle += 360.0;
+
+        return angle;
+    }
+
+    private static string NormalizeSeq(
+        string sequence)
+    {
+        return sequence.Trim().ToLowerInvariant() switch
         {
             "pos" or "seq+" or "1" => "pos",
             "neg" or "seq-" or "2" => "neg",
             "zero" or "seq0" or "0" => "zero",
             _ => ""
         };
+    }
+
+    private sealed record AngleProjection(
+        List<object> Series,
+        List<(string pmuId, DateTime ts, double value)> CachePoints,
+        DateTime WindowFrom,
+        DateTime WindowTo)
+    {
+        public static readonly AngleProjection Empty =
+            new(
+                new List<object>(),
+                new List<(string pmuId, DateTime ts, double value)>(),
+                default,
+                default);
     }
 }

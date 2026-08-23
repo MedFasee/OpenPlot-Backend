@@ -36,7 +36,7 @@ namespace OpenPlot.Ingestor.Gsf
         public static Channel VIMB = new Channel(0, "VIMB_(%)", ChannelPhase.NONE, ChannelValueType.VIMB, ChannelQuantity.ANALOG);
         public static Channel CIMB = new Channel(0, "CIMB_(%)", ChannelPhase.NONE, ChannelValueType.CIMB, ChannelQuantity.ANALOG);
 
-        public static Channel CFDS = new Channel(0, "SDFC_(binário)", ChannelPhase.NONE, ChannelValueType.CFDS, ChannelQuantity.DIGITAL);
+        public static Channel cfds_dig = new Channel(0, "SDFC_(binário)", ChannelPhase.NONE, ChannelValueType.cfds_dig, ChannelQuantity.DIGITAL);
 
         public static Channel ACTIVE_POWER = new Channel(0, "Pot. Ativa (MW)", ChannelPhase.NONE, ChannelValueType.NONE, ChannelQuantity.ACTIV_PWR);
         public static Channel REACTIVE_POWER = new Channel(0, "Pot. Reativa (MVAr)", ChannelPhase.NONE, ChannelValueType.NONE, ChannelQuantity.REACT_PWR);
@@ -45,7 +45,7 @@ namespace OpenPlot.Ingestor.Gsf
         public static Channel MISSING = new Channel(0, "Faltante", ChannelPhase.NONE, ChannelValueType.NONE, ChannelQuantity.MISSING);
 
         public static readonly Channel[] DEFAULT_CHANNELS = new Channel[] { VOLTAGE_A_MOD, VOLTAGE_A_ANG, VOLTAGE_B_MOD, VOLTAGE_B_ANG, VOLTAGE_C_MOD, VOLTAGE_C_ANG,
-            CURRENT_A_MOD, CURRENT_A_ANG, CURRENT_B_MOD, CURRENT_B_ANG, CURRENT_C_MOD, CURRENT_C_ANG, VTHD_A, VTHD_B, VTHD_C, CTHD_A, CTHD_B, CTHD_C, VIMB, CIMB, CFDS, FREQ, DFREQ };
+            CURRENT_A_MOD, CURRENT_A_ANG, CURRENT_B_MOD, CURRENT_B_ANG, CURRENT_C_MOD, CURRENT_C_ANG, VTHD_A, VTHD_B, VTHD_C, CTHD_A, CTHD_B, CTHD_C, VIMB, CIMB, cfds_dig, FREQ, DFREQ };
 
         public int Id { get; private set; }
         public string Name { get; private set; }

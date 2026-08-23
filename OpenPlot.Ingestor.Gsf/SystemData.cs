@@ -192,8 +192,8 @@ namespace OpenPlot.Ingestor.Gsf
                             type = (string)channel.Element(nameSpace + "dType");
                             phase = (string)channel.Element(nameSpace + "dPhase");
                             var dId = (int)channel.Element(nameSpace + "dId");
-                            if (type == "CFDS")
-                                result.Add(new Channel(dId, name, ChannelPhase.NONE, ChannelValueType.CFDS, ChannelQuantity.DIGITAL));
+                            if (type == "cfds_dig")
+                                result.Add(new Channel(dId, name, ChannelPhase.NONE, ChannelValueType.cfds_dig, ChannelQuantity.DIGITAL));
                             break;
                         case ("freq"):
                             name = (string)channel.Element(nameSpace + "fName");

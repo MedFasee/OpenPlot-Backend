@@ -6,6 +6,6 @@ namespace OpenPlot.Ingestor.Gsf
 {
     public enum ChannelValueType
     {
-        ABSOLUTE, ANGLE, CTHD, VTHD, VIMB, CIMB, CFDS, NONE
+        ABSOLUTE, ANGLE, CTHD, VTHD, VIMB, CIMB, cfds_dig, NONE
     }
 }

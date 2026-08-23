@@ -27,6 +27,8 @@ using OpenPlot.Features.Runs.Handlers;
 using OpenPlot.Features.Runs.Repositories;
 using OpenPlot.Features.Runs.Services;
 using OpenPlot.Services.UI;
+using OpenPlot.Services.BackgroundCache;
+
 
 namespace OpenPlot.Api.Configuration;
 
@@ -56,6 +58,7 @@ internal static class OpenPlotApiServiceCollectionExtensions
         builder.Services.AddOpenPlotAuthentication(builder.Configuration);
         builder.Services.AddOpenPlotJsonSerialization();
         builder.Services.AddOpenPlotSwagger();
+        builder.Services.AddOpenPlotBackgroundCache();
 
         return builder;
     }

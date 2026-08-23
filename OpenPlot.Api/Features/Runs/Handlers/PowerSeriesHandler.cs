@@ -1,4 +1,4 @@
-using System;
+Ôªøusing System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -10,14 +10,17 @@ using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Responses;
 using OpenPlot.Features.Runs.Repositories;
 using OpenPlot.Services.UI;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using OpenPlot.Services.BackgroundCache;
 
 namespace OpenPlot.Features.Runs.Handlers;
 
 /// <summary>
-/// PotÍncia ativa/reativa calculada sobre frames Wide sincronizados.
+/// Pot√™ncia ativa/reativa calculada sobre frames Wide sincronizados.
 ///
-/// A leitura de V e I È feita em UMA ˙nica consulta por janela:
-/// measurements_wide -> time_bucket -> V/I ABC MAG+ANG -> c·lculo P/Q.
+/// A leitura de V e I √© feita em UMA √∫nica consulta por janela:
+/// measurements_wide_2 -> time_bucket -> V/I ABC MAG+ANG -> c√°lculo P/Q.
 /// </summary>
 public sealed class PowerSeriesHandler
 {
@@ -29,6 +32,8 @@ public sealed class PowerSeriesHandler
     private readonly IPmuQueryHelper _pmuHelper;
     private readonly ISeriesAssemblyService _seriesAssembly;
     private readonly IUiMenuService _uiMenus;
+    private readonly IBackgroundCacheQueue _backgroundCacheQueue;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
     public PowerSeriesHandler(
         IRunContextRepository runRepository,
@@ -39,6 +44,8 @@ public sealed class PowerSeriesHandler
         IPmuQueryHelper pmuHelper,
         ISeriesAssemblyService seriesAssembly,
         IUiMenuService uiMenus,
+        IBackgroundCacheQueue backgroundCacheQueue,
+        IHttpContextAccessor httpContextAccessor,
         ILogger<PowerSeriesHandler> logger)
     {
         _runRepository = runRepository ?? throw new ArgumentNullException(nameof(runRepository));
@@ -49,6 +56,8 @@ public sealed class PowerSeriesHandler
         _pmuHelper = pmuHelper ?? throw new ArgumentNullException(nameof(pmuHelper));
         _seriesAssembly = seriesAssembly ?? throw new ArgumentNullException(nameof(seriesAssembly));
         _uiMenus = uiMenus ?? throw new ArgumentNullException(nameof(uiMenus));
+        _backgroundCacheQueue = backgroundCacheQueue ?? throw new ArgumentNullException(nameof(backgroundCacheQueue));
+        _httpContextAccessor = httpContextAccessor ?? throw new ArgumentNullException(nameof(httpContextAccessor));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -90,7 +99,7 @@ public sealed class PowerSeriesHandler
             ct);
 
         if (ctx is null)
-            return Results.NotFound("run_id n„o encontrado.");
+            return Results.NotFound("run_id n√£o encontrado.");
 
         var pmuList = _pmuHelper.Normalize(query.Pmu).ToList();
         IReadOnlyList<string>? pmuFilter = pmuList.Count > 0 ? pmuList : null;
@@ -105,7 +114,7 @@ public sealed class PowerSeriesHandler
         ? null
         : maxPts;
 
-        // UMA ˙nica leitura da Wide para V + I.
+        // UMA √∫nica leitura da Wide para V + I.
         var frames = await _measurementsRepository.QueryPowerFramesAsync(
             ctx,
             pmuFilter,
@@ -132,7 +141,7 @@ public sealed class PowerSeriesHandler
 
         if (seriesOut.Count == 0)
             return Results.BadRequest(
-                "Nenhuma PMU pÙde ser processada (faltam V/I MAG+ANG na linha Wide).");
+                "Nenhuma PMU p√¥de ser processada (faltam V/I MAG+ANG na linha Wide).");
 
         var windowFrom = fromUtc ?? frames.Min(r => r.Ts);
         var windowTo = toUtc ?? frames.Max(r => r.Ts);
@@ -160,107 +169,165 @@ public sealed class PowerSeriesHandler
             windowFrom,
             windowTo,
             ctx.SelectRate ?? 0,
-            cacheSeries);
+            cacheSeries,
+            normalizeMissingFrames: false);
 
         var cacheId = Guid.NewGuid();
 
-        await _cacheRepo.SaveAsync(
-            cacheId,
-            query.RunId,
-            cachePayload,
-            ct);
+        // N√£o persistimos mais o preview no caminho cr√≠tico.
+        // O cache_id fica "pending" at√© o worker persistir a massa integral.
+        //
+        // IMPORTANTE:
+        // - preview: maxPoints aplicado no banco;
+        // - BG: maxPoints=null => RAW, sem downsample;
+        // - o BG s√≥ entra na fila ap√≥s a resposta HTTP terminar.
+        var bgRunId = query.RunId;
+        var bgFromUtc = fromUtc;
+        var bgToUtc = toUtc;
+        var bgPmus = pmuFilter?.ToArray();
+        var bgTri = tri;
+        var bgTotal = total;
+        var bgPhase = phase;
+        var bgWhich = which;
+        var bgUnit = unit;
+        var bgUnitDisplay = unitDisplay;
 
-        // Cache completo: mesma SQL, bucket mÌnimo de 1 ms.
-        // Continua preservando 120 fps, mas agora V e I vÍm juntos.
-        _ = Task.Run(async () =>
+        BackgroundCacheWorkItem workItem;
+
+        if (query.MaxPointsIsAll)
         {
-            var bgWatch = Stopwatch.StartNew();
-            var fullFrameCount = 0;
-            var persisted = false;
+            // Quando o pr√≥prio request j√° pediu massa integral, n√£o consultamos
+            // o banco novamente. Apenas persistimos o payload integral j√° montado.
+            var fullPayloadAlreadyLoaded = cachePayload;
 
-            _logger.LogInformation(
-                "[BYRUN][Power][CACHE-BG][START] runId={RunId} cacheId={CacheId}",
-                query.RunId,
-                cacheId);
+            workItem = new BackgroundCacheWorkItem(
+                Name: "Power",
+                RunId: bgRunId,
+                CacheId: cacheId,
+                ExecuteAsync: async (sp, bgCt) =>
+                {
+                    var cacheRepo =
+                        sp.GetRequiredService<IAnalysisCacheRepository>();
 
-            try
-            {
-                var fullFrames = await _measurementsRepository.QueryPowerFramesAsync(
-                    ctx,
-                    pmuFilter,
-                    fromUtc,
-                    toUtc,
-                    CancellationToken.None,
-                    maxPoints: null);
+                    await cacheRepo.SaveAsync(
+                        cacheId,
+                        bgRunId,
+                        fullPayloadAlreadyLoaded,
+                        bgCt);
+                });
+        }
+        else
+        {
+            workItem = new BackgroundCacheWorkItem(
+                Name: "Power",
+                RunId: bgRunId,
+                CacheId: cacheId,
+                ExecuteAsync: async (sp, bgCt) =>
+                {
+                    var runRepository =
+                        sp.GetRequiredService<IRunContextRepository>();
 
-                fullFrameCount = fullFrames.Count;
-                if (fullFrameCount == 0)
-                    return;
+                    var measurementsRepository =
+                        sp.GetRequiredService<IMeasurementsRepository>();
 
-                var fullProjection = BuildPowerProjection(
-                    fullFrames,
-                    tri,
-                    total,
-                    phase,
-                    which,
-                    unit,
-                    buildFrontSeries: false);
+                    var seriesAssembly =
+                        sp.GetRequiredService<ISeriesAssemblyService>();
 
-                if (fullProjection.cachePoints.Count == 0)
-                    return;
+                    var cacheRepo =
+                        sp.GetRequiredService<IAnalysisCacheRepository>();
 
-                var fullWindowFrom = fromUtc ?? fullFrames.Min(r => r.Ts);
-                var fullWindowTo = toUtc ?? fullFrames.Max(r => r.Ts);
+                    var logger =
+                        sp.GetRequiredService<ILogger<PowerSeriesHandler>>();
 
-                var cacheSeriesFull = fullProjection.cachePoints
-                    .GroupBy(x => x.pmuId)
-                    .Select(g => _seriesAssembly.BuildCacheSeries(
-                        signalId: 0,
-                        pdcPmuId: 0,
-                        idName: g.Key,
-                        pdcName: ctx.PdcName,
-                        referenceTerminal: null,
-                        unit: unitDisplay,
-                        phase: null,
-                        quantity: which,
-                        component: "power",
-                        points: g.Select(x => (x.ts, x.value))))
-                    .ToList();
+                    var bgCtx = await runRepository.ResolveAsync(
+                        bgRunId,
+                        bgFromUtc,
+                        bgToUtc,
+                        bgCt);
 
-                var cachePayloadFull = _seriesAssembly.BuildCachePayload(
-                    fullWindowFrom,
-                    fullWindowTo,
-                    ctx.SelectRate ?? 0,
-                    cacheSeriesFull);
+                    if (bgCtx is null)
+                        throw new InvalidOperationException(
+                            $"Run n√£o encontrado durante cache integral: {bgRunId}");
 
-                await _cacheRepo.SaveAsync(
-                    cacheId,
-                    query.RunId,
-                    cachePayloadFull,
-                    CancellationToken.None);
+                    var fullFrames =
+                        await measurementsRepository.QueryPowerFramesAsync(
+                            bgCtx,
+                            bgPmus,
+                            bgFromUtc,
+                            bgToUtc,
+                            bgCt,
+                            maxPoints: null);
 
-                persisted = true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(
-                    ex,
-                    "Falha ao persistir cache assÌncrono de power/by-run. runId={RunId}",
-                    query.RunId);
-            }
-            finally
-            {
-                bgWatch.Stop();
+                    if (fullFrames.Count == 0)
+                        throw new InvalidOperationException(
+                            $"Cache integral Power sem frames. runId={bgRunId}");
 
-                _logger.LogInformation(
-                    "[BYRUN][Power][CACHE-BG][END] runId={RunId} cacheId={CacheId} elapsedMs={ElapsedMs} frames={Frames} persisted={Persisted}",
-                    query.RunId,
-                    cacheId,
-                    bgWatch.ElapsedMilliseconds,
-                    fullFrameCount,
-                    persisted);
-            }
-        });
+                    var fullProjection = BuildPowerProjection(
+                        fullFrames,
+                        bgTri,
+                        bgTotal,
+                        bgPhase,
+                        bgWhich,
+                        bgUnit,
+                        buildFrontSeries: false);
+
+                    if (fullProjection.cachePoints.Count == 0)
+                        throw new InvalidOperationException(
+                            $"Cache integral Power sem pontos processados. runId={bgRunId}");
+
+                    var fullWindowFrom =
+                        bgFromUtc ?? fullFrames.Min(x => x.Ts);
+
+                    var fullWindowTo =
+                        bgToUtc ?? fullFrames.Max(x => x.Ts);
+
+                    var cacheSeriesFull =
+                        fullProjection.cachePoints
+                            .GroupBy(x => x.pmuId)
+                            .Select(g => seriesAssembly.BuildCacheSeries(
+                                signalId: 0,
+                                pdcPmuId: 0,
+                                idName: g.Key,
+                                pdcName: bgCtx.PdcName,
+                                referenceTerminal: null,
+                                unit: bgUnitDisplay,
+                                phase: null,
+                                quantity: bgWhich,
+                                component: "power",
+                                points: g.Select(x => (x.ts, x.value))))
+                            .ToList();
+
+                    // DEFAULT normalizeMissingFrames=true:
+                    // n√£o √© downsampling; apenas preserva a pol√≠tica de
+                    // preenchimento de frames faltantes do RowsCacheV2.
+                    var fullPayload =
+                        seriesAssembly.BuildCachePayload(
+                            fullWindowFrom,
+                            fullWindowTo,
+                            bgCtx.SelectRate ?? 0,
+                            cacheSeriesFull);
+
+                    await cacheRepo.SaveAsync(
+                        cacheId,
+                        bgRunId,
+                        fullPayload,
+                        bgCt);
+
+                    logger.LogInformation(
+                        "[BYRUN][Power][CACHE-FULL][PERSISTED] runId={RunId} cacheId={CacheId} frames={Frames}",
+                        bgRunId,
+                        cacheId,
+                        fullFrames.Count);
+                });
+        }
+
+        if (!_backgroundCacheQueue.ScheduleAfterResponse(
+                _httpContextAccessor.HttpContext,
+                workItem))
+        {
+            return Results.StatusCode(
+                StatusCodes.Status503ServiceUnavailable);
+        }
 
         var meas = new MeasurementsQuery(
             Quantity: quantityKey,
@@ -310,7 +377,7 @@ public sealed class PowerSeriesHandler
         PowerPlotQuery query)
     {
         if (query.RunId == Guid.Empty)
-            return (false, "run_id È obrigatÛrio.");
+            return (false, "run_id √© obrigat√≥rio.");
 
         var which = (query.Which ?? "active").Trim().ToLowerInvariant();
         if (which is not ("active" or "reactive"))
@@ -324,13 +391,13 @@ public sealed class PowerSeriesHandler
         var total = query.Total ?? false;
 
         if (tri && total)
-            return (false, "tri=true e total=true s„o mutuamente exclusivos.");
+            return (false, "tri=true e total=true s√£o mutuamente exclusivos.");
 
         if (tri && (query.Pmu?.Length ?? 0) != 1)
             return (false, "tri=true exige exatamente 1 pmu (id_name).");
 
         if (!tri && !total && string.IsNullOrWhiteSpace(query.Phase))
-            return (false, "phase È obrigatÛrio quando tri=false e total=false.");
+            return (false, "phase √© obrigat√≥rio quando tri=false e total=false.");
 
         if (!tri && !total)
         {
@@ -361,7 +428,7 @@ public sealed class PowerSeriesHandler
             ? (which == "active" ? "MW" : "MVAr")
             : "raw";
 
-        // MantÈm a mesma escala do handler anterior.
+        // Mant√©m a mesma escala do handler anterior.
         const double scale = 1e-6;
 
         foreach (var pmuGroup in frames.GroupBy(
