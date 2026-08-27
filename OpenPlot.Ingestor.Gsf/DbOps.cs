@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS openplot.signal_points (
   UNIQUE (signal_id, role)
 );
 
-CREATE TABLE IF NOT EXISTS openplot.measurements_wide_2 (
+CREATE TABLE IF NOT EXISTS openplot.measurements (
   ts             timestamptz      NOT NULL,
   pdc_pmu_id     int              NOT NULL REFERENCES openplot.pdc_pmu(pdc_pmu_id) ON DELETE CASCADE,
   quality        integer          NULL,
@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS openplot.search_runs (
 
 ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS started_at timestamptz NULL;
 ALTER TABLE openplot.search_runs ADD COLUMN IF NOT EXISTS finished_at timestamptz NULL;
-ALTER TABLE openplot.measurements_wide_2 ADD COLUMN IF NOT EXISTS quality integer NULL;
+ALTER TABLE openplot.measurements ADD COLUMN IF NOT EXISTS quality integer NULL;
 
 CREATE TABLE IF NOT EXISTS openplot.ingest_chunks (
   id          bigserial      PRIMARY KEY,

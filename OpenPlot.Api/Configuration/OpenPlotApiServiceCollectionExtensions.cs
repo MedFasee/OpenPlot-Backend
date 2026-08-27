@@ -82,8 +82,10 @@ internal static class OpenPlotApiServiceCollectionExtensions
 
     private static IServiceCollection AddOpenPlotDataAccess(this IServiceCollection services, IConfiguration configuration)
     {
+        /*var connectionString = configuration.GetConnectionString("Db")
+            ?? "Host=localhost;Database=postgres;Username=postgres;Password=postgres";*/
         var connectionString = configuration.GetConnectionString("Db")
-            ?? "Host=localhost;Database=postgres;Username=postgres;Password=postgres";
+            ?? "Host=ydrmkeftlc.upkcvavk1z.privatelink.cloud.tigerdata.com;Port=5432;Database=tsdb;Username=servicedopenplot;Password=Zxolgm370$";
 
         services.AddScoped<IDbConnectionFactory>(_ => new NpgsqlConnectionFactory(connectionString));
         services.AddScoped<IApiRequestLogRepository, ApiRequestLogRepository>();

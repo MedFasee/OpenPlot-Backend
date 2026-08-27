@@ -39,7 +39,7 @@ public sealed class CcaMetaBuilder : ICcaMetaBuilder
                 DampingSubtitle: string.Empty,
                 XLabel: "Tempo (UTC)",
                 FrequencyYLabel: "Frequência (Hz)",
-                DampingYLabel: "Amortecimento (%)",
+                DampingYLabel: "Taxa de amort. (%)",
                 EnergyYLabel: "Pseudoenergia",
                 IdmYLabel: "IDM");
         }
@@ -73,7 +73,7 @@ public sealed class CcaMetaBuilder : ICcaMetaBuilder
             DampingSubtitle: inputSignalSubtitle,
             XLabel: baseMeta.XLabel,
             FrequencyYLabel: "Frequência (Hz)",
-            DampingYLabel: "Amortecimento (%)",
+            DampingYLabel: "Taxa de amort. (%)",
             EnergyYLabel: "Pseudoenergia",
             IdmYLabel: "IDM");
     }

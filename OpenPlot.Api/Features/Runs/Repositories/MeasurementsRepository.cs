@@ -75,7 +75,7 @@ public sealed record PhasorAbcRow(
 
 /// <summary>
 /// Frame Wide para cálculo de diferença angular.
-/// No modo RAW, corresponde diretamente a uma linha de measurements_wide_2.
+/// No modo RAW, corresponde diretamente a uma linha de measurements.
 /// No modo amostrado, corresponde à linha real escolhida como representante
 /// do bucket hierárquico. O Ts é sempre um timestamp real do banco.
 /// </summary>
@@ -95,7 +95,7 @@ public sealed record AngleFrameRow(
 
 /// <summary>
 /// Frame Wide para cálculo de potência.
-/// No modo RAW, corresponde diretamente a uma linha de measurements_wide_2.
+/// No modo RAW, corresponde diretamente a uma linha de measurements.
 /// No modo amostrado, corresponde à linha real escolhida como representante
 /// de um bucket temporal fixo e hierárquico.
 /// </summary>
@@ -179,7 +179,7 @@ public sealed class MeasurementsRepository : IMeasurementsRepository
     // INVARIANTE TEMPORAL:
     // todos os níveis de downsampling usam a mesma origem global.
     // O timestamp devolvido pela API NUNCA é o início do bucket: é sempre
-    // mw.ts de uma linha realmente existente em measurements_wide_2.
+    // mw.ts de uma linha realmente existente em measurements.
     private static readonly DateTime BucketOriginUtc = DateTime.UnixEpoch;
 
     // Quantum da hierarquia de seleção. Não é timestamp de saída.
@@ -249,7 +249,7 @@ SELECT
     mw.pdc_pmu_id AS PdcPmuId,
     mw.ts AS Ts,
     {projection.RawSelectSql}
-FROM openplot.measurements_wide_2 mw
+FROM openplot.measurements mw
 WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
   AND mw.ts >= @from_utc
   AND mw.ts <  @to_utc
@@ -276,7 +276,7 @@ representatives AS (
     SELECT
         mw.pdc_pmu_id AS pdc_pmu_id,
         min(mw.ts) AS ts
-    FROM openplot.measurements_wide_2 mw
+    FROM openplot.measurements mw
     CROSS JOIN bounds b
     WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
       AND mw.ts >= b.aligned_from
@@ -295,7 +295,7 @@ SELECT
     mw.ts AS Ts,
     {projection.RawSelectSql}
 FROM representatives r
-JOIN openplot.measurements_wide_2 mw
+JOIN openplot.measurements mw
   ON mw.pdc_pmu_id = r.pdc_pmu_id
  AND mw.ts = r.ts
 WHERE r.ts >= @from_utc
@@ -430,7 +430,7 @@ SELECT
     mw.pdc_pmu_id AS PdcPmuId,
     mw.ts AS Ts,
     {projection.RawSelectSql}
-FROM openplot.measurements_wide_2 mw
+FROM openplot.measurements mw
 WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
   AND mw.ts >= @from_utc
   AND mw.ts <  @to_utc
@@ -457,7 +457,7 @@ representatives AS (
     SELECT
         mw.pdc_pmu_id AS pdc_pmu_id,
         min(mw.ts) AS ts
-    FROM openplot.measurements_wide_2 mw
+    FROM openplot.measurements mw
     CROSS JOIN bounds b
     WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
       AND mw.ts >= b.aligned_from
@@ -476,7 +476,7 @@ SELECT
     mw.ts AS Ts,
     {projection.RawSelectSql}
 FROM representatives r
-JOIN openplot.measurements_wide_2 mw
+JOIN openplot.measurements mw
   ON mw.pdc_pmu_id = r.pdc_pmu_id
  AND mw.ts = r.ts
 WHERE r.ts >= @from_utc
@@ -567,7 +567,7 @@ ORDER BY
     // ABC MAG+ANG
     //
     // O catálogo é resolvido em consulta pequena.
-    // A consulta pesada toca SOMENTE measurements_wide_2 por pdc_pmu_id[].
+    // A consulta pesada toca SOMENTE measurements por pdc_pmu_id[].
     // A expansão em 6 SignalIds acontece em C# depois da seleção da linha real.
     // ============================================================
     public async Task<IReadOnlyList<PhasorAbcRow>> QueryAbcMagAngAsync(
@@ -637,7 +637,7 @@ SELECT
     mw.pdc_pmu_id AS PdcPmuId,
     mw.ts AS Ts,
     {rawColumns}
-FROM openplot.measurements_wide_2 mw
+FROM openplot.measurements mw
 WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
   AND mw.ts >= @from_utc
   AND mw.ts <  @to_utc
@@ -664,7 +664,7 @@ representatives AS (
     SELECT
         mw.pdc_pmu_id AS pdc_pmu_id,
         min(mw.ts) AS ts
-    FROM openplot.measurements_wide_2 mw
+    FROM openplot.measurements mw
     CROSS JOIN bounds b
     WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
       AND mw.ts >= b.aligned_from
@@ -683,7 +683,7 @@ SELECT
     mw.ts AS Ts,
     {rawColumns}
 FROM representatives r
-JOIN openplot.measurements_wide_2 mw
+JOIN openplot.measurements mw
   ON mw.pdc_pmu_id = r.pdc_pmu_id
  AND mw.ts = r.ts
 WHERE r.ts >= @from_utc
@@ -852,7 +852,7 @@ SELECT
     mw.pdc_pmu_id AS PdcPmuId,
     mw.ts AS Ts,
     {rawColumns}
-FROM openplot.measurements_wide_2 mw
+FROM openplot.measurements mw
 WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
   AND mw.ts >= @from_utc
   AND mw.ts <  @to_utc
@@ -879,7 +879,7 @@ representatives AS (
     SELECT
         mw.pdc_pmu_id AS pdc_pmu_id,
         min(mw.ts) AS ts
-    FROM openplot.measurements_wide_2 mw
+    FROM openplot.measurements mw
     CROSS JOIN bounds b
     WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
       AND mw.ts >= b.aligned_from
@@ -898,7 +898,7 @@ SELECT
     mw.ts AS Ts,
     {rawColumns}
 FROM representatives r
-JOIN openplot.measurements_wide_2 mw
+JOIN openplot.measurements mw
   ON mw.pdc_pmu_id = r.pdc_pmu_id
  AND mw.ts = r.ts
 WHERE r.ts >= @from_utc
@@ -1047,7 +1047,7 @@ SELECT
     mw.ic_mod_a   AS IcMod,
     mw.ic_ang_deg AS IcAng
 
-FROM openplot.measurements_wide_2 mw
+FROM openplot.measurements mw
 WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
   AND mw.ts >= @from_utc
   AND mw.ts <  @to_utc
@@ -1074,7 +1074,7 @@ representatives AS (
     SELECT
         mw.pdc_pmu_id AS pdc_pmu_id,
         min(mw.ts) AS ts
-    FROM openplot.measurements_wide_2 mw
+    FROM openplot.measurements mw
     CROSS JOIN bounds b
     WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
       AND mw.ts >= b.aligned_from
@@ -1107,7 +1107,7 @@ SELECT
     mw.ic_ang_deg AS IcAng
 
 FROM representatives r
-JOIN openplot.measurements_wide_2 mw
+JOIN openplot.measurements mw
   ON mw.pdc_pmu_id = r.pdc_pmu_id
  AND mw.ts = r.ts
 WHERE r.ts >= @from_utc
@@ -1207,7 +1207,7 @@ ORDER BY
 
         const string sql = @"
 SELECT 1
-FROM openplot.measurements_wide_2 mw
+FROM openplot.measurements mw
 WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
   AND mw.ts >= @from_utc
   AND mw.ts <  @to_utc
@@ -1226,7 +1226,7 @@ LIMIT 1";
                 cancellationToken: ct));
 
         _logger.LogDebug(
-            "[WARM-UP] measurements_wide_2 aquecida: pdc={Pdc} pmuCount={Count} window=[{From:o}..{To:o}]",
+            "[WARM-UP] measurements aquecida: pdc={Pdc} pmuCount={Count} window=[{From:o}..{To:o}]",
             ctx.PdcName, pdcPmuIds.Length, ctx.FromUtc, ctx.ToUtc);
     }
 
@@ -1308,7 +1308,7 @@ WHERE pp.pdc_id = @pdc_id
   AND LOWER(s.component::text) = @component
   AND (
        @quantity <> 'digital'
-       OR UPPER(COALESCE(s.name, '')) = 'cfds_dig'
+       OR UPPER(COALESCE(s.name, '')) = 'CFDS'
   )
   AND (
        @phase_mode = 'any'

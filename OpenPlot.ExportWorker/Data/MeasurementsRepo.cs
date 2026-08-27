@@ -21,7 +21,7 @@ public sealed class MeasurementsRepo
     /// <summary>
     /// Resolve a seleção de PMUs a partir do run_id,
     /// encontra os sinais associados a cada PDC/PMU
-    /// e busca os valores na measurements_wide_2.
+    /// e busca os valores na measurements.
     ///
     /// A fase dos canais é obtida exclusivamente de openplot.signal.phase.
     ///
@@ -425,7 +425,7 @@ sig AS
 
         -- --------------------------------------------------------
         -- Fase original do catálogo.
-        -- É ela que também determina a coluna da measurements_wide_2.
+        -- É ela que também determina a coluna da measurements.
         -- --------------------------------------------------------
         UPPER(s.phase::text) AS phase_raw,
 
@@ -558,7 +558,7 @@ SELECT
 
 FROM sig s
 
-JOIN openplot.measurements_wide_2 mw
+JOIN openplot.measurements mw
   ON mw.pdc_pmu_id = s.pdc_pmu_id
 
 WHERE mw.ts >= (SELECT from_utc FROM win)

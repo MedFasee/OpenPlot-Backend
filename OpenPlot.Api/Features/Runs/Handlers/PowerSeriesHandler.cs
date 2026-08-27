@@ -20,7 +20,7 @@ namespace OpenPlot.Features.Runs.Handlers;
 /// Potência ativa/reativa calculada sobre frames Wide sincronizados.
 ///
 /// A leitura de V e I é feita em UMA única consulta por janela:
-/// measurements_wide_2 -> time_bucket -> V/I ABC MAG+ANG -> cálculo P/Q.
+/// measurements -> time_bucket -> V/I ABC MAG+ANG -> cálculo P/Q.
 /// </summary>
 public sealed class PowerSeriesHandler
 {

@@ -31,7 +31,7 @@ internal static class WideSignalColumnMap
     };
 
     /// <summary>
-    /// Projeta o valor narrow (m.value) a partir de measurements_wide_2 sem interpolar coluna de usuário.
+    /// Projeta o valor narrow (m.value) a partir de measurements sem interpolar coluna de usuário.
     /// </summary>
     public static string BuildValueCaseSql(string signalAlias, string wideAlias)
     {

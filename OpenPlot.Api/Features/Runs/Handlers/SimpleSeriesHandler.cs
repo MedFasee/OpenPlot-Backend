@@ -57,6 +57,15 @@ public sealed class SimpleSeriesHandler : BaseSeriesHandler<SimpleSeriesQuery>
         CancellationToken ct,
         int? maxPoints)
     {
+        _logger.LogInformation(
+        "[SIMPLE] quantity={Quantity} component={Component} phaseMode={PhaseMode} phase={Phase} pmus={Pmus}",
+        _currentMeasurement.Quantity,
+        _currentMeasurement.Component,
+        _currentMeasurement.PhaseMode,
+        _currentMeasurement.Phase,
+        _currentMeasurement.PmuNames is null
+            ? "<null>"
+            : string.Join(",", _currentMeasurement.PmuNames));
         if (_currentMeasurement is null)
         {
             throw new InvalidOperationException("MeasurementsQuery não foi configurada.");

@@ -125,7 +125,7 @@ public static class Cca
         for (var executionIndex = 0; executionIndex < executionCount; executionIndex++)
         {
             var startIndex = executionIndex * windowStepSamples;
-            var endIndex = startIndex + windowPointCount - 1;
+            var endIndex = startIndex + windowPointCount;
             var windowStart = commonTimes[startIndex];
             var windowEnd = commonTimes[endIndex];
 
