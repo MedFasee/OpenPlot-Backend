@@ -15,8 +15,10 @@ var host = Host.CreateDefaultBuilder(args)
 
         services.AddScoped<IDbConnection>(_ =>
         {
-            var cs = ctx.Configuration.GetConnectionString("OpenPlotDb")
-                     ?? throw new InvalidOperationException("ConnectionStrings:OpenPlotDb ausente.");
+            var cs = ctx.Configuration.GetConnectionString("Db")
+                     ?? ctx.Configuration.GetConnectionString("OpenPlotDb")
+                     ?? Environment.GetEnvironmentVariable("OPENPLOT_DB_CONNECTION")
+                     ?? throw new InvalidOperationException("Defina ConnectionStrings:Db (ou legado OpenPlotDb) ou OPENPLOT_DB_CONNECTION.");
             var conn = new NpgsqlConnection(cs);
             conn.Open();
             return conn;

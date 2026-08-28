@@ -14,3 +14,8 @@ docs/Refatoracao
 # Logs e temporários
 *.log
 *.tmp
+
+# Configurações locais com apontamento de banco
+OpenPlot.Api/appsettings.json
+OpenPlot.ExportWorker/appsettings.json
+OpenPlot.Ingestor.Gsf/App.config

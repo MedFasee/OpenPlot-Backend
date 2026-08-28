@@ -25,11 +25,9 @@ public sealed class XmlImportService : IXmlImportService
 
     public async Task<IReadOnlyList<ImportSummaryDto>> ImportAsync(string path, CancellationToken ct)
     {
-        /*var connectionString = _configuration.GetConnectionString("Db")
-            ?? "Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=postgres";*/
-
         var connectionString = _configuration.GetConnectionString("Db")
-            ?? "Host=ydrmkeftlc.upkcvavk1z.privatelink.cloud.tigerdata.com;Port=5432;Database=tsdb;Username=servicedopenplot;Password=Zxolgm370$";
+            ?? Environment.GetEnvironmentVariable("OPENPLOT_DB_CONNECTION")
+            ?? throw new InvalidOperationException("Defina ConnectionStrings:Db ou OPENPLOT_DB_CONNECTION.");
 
         var importer = new XmlCatalogImporter(connectionString);
         var summaries = await importer.RunAsync(path, ct);
