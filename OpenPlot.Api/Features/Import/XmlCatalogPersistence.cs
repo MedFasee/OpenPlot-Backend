@@ -25,6 +25,10 @@ internal sealed class XmlCatalogPersistence : IXmlCatalogPersistence
 
         summary.Notes.AddRange(file.Notes);
 
+        // ============================================================
+        // PDC
+        // ============================================================
+
         summary.PdcId = await UpsertPdc(
             conn,
             file.Pdc.Name,
@@ -38,6 +42,10 @@ internal sealed class XmlCatalogPersistence : IXmlCatalogPersistence
 
         if (file.Pmus.Count == 0)
             return summary;
+
+        // ============================================================
+        // PMUs
+        // ============================================================
 
         foreach (var pmu in file.Pmus)
         {
@@ -55,6 +63,10 @@ internal sealed class XmlCatalogPersistence : IXmlCatalogPersistence
 
             summary.Pmus++;
 
+            // ========================================================
+            // Associação PDC x PMU
+            // ========================================================
+
             var pdcPmuId = await UpsertPdcPmu(
                 conn,
                 summary.PdcId,
@@ -62,6 +74,10 @@ internal sealed class XmlCatalogPersistence : IXmlCatalogPersistence
                 pmu.IdName,
                 pmu.IdNumber,
                 ct);
+
+            // ========================================================
+            // Sinais
+            // ========================================================
 
             foreach (var signal in pmu.Signals)
             {
@@ -101,12 +117,14 @@ internal sealed class XmlCatalogPersistence : IXmlCatalogPersistence
              * H = THD
              *
              * Exemplos:
+             *
              * FV
              * FI
              * FVI
              * FID
              * FVIH
              */
+
             await FillPdcPmuKindIfEmpty(
                 conn,
                 pdcPmuId,
@@ -116,36 +134,65 @@ internal sealed class XmlCatalogPersistence : IXmlCatalogPersistence
         return summary;
     }
 
+    // ================================================================
+    // NORMALIZAÇÃO - QUANTITY
+    // ================================================================
+
     private static string NormalizeQty(string? value) =>
-        value?.Trim() switch
-        {
-            "Voltage" or "voltage" or "VOLTAGE" or "V" or "Volt"
+    value?.Trim() switch
+    {
+        "Voltage"
+            or "voltage"
+            or "VOLTAGE"
+            or "V"
+            or "Volt"
                 => "Voltage",
 
-            "Current" or "current" or "CURRENT" or "I"
+        "Current"
+            or "current"
+            or "CURRENT"
+            or "I"
                 => "Current",
 
-            "Frequency" or "frequency" or "FREQUENCY"
+        "Frequency"
+            or "frequency"
+            or "FREQUENCY"
                 => "Frequency",
 
-            "Digital" or "digital" or "DIGITAL" or "D"
+        "Digital"
+            or "digital"
+            or "DIGITAL"
+            or "D"
                 => "Digital",
 
-            _ => "Voltage"
-        };
+        _ => throw new InvalidOperationException(
+            $"Quantity não suportada: '{value}'.")
+    };
+
+    // ================================================================
+    // NORMALIZAÇÃO - PHASE
+    // ================================================================
 
     private static string NormalizePhase(string? value)
     {
-        var normalized = value?.Trim().ToUpperInvariant();
+        var normalized = value?
+            .Trim()
+            .ToUpperInvariant();
 
         return normalized is "A" or "B" or "C"
             ? normalized
             : "None";
     }
 
+    // ================================================================
+    // NORMALIZAÇÃO - COMPONENT
+    // ================================================================
+
     private static string NormalizeComp(string? value)
     {
-        var normalized = value?.Trim().ToUpperInvariant();
+        var normalized = value?
+            .Trim()
+            .ToUpperInvariant();
 
         return normalized switch
         {
@@ -155,15 +202,22 @@ internal sealed class XmlCatalogPersistence : IXmlCatalogPersistence
             "FREQ" => "FREQ",
             "DFREQ" => "DFREQ",
 
-            "THD" or "VTHD" or "CTHD"
-                => "THD",
+            "THD"
+                or "VTHD"
+                or "CTHD"
+                    => "THD",
 
-            "DIG" or "DIGITAL"
-                => "DIG",
+            "DIG"
+                or "DIGITAL"
+                    => "DIG",
 
             _ => "MAG"
         };
     }
+
+    // ================================================================
+    // UPSERT PDC
+    // ================================================================
 
     private static async Task<int> UpsertPdc(
         NpgsqlConnection conn,
@@ -207,7 +261,9 @@ SET
     db_name   = EXCLUDED.db_name
 RETURNING pdc_id;";
 
-        await using var cmd = new NpgsqlCommand(sql, conn);
+        await using var cmd = new NpgsqlCommand(
+            sql,
+            conn);
 
         cmd.Parameters.AddWithValue(
             "name",
@@ -243,6 +299,10 @@ RETURNING pdc_id;";
             id,
             CultureInfo.InvariantCulture);
     }
+
+    // ================================================================
+    // UPSERT PMU
+    // ================================================================
 
     private static async Task<int> UpsertPmu(
         NpgsqlConnection conn,
@@ -290,7 +350,9 @@ SET
     lon        = EXCLUDED.lon
 RETURNING pmu_id;";
 
-        await using var cmd = new NpgsqlCommand(sql, conn);
+        await using var cmd = new NpgsqlCommand(
+            sql,
+            conn);
 
         cmd.Parameters.AddWithValue(
             "id_name",
@@ -331,6 +393,10 @@ RETURNING pmu_id;";
             CultureInfo.InvariantCulture);
     }
 
+    // ================================================================
+    // UPSERT PDC x PMU
+    // ================================================================
+
     private static async Task<int> UpsertPdcPmu(
         NpgsqlConnection conn,
         int pdcId,
@@ -343,11 +409,13 @@ RETURNING pmu_id;";
          * Não calculamos o kind aqui.
          *
          * Neste momento os sinais da PMU ainda não foram persistidos.
+         *
          * O kind será calculado após todos os UpsertSignal daquela PMU.
          *
          * Também não incluímos kind no UPDATE para evitar sobrescrever
          * qualquer classificação já existente.
          */
+
         const string sql = @"
 INSERT INTO openplot.pdc_pmu
 (
@@ -369,7 +437,9 @@ SET
     local_numeric_id = EXCLUDED.local_numeric_id
 RETURNING pdc_pmu_id;";
 
-        await using var cmd = new NpgsqlCommand(sql, conn);
+        await using var cmd = new NpgsqlCommand(
+            sql,
+            conn);
 
         cmd.Parameters.AddWithValue(
             "pdc_id",
@@ -394,6 +464,24 @@ RETURNING pdc_pmu_id;";
             CultureInfo.InvariantCulture);
     }
 
+    // ================================================================
+    // UPSERT SIGNAL
+    // ================================================================
+    //
+    // Estrutura real de openplot.signal:
+    //
+    // quantity  -> text
+    // phase     -> text
+    // component -> text
+    //
+    // Portanto NÃO utilizar:
+    //
+    // qty_kind
+    // phase_kind
+    // comp_kind
+    //
+    // ================================================================
+
     private static async Task<int> UpsertSignal(
         NpgsqlConnection conn,
         int pdcPmuId,
@@ -404,12 +492,22 @@ RETURNING pdc_pmu_id;";
         int historianPoint,
         CancellationToken ct)
     {
-        if (historianPoint < 0)
+        /*
+         * historian_point precisa ser positivo.
+         *
+         * Zero também é considerado inválido.
+         */
+
+        if (historianPoint <= 0)
             return 0;
 
         var qty = NormalizeQty(quantity);
-        var normalizedPhase = NormalizePhase(phase);
-        var normalizedComponent = NormalizeComp(component);
+
+        var normalizedPhase =
+            NormalizePhase(phase);
+
+        var normalizedComponent =
+            NormalizeComp(component);
 
         const string sql = @"
 INSERT INTO openplot.signal
@@ -425,9 +523,9 @@ VALUES
 (
     @pdc_pmu_id,
     @name,
-    @quantity::qty_kind,
-    @phase::phase_kind,
-    @component::comp_kind,
+    @quantity,
+    @phase,
+    @component,
     @historian_point
 )
 ON CONFLICT
@@ -443,7 +541,9 @@ SET
     historian_point = EXCLUDED.historian_point
 RETURNING signal_id;";
 
-        await using var cmd = new NpgsqlCommand(sql, conn);
+        await using var cmd = new NpgsqlCommand(
+            sql,
+            conn);
 
         cmd.Parameters.AddWithValue(
             "pdc_pmu_id",
@@ -476,6 +576,10 @@ RETURNING signal_id;";
             : 0;
     }
 
+    // ================================================================
+    // PREENCHIMENTO DO KIND DO PDC_PMU
+    // ================================================================
+
     private static async Task FillPdcPmuKindIfEmpty(
         NpgsqlConnection conn,
         int pdcPmuId,
@@ -501,9 +605,14 @@ RETURNING signal_id;";
          * F -> V -> I -> D -> H
          *
          * IMPORTANTE:
+         *
          * O UPDATE somente ocorre se o kind atual estiver
          * NULL ou vazio.
+         *
+         * Como quantity e component já são text no banco,
+         * não é necessário utilizar casts ::text.
          */
+
         const string sql = @"
 WITH signal_kind AS
 (
@@ -511,26 +620,26 @@ WITH signal_kind AS
         s.pdc_pmu_id,
 
         BOOL_OR(
-            s.quantity::text = 'Frequency'
+            s.quantity = 'Frequency'
         ) AS has_frequency,
 
         BOOL_OR(
-            s.quantity::text = 'Voltage'
-            AND s.component::text IN ('MAG', 'ANG')
+            s.quantity = 'Voltage'
+            AND s.component IN ('MAG', 'ANG')
         ) AS has_voltage,
 
         BOOL_OR(
-            s.quantity::text = 'Current'
-            AND s.component::text IN ('MAG', 'ANG')
+            s.quantity = 'Current'
+            AND s.component IN ('MAG', 'ANG')
         ) AS has_current,
 
         BOOL_OR(
-            s.quantity::text = 'Digital'
-            OR s.component::text = 'DIG'
+            s.quantity = 'Digital'
+            OR s.component = 'DIG'
         ) AS has_digital,
 
         BOOL_OR(
-            s.component::text = 'THD'
+            s.component = 'THD'
         ) AS has_thd
 
     FROM openplot.signal s
@@ -574,6 +683,7 @@ calculated AS
 
     FROM signal_kind
 )
+
 UPDATE openplot.pdc_pmu pp
 
 SET kind = calculated.kind
@@ -584,14 +694,17 @@ WHERE pp.pdc_pmu_id = calculated.pdc_pmu_id
 
   AND pp.pdc_pmu_id = @pdc_pmu_id
 
-  AND (
-        pp.kind IS NULL
-        OR BTRIM(pp.kind) = ''
+  AND
+  (
+      pp.kind IS NULL
+      OR BTRIM(pp.kind) = ''
   )
 
   AND calculated.kind <> '';";
 
-        await using var cmd = new NpgsqlCommand(sql, conn);
+        await using var cmd = new NpgsqlCommand(
+            sql,
+            conn);
 
         cmd.Parameters.AddWithValue(
             "pdc_pmu_id",
