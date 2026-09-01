@@ -305,7 +305,7 @@ public sealed class MeasurementsRepository : IMeasurementsRepository
 
         var sql = sampling.UseRaw
             ? BuildRawSql(projection.RawSelectSql)
-            : BuildSampledSql(projection.RawSelectSql, source);
+            : BuildSampledSql(projection.SampledSelectSql, source);
 
         _logger.LogInformation(
             "[DATA-REQ][QueryAsync][START] pdc={Pdc} quantity={Quantity} component={Component} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} source={Source} expectedFps={ExpectedFps:F3}",
@@ -507,7 +507,7 @@ public sealed class MeasurementsRepository : IMeasurementsRepository
 
         var sql = sampling.UseRaw
             ? BuildRawSql(projection.RawSelectSql)
-            : BuildSampledSql(projection.RawSelectSql, source);
+            : BuildSampledSql(projection.SampledSelectSql, source);
 
         _logger.LogInformation(
             "[DATA-REQ][QueryPhasorAsync][START] pdc={Pdc} quantity={Quantity} component={Component} phase={Phase} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} source={Source} expectedFps={ExpectedFps:F3}",
@@ -630,10 +630,24 @@ public sealed class MeasurementsRepository : IMeasurementsRepository
                 mw.ic_mod_a   AS CMag,
                 mw.ic_ang_deg AS CAng";
 
+        var sampledColumns = k == "voltage"
+            ? @"first(mw.va_mod_v,   mw.ts) AS AMag,
+                first(mw.va_ang_deg, mw.ts) AS AAng,
+                first(mw.vb_mod_v,   mw.ts) AS BMag,
+                first(mw.vb_ang_deg, mw.ts) AS BAng,
+                first(mw.vc_mod_v,   mw.ts) AS CMag,
+                first(mw.vc_ang_deg, mw.ts) AS CAng"
+            : @"first(mw.ia_mod_a,   mw.ts) AS AMag,
+                first(mw.ia_ang_deg, mw.ts) AS AAng,
+                first(mw.ib_mod_a,   mw.ts) AS BMag,
+                first(mw.ib_ang_deg, mw.ts) AS BAng,
+                first(mw.ic_mod_a,   mw.ts) AS CMag,
+                first(mw.ic_ang_deg, mw.ts) AS CAng";
+
         var source = ResolveSamplingSource(sampling, _usePreviewContinuousAggregates);
         var sql = sampling.UseRaw
             ? BuildRawSql(rawColumns)
-            : BuildSampledSql(rawColumns, source);
+            : BuildSampledSql(sampledColumns, source);
 
         _logger.LogInformation(
             "[DATA-REQ][QueryAbcMagAngAsync][START] pdc={Pdc} kind={Kind} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} source={Source} hotQuery=direct_pdc_pmu_array",
@@ -827,13 +841,17 @@ public sealed class MeasurementsRepository : IMeasurementsRepository
 
         var rawColumns = BuildAngleFrameColumns(
             normalizedKind,
-            normalizedPhase);
+            normalizedPhase,
+            sampled: false);
+
+        var sampledColumns = BuildAngleFrameColumns(
+            normalizedKind,
+            normalizedPhase,
+            sampled: true);
 
         var sql = sampling.UseRaw
             ? BuildRawSql(rawColumns)
-            : BuildSampledSql(
-                rawColumns,
-                source);
+            : BuildSampledSql(sampledColumns, source);
 
         _logger.LogInformation(
             "[DATA-REQ][QueryAngleFramesAsync][START] pdc={Pdc} kind={Kind} phase={Phase} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} source={Source} expectedFps={ExpectedFps:F3} hotQuery=angle_wide_frame",
@@ -983,7 +1001,7 @@ public sealed class MeasurementsRepository : IMeasurementsRepository
 
         var pdcPmuIds = pmus.Select(x => x.PdcPmuId).Distinct().OrderBy(x => x).ToArray();
 
-        const string columns = @"mw.va_mod_v   AS VaMod,
+        const string rawColumns = @"mw.va_mod_v   AS VaMod,
     mw.va_ang_deg AS VaAng,
     mw.vb_mod_v   AS VbMod,
     mw.vb_ang_deg AS VbAng,
@@ -996,9 +1014,22 @@ public sealed class MeasurementsRepository : IMeasurementsRepository
     mw.ic_mod_a   AS IcMod,
     mw.ic_ang_deg AS IcAng";
 
+        const string sampledColumns = @"first(mw.va_mod_v,   mw.ts) AS VaMod,
+    first(mw.va_ang_deg, mw.ts) AS VaAng,
+    first(mw.vb_mod_v,   mw.ts) AS VbMod,
+    first(mw.vb_ang_deg, mw.ts) AS VbAng,
+    first(mw.vc_mod_v,   mw.ts) AS VcMod,
+    first(mw.vc_ang_deg, mw.ts) AS VcAng,
+    first(mw.ia_mod_a,   mw.ts) AS IaMod,
+    first(mw.ia_ang_deg, mw.ts) AS IaAng,
+    first(mw.ib_mod_a,   mw.ts) AS IbMod,
+    first(mw.ib_ang_deg, mw.ts) AS IbAng,
+    first(mw.ic_mod_a,   mw.ts) AS IcMod,
+    first(mw.ic_ang_deg, mw.ts) AS IcAng";
+
         var sql = sampling.UseRaw
-            ? BuildRawSql(columns)
-            : BuildSampledSql(columns, source);
+            ? BuildRawSql(rawColumns)
+            : BuildSampledSql(sampledColumns, source);
 
         _logger.LogInformation(
             "[DATA-REQ][QueryPowerFramesAsync][START] pdc={Pdc} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} source={Source} hotQuery=one_scan_vi",
@@ -1115,7 +1146,7 @@ ORDER BY
     mw.ts;";
 
     private static string BuildSampledSql(
-        string selectColumns,
+        string sampledSelectColumns,
         SamplingSource source)
     {
         var qualityPredicate = source.QualityAlreadyFiltered
@@ -1123,50 +1154,33 @@ ORDER BY
             : "AND (mw.quality = @quality OR mw.quality IS NULL)";
 
         return $@"
-WITH bounds AS (
-    SELECT
-        time_bucket(
-            @bucket_width::interval,
-            @from_utc::timestamptz,
-            @bucket_origin::timestamptz
-        ) AS aligned_from,
-        time_bucket(
-            @bucket_width::interval,
-            @to_utc::timestamptz,
-            @bucket_origin::timestamptz
-        ) + @bucket_width::interval AS aligned_to
-),
-representatives AS (
-    SELECT
-        mw.pdc_pmu_id AS pdc_pmu_id,
-        min(mw.ts) AS ts
-    FROM {source.Relation} mw
-    CROSS JOIN bounds b
-    WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
-      AND mw.ts >= b.aligned_from
-      AND mw.ts <  b.aligned_to
-      {qualityPredicate}
-    GROUP BY
-        mw.pdc_pmu_id,
-        time_bucket(
-            @bucket_width::interval,
-            mw.ts,
-            @bucket_origin::timestamptz
-        )
-)
 SELECT
     mw.pdc_pmu_id AS PdcPmuId,
-    mw.ts AS Ts,
-    {selectColumns}
-FROM representatives r
-JOIN {source.Relation} mw
-  ON mw.pdc_pmu_id = r.pdc_pmu_id
- AND mw.ts = r.ts
-WHERE r.ts >= @from_utc
-  AND r.ts <  @to_utc
+
+    -- A estampa devolvida continua sendo uma estampa temporal REAL da tabela.
+    -- O time_bucket e apenas uma chave interna de agrupamento.
+    MIN(mw.ts) AS Ts,
+
+    {sampledSelectColumns}
+FROM {source.Relation} mw
+WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
+
+  -- O recorte da janela ocorre antes do agrupamento. Isso evita que uma
+  -- amostra anterior a from_utc seja escolhida como representante do
+  -- primeiro bucket e depois descarte um bucket que possui dados validos.
+  AND mw.ts >= @from_utc
+  AND mw.ts <  @to_utc
+  {qualityPredicate}
+GROUP BY
+    mw.pdc_pmu_id,
+    time_bucket(
+        @bucket_width::interval,
+        mw.ts,
+        @bucket_origin::timestamptz
+    )
 ORDER BY
     mw.pdc_pmu_id,
-    mw.ts;";
+    MIN(mw.ts);";
     }
 
     private static CommandDefinition BuildCommand(
@@ -1196,7 +1210,6 @@ ORDER BY
         ctx.SelectRate is > 0
             ? ctx.SelectRate.Value
             : PreviewFallbackExpectedFps;
-
 
     public readonly record struct SamplingPlan(bool UseRaw, TimeSpan BucketWidth);
 
@@ -1485,6 +1498,7 @@ ORDER BY
 
     private sealed record WideProjection(
         string RawSelectSql,
+        string SampledSelectSql,
         TimeSpan MinimumBucket,
         bool ForceSampling,
         Func<WideSampleRow, string, double?> ResolveValue);
@@ -1501,28 +1515,31 @@ ORDER BY
         if (q == "frequency" && c == "FREQ")
         {
             return new WideProjection(
-                "mw.frequency_hz AS ValueAny",
-                DefaultMinBucket,
-                false,
-                (row, _) => row.ValueAny);
+                RawSelectSql: "mw.frequency_hz AS ValueAny",
+                SampledSelectSql: "first(mw.frequency_hz, mw.ts) AS ValueAny",
+                MinimumBucket: DefaultMinBucket,
+                ForceSampling: false,
+                ResolveValue: (row, _) => row.ValueAny);
         }
 
         if (q == "frequency" && c == "DFREQ")
         {
             return new WideProjection(
-                "mw.delta_freq_hz AS ValueAny",
-                DefaultMinBucket,
-                false,
-                (row, _) => row.ValueAny);
+                RawSelectSql: "mw.delta_freq_hz AS ValueAny",
+                SampledSelectSql: "first(mw.delta_freq_hz, mw.ts) AS ValueAny",
+                MinimumBucket: DefaultMinBucket,
+                ForceSampling: false,
+                ResolveValue: (row, _) => row.ValueAny);
         }
 
         if (q == "digital" && c == "DIG")
         {
             return new WideProjection(
-                "mw.cfds_dig AS ValueAny",
-                DefaultMinBucket,
-                false,
-                (row, _) => row.ValueAny);
+                RawSelectSql: "mw.cfds_dig AS ValueAny",
+                SampledSelectSql: "first(mw.cfds_dig, mw.ts) AS ValueAny",
+                MinimumBucket: DefaultMinBucket,
+                ForceSampling: false,
+                ResolveValue: (row, _) => row.ValueAny);
         }
 
         if (q == "voltage")
@@ -1574,19 +1591,23 @@ ORDER BY
             };
 
             return new WideProjection(
-                $"mw.{selectedColumn} AS ValueAny",
-                DefaultMinBucket,
-                false,
-                (row, _) => row.ValueAny);
+                RawSelectSql: $"mw.{selectedColumn} AS ValueAny",
+                SampledSelectSql: $"first(mw.{selectedColumn}, mw.ts) AS ValueAny",
+                MinimumBucket: DefaultMinBucket,
+                ForceSampling: false,
+                ResolveValue: (row, _) => row.ValueAny);
         }
 
         return new WideProjection(
-            $@"mw.{colA} AS ValueA,
+            RawSelectSql: $@"mw.{colA} AS ValueA,
                 mw.{colB} AS ValueB,
                 mw.{colC} AS ValueC",
-            DefaultMinBucket,
-            false,
-            (row, currentPhase) => currentPhase.ToUpperInvariant() switch
+            SampledSelectSql: $@"first(mw.{colA}, mw.ts) AS ValueA,
+                first(mw.{colB}, mw.ts) AS ValueB,
+                first(mw.{colC}, mw.ts) AS ValueC",
+            MinimumBucket: DefaultMinBucket,
+            ForceSampling: false,
+            ResolveValue: (row, currentPhase) => currentPhase.ToUpperInvariant() switch
             {
                 "A" => row.ValueA,
                 "B" => row.ValueB,
@@ -1597,36 +1618,57 @@ ORDER BY
 
     private static string BuildAngleFrameColumns(
         string kind,
-        string? normalizedPhase)
+        string? normalizedPhase,
+        bool sampled)
     {
+        static string SelectColumn(
+            string column,
+            string alias,
+            bool useSampling)
+        {
+            return useSampling
+                ? $"first(mw.{column}, mw.ts) AS {alias}"
+                : $"mw.{column} AS {alias}";
+        }
+
         if (normalizedPhase is not null)
         {
+            // Mantem a semantica anterior do endpoint: quando uma unica fase
+            // e solicitada, o valor angular selecionado e mapeado em AAng.
+            // A alteracao aqui e somente na estrategia de persistencia/downsample.
             return (kind, normalizedPhase) switch
             {
-                ("voltage", "A") => "mw.va_ang_deg AS AAng",
-                ("voltage", "B") => "mw.vb_ang_deg AS BAng",
-                ("voltage", "C") => "mw.vc_ang_deg AS CAng",
-                ("current", "A") => "mw.ia_ang_deg AS AAng",
-                ("current", "B") => "mw.ib_ang_deg AS BAng",
-                ("current", "C") => "mw.ic_ang_deg AS CAng",
+                ("voltage", "A") => SelectColumn("va_ang_deg", "AAng", sampled),
+                ("voltage", "B") => SelectColumn("vb_ang_deg", "AAng", sampled),
+                ("voltage", "C") => SelectColumn("vc_ang_deg", "AAng", sampled),
+                ("current", "A") => SelectColumn("ia_ang_deg", "AAng", sampled),
+                ("current", "B") => SelectColumn("ib_ang_deg", "AAng", sampled),
+                ("current", "C") => SelectColumn("ic_ang_deg", "AAng", sampled),
                 _ => throw new NotSupportedException(
                     $"AngleDiff não suportado: kind='{kind}', phase='{normalizedPhase}'.")
             };
         }
 
-        return kind == "voltage"
-            ? @"mw.va_mod_v   AS AMod,
-                mw.va_ang_deg AS AAng,
-                mw.vb_mod_v   AS BMod,
-                mw.vb_ang_deg AS BAng,
-                mw.vc_mod_v   AS CMod,
-                mw.vc_ang_deg AS CAng"
-            : @"mw.ia_mod_a   AS AMod,
-                mw.ia_ang_deg AS AAng,
-                mw.ib_mod_a   AS BMod,
-                mw.ib_ang_deg AS BAng,
-                mw.ic_mod_a   AS CMod,
-                mw.ic_ang_deg AS CAng";
+        if (kind == "voltage")
+        {
+            return string.Join(
+                ",\n                ",
+                SelectColumn("va_mod_v", "AMod", sampled),
+                SelectColumn("va_ang_deg", "AAng", sampled),
+                SelectColumn("vb_mod_v", "BMod", sampled),
+                SelectColumn("vb_ang_deg", "BAng", sampled),
+                SelectColumn("vc_mod_v", "CMod", sampled),
+                SelectColumn("vc_ang_deg", "CAng", sampled));
+        }
+
+        return string.Join(
+            ",\n                ",
+            SelectColumn("ia_mod_a", "AMod", sampled),
+            SelectColumn("ia_ang_deg", "AAng", sampled),
+            SelectColumn("ib_mod_a", "BMod", sampled),
+            SelectColumn("ib_ang_deg", "BAng", sampled),
+            SelectColumn("ic_mod_a", "CMod", sampled),
+            SelectColumn("ic_ang_deg", "CAng", sampled));
     }
 
     private static double? ResolveAbcValue(
