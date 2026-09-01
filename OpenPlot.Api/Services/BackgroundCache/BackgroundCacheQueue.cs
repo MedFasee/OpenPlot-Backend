@@ -16,6 +16,7 @@ public sealed record BackgroundCacheWorkItem(
     string Name,
     Guid RunId,
     Guid CacheId,
+    CacheWorkKey WorkKey,
     Func<IServiceProvider, CancellationToken, Task> ExecuteAsync);
 
 public interface IBackgroundCacheQueue
@@ -36,12 +37,15 @@ public interface IBackgroundCacheQueue
 public sealed class BackgroundCacheQueue : IBackgroundCacheQueue
 {
     private readonly Channel<BackgroundCacheWorkItem> _channel;
+    private readonly IBackgroundCacheCoordinator _coordinator;
 
     private readonly ConcurrentDictionary<Guid, BackgroundCacheStatus>
         _status = new();
 
-    public BackgroundCacheQueue()
+    public BackgroundCacheQueue(IBackgroundCacheCoordinator coordinator)
     {
+        _coordinator = coordinator;
+
         // A fila guarda somente descritores pequenos.
         // A massa de dados é carregada pelo worker apenas quando houver slot.
         _channel = Channel.CreateUnbounded<BackgroundCacheWorkItem>(
@@ -67,7 +71,10 @@ public sealed class BackgroundCacheQueue : IBackgroundCacheQueue
         var registration = httpContext.RequestAborted.Register(() =>
         {
             if (!httpContext.Response.HasStarted)
+            {
                 _status.TryRemove(item.CacheId, out _);
+                _ = _coordinator.FailAsync(item.WorkKey, item.CacheId);
+            }
         });
 
         httpContext.Response.OnCompleted(() =>
@@ -75,7 +82,10 @@ public sealed class BackgroundCacheQueue : IBackgroundCacheQueue
             registration.Dispose();
 
             if (!TryEnqueue(item))
+            {
                 _status[item.CacheId] = BackgroundCacheStatus.Failed;
+                _ = _coordinator.FailAsync(item.WorkKey, item.CacheId);
+            }
 
             return Task.CompletedTask;
         });

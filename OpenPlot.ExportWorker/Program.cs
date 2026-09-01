@@ -1,11 +1,10 @@
-﻿using System.Data;
-using Microsoft.Extensions.Options;
+using System.Data;
 using Npgsql;
 using OpenPlot.ExportWorker;
-using OpenPlot.ExportWorker.Data;
-using OpenPlot.ExportWorker.Options;
 using OpenPlot.ExportWorker.Build;
 using OpenPlot.ExportWorker.Comtrade;
+using OpenPlot.ExportWorker.Data;
+using OpenPlot.ExportWorker.Options;
 using OpenPlot.ExportWorker.Storage;
 
 var host = Host.CreateDefaultBuilder(args)
@@ -15,10 +14,16 @@ var host = Host.CreateDefaultBuilder(args)
 
         services.AddScoped<IDbConnection>(_ =>
         {
-            var cs = ctx.Configuration.GetConnectionString("Db")
-                     ?? ctx.Configuration.GetConnectionString("OpenPlotDb")
-                     ?? Environment.GetEnvironmentVariable("OPENPLOT_DB_CONNECTION")
-                     ?? throw new InvalidOperationException("Defina ConnectionStrings:Db (ou legado OpenPlotDb) ou OPENPLOT_DB_CONNECTION.");
+            var cs = ctx.Configuration.GetConnectionString("Db");
+            if (string.IsNullOrWhiteSpace(cs))
+                cs = ctx.Configuration.GetConnectionString("OpenPlotDb");
+            if (string.IsNullOrWhiteSpace(cs))
+                cs = Environment.GetEnvironmentVariable("OPENPLOT_DB_CONNECTION");
+
+            if (string.IsNullOrWhiteSpace(cs))
+                throw new InvalidOperationException(
+                    "Defina ConnectionStrings:Db ou OPENPLOT_DB_CONNECTION para o banco externo.");
+
             var conn = new NpgsqlConnection(cs);
             conn.Open();
             return conn;

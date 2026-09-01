@@ -1,9 +1,9 @@
-﻿using System;
+using System;
 using Npgsql;
 
 internal static class DbOps
 {
-    public static void EnsureSchema(NpgsqlConnection conn)
+    public static void ValidateRequiredSchema(NpgsqlConnection conn)
     {
         using var cmd = new NpgsqlCommand(@"
             SELECT

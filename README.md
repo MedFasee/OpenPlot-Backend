@@ -10,7 +10,7 @@ O objetivo é disponibilizar uma API HTTP para consulta/visualização de série
 A solution `openplot.sln` é composta pelos seguintes projetos:
 
 ### `OpenPlot.Api`
-API HTTP (Minimal API) responsavel por:
+API HTTP responsavel por:
 
 - autenticação e sessão;
 - cadastro e consulta de *search runs*;
@@ -113,3 +113,234 @@ Na raiz do repositório:
 dotnet test tests/OpenPlot.UnitTests/OpenPlot.UnitTests.csproj
 dotnet test tests/OpenPlot.Api.IntegrationTests/OpenPlot.Api.IntegrationTests.csproj
 ```
+
+---
+
+## 4. Deploy com Docker
+
+O backend utiliza um único arquivo `docker-compose.yml`. A escolha entre desenvolvimento e produção é feita pelo arquivo de variáveis informado no comando:
+
+- `.env.dev` para desenvolvimento;
+- `.env.prod` para produção.
+
+O PostgreSQL/TimescaleDB utilizado pelo openPlot é **externo**. O `docker-compose.yml` não cria, provisiona ou executa um banco de dados local.
+
+### 4.1 Pré-requisitos
+
+Para subir o backend com Docker:
+
+- Docker Desktop ou Docker Engine com Docker Compose;
+- acesso de rede ao PostgreSQL/TimescaleDB externo;
+- `.env.dev` ou `.env.prod` preenchido com as credenciais e configurações do ambiente;
+- acesso ao feed NuGet ONS quando o build de produção utilizar `NuGet.config`.
+
+Todos os projetos do backend utilizam **.NET 10**.
+
+### 4.2 Subir o ambiente de desenvolvimento
+
+Na raiz do repositório:
+
+```powershell
+docker compose --env-file .env.dev up -d --build --force-recreate
+```
+
+Para acompanhar os containers:
+
+```powershell
+docker compose --env-file .env.dev ps
+docker compose --env-file .env.dev logs -f
+```
+
+Para encerrar:
+
+```powershell
+docker compose --env-file .env.dev down
+```
+
+### 4.3 Subir o ambiente de produção
+
+Na raiz do repositório:
+
+```powershell
+docker compose --env-file .env.prod up -d --build --force-recreate
+```
+
+Para acompanhar os containers:
+
+```powershell
+docker compose --env-file .env.prod ps
+docker compose --env-file .env.prod logs -f
+```
+
+Para encerrar:
+
+```powershell
+docker compose --env-file .env.prod down
+```
+
+Não é necessário utilizar `docker-compose.dev.yml` ou `docker-compose.prod.yml`. O fluxo atual utiliza somente:
+
+```text
+docker-compose.yml
+.env.dev
+.env.prod
+```
+
+### 4.4 Serviços executados
+
+O Compose sobe os principais processos do backend:
+
+- `openplot-api`;
+- `openplot-ingestor-gsf`;
+- `openplot-export-worker`.
+
+Os três acessam o mesmo banco PostgreSQL/TimescaleDB externo por configuração de ambiente.
+
+O `OpenPlot.XmlImporter` permanece como ferramenta da solução, mas não precisa ser executado continuamente como serviço do Compose.
+
+### 4.5 Armazenamento dos exports
+
+O `OpenPlot.ExportWorker` grava os arquivos COMTRADE em `/data/exports`.
+
+A API também precisa enxergar esse mesmo diretório para disponibilizar o download dos arquivos. Portanto, API e ExportWorker devem compartilhar o mesmo diretório do host:
+
+```text
+${OPENPLOT_DATA_ROOT}/exports
+        │
+        ├── OpenPlot.ExportWorker -> /data/exports
+        └── OpenPlot.Api          -> /data/exports
+```
+
+Se o Worker gerar o arquivo, mas a API não possuir esse volume montado, o endpoint de download retornará `404 - arquivo de exportação não encontrado em disco`.
+
+---
+
+## 5. Arquivos que não devem ser commitados
+
+Os arquivos de ambiente contêm connection strings, chaves JWT, credenciais de autenticação e outros segredos. Portanto, **`.env.dev` e `.env.prod` não devem ser versionados**.
+
+O `.gitignore` deve manter, no mínimo:
+
+```gitignore
+# IDE / build
+.vs/
+**/bin/
+**/obj/
+*.user
+*.suo
+
+# Logs e temporários
+logs/
+*.log
+*.tmp
+
+# Segredos / configuração local
+.env
+.env.dev
+.env.prod
+.env.*.local
+secrets/*.json
+
+# Usuários locais utilizados pela autenticação
+auth-local/
+OpenPlot.Api/Auth/users.json
+OpenPlot.Api/Auth/users.local.json
+
+# Overrides contendo segredos
+docker-compose.prod.secrets.yml
+```
+
+O arquivo `docker-compose.yml` deve ser versionado normalmente.
+
+Credenciais reais nunca devem ser adicionadas a `appsettings.json`, `Dockerfile` ou ao próprio `docker-compose.yml`.
+
+---
+
+## 6. Diferenças principais entre DEV e PROD
+
+| Configuração | DEV | PROD |
+|---|---|---|
+| Arquivo de variáveis | `.env.dev` | `.env.prod` |
+| `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` |
+| Autenticação | OpenPlot/local | ONS/Keycloak |
+| `Auth.UseMock` | `true` | `false` |
+| Swagger | habilitado | desabilitado |
+| CORS | qualquer origem | somente origens autorizadas |
+| NuGet | `NuGet.dev.config` | `NuGet.config` |
+| ConfigIT | desabilitado | habilitado |
+| Porta padrão da API no host | `7011` | `17011` |
+| Banco | externo | externo |
+| Ingestor - `PollIntervalSeconds` | `2` | `4` |
+| Ingestor - `ChunkMinutes` | `5` | `5` |
+| Ingestor - `MaxParallelChunks` | `2` | `4` |
+| Ingestor - `MaxParallelJobs` | `2` | `4` |
+| Ingestor - `GlobalMaxParallelChunks` | `1` | `4` |
+
+### 6.1 CORS
+
+Em desenvolvimento, o backend pode aceitar chamadas de qualquer origem:
+
+```text
+Cors__AllowAnyOrigin=true
+Cors__AllowCredentials=false
+```
+
+Isso **não desabilita a autenticação** dos endpoints protegidos.
+
+Em produção, o CORS deve aceitar somente o frontend autorizado, por exemplo:
+
+```text
+Cors__AllowAnyOrigin=false
+Cors__AllowCredentials=true
+Cors__AllowedOrigins__0=http://localhost:5173
+```
+
+Quando o frontend possuir URL definitiva de produção, `Cors__AllowedOrigins__0` deve ser atualizado para essa origem.
+
+### 6.2 Banco externo
+
+A connection string é fornecida exclusivamente por variável de ambiente:
+
+```text
+ConnectionStrings__Db=Host=...;Port=5432;Database=...;Username=...;Password=...;Search Path=openplot;SSL Mode=Require
+```
+
+O backend deve somente **conectar e utilizar** o banco existente. A criação/provisionamento do PostgreSQL/TimescaleDB não faz parte do deploy do backend.
+
+---
+
+## 7. Verificações rápidas após o deploy
+
+### API
+
+```powershell
+docker compose --env-file .env.prod logs -f openplot-api
+```
+
+### Ingestor
+
+```powershell
+docker compose --env-file .env.prod logs -f openplot-ingestor-gsf
+```
+
+Os parâmetros efetivamente recebidos podem ser conferidos com:
+
+```powershell
+docker compose --env-file .env.prod exec openplot-ingestor-gsf printenv |
+    Select-String "OPENPLOT_INGESTOR"
+```
+
+### ExportWorker
+
+```powershell
+docker compose --env-file .env.prod logs -f openplot-export-worker
+```
+
+Em produção, recomenda-se limitar explicitamente o paralelismo do ExportWorker para evitar pressão excessiva sobre o banco:
+
+```text
+Exports__MaxParallelJobs=2
+```
+
+O valor pode ser aumentado posteriormente após validação de consumo de memória e carga no PostgreSQL/TimescaleDB.
+

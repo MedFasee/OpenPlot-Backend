@@ -1,9 +1,12 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Moq;
 using OpenPlot.Core.TimeSeries;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers;
 using OpenPlot.Features.Runs.Repositories;
+using OpenPlot.Services.BackgroundCache;
+using OpenPlot.Services.UI;
 using OpenPlot.UnitTests.Infrastructure;
 
 namespace OpenPlot.UnitTests.Features.Runs.Handlers;
@@ -14,50 +17,58 @@ public sealed class SimpleSeriesHandlerTests
     private readonly Mock<IMeasurementsRepository> _measurementsRepository = new();
     private readonly Mock<ITimeSeriesDownsampler> _downsampler = new();
     private readonly Mock<IPlotMetaBuilder> _metaBuilder = new();
-    private readonly Mock<IAnalysisCacheRepository> _cacheRepository = new();
+    private readonly Mock<IUiMenuService> _uiMenus = new();
+    private readonly Mock<IBackgroundCacheQueue> _backgroundCacheQueue = new();
+    private readonly Mock<IBackgroundCacheCoordinator> _backgroundCacheCoordinator = new();
+    private readonly Mock<IHttpContextAccessor> _httpContextAccessor = new();
+    private readonly Mock<ILogger<SimpleSeriesHandler>> _logger = new();
     private readonly SeriesAssemblyService _seriesAssembly = new();
     private readonly SimpleSeriesHandler _sut;
 
     public SimpleSeriesHandlerTests()
     {
+        _uiMenus
+            .Setup(uiMenus => uiMenus.RebuildForRun(It.IsAny<Dictionary<string, object?>?>(), It.IsAny<UiMenuContext>()))
+            .Returns((Dictionary<string, object?>? modes, UiMenuContext _) => modes);
+
+        _backgroundCacheCoordinator
+            .Setup(coordinator => coordinator.ReserveOrGetAsync(It.IsAny<CacheWorkKey>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CacheReservation(Guid.NewGuid(), IsOwner: true));
+
+        _backgroundCacheQueue
+            .Setup(queue => queue.ScheduleAfterResponse(It.IsAny<HttpContext?>(), It.IsAny<BackgroundCacheWorkItem>()))
+            .Returns(true);
+
         _sut = new SimpleSeriesHandler(
             _runRepository.Object,
             _measurementsRepository.Object,
             _downsampler.Object,
             _metaBuilder.Object,
             _seriesAssembly,
-            _cacheRepository.Object);
+            _uiMenus.Object,
+            _backgroundCacheQueue.Object,
+            _backgroundCacheCoordinator.Object,
+            _httpContextAccessor.Object,
+            _logger.Object);
     }
 
     [Fact]
-    public async Task HandleAsync_WhenMaxPointsIsNumeric_CallsDownsamplerWithResolvedValue()
+    public async Task HandleAsync_WhenMaxPointsIsNumeric_DoesNotDownsamplePreviewInMemory()
     {
         var runId = Guid.NewGuid();
         var window = new WindowQuery(null, null);
         var measurement = CreateMeasurementsQuery();
         var runContext = CreateRunContext(runId);
         var rows = CreateRows();
-        var downsampled = new[]
-        {
-            new Point(rows[0].Ts, rows[0].Value),
-            new Point(rows[2].Ts, rows[2].Value)
-        };
-
         _runRepository
             .Setup(repository => repository.ResolveAsync(runId, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(runContext);
         _measurementsRepository
-            .Setup(repository => repository.QueryAsync(runContext, measurement, It.IsAny<CancellationToken>()))
+            .Setup(repository => repository.QueryAsync(runContext, measurement, It.IsAny<CancellationToken>(), It.IsAny<int?>()))
             .ReturnsAsync(rows);
-        _downsampler
-            .Setup(downsampler => downsampler.MinMax(It.IsAny<IReadOnlyList<Point>>(), 1000))
-            .Returns(downsampled);
         _metaBuilder
             .Setup(builder => builder.Build(window, runContext, measurement))
             .Returns(new PlotMetaDto("Test", "X", "Y"));
-        _cacheRepository
-            .Setup(repository => repository.SaveAsync(runId, It.IsAny<object>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Guid.NewGuid());
 
         var result = await _sut.HandleAsync(
             new SimpleSeriesQuery { RunId = runId, MaxPoints = "1000" },
@@ -67,7 +78,7 @@ public sealed class SimpleSeriesHandlerTests
             CancellationToken.None);
 
         ResultAssertions.HasStatusCode(result, StatusCodes.Status200OK);
-        _downsampler.Verify(downsampler => downsampler.MinMax(It.IsAny<IReadOnlyList<Point>>(), 1000), Times.Once);
+        _downsampler.Verify(downsampler => downsampler.MinMax(It.IsAny<IReadOnlyList<Point>>(), It.IsAny<int>()), Times.Never);
     }
 
     [Fact]
@@ -83,14 +94,11 @@ public sealed class SimpleSeriesHandlerTests
             .Setup(repository => repository.ResolveAsync(runId, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(runContext);
         _measurementsRepository
-            .Setup(repository => repository.QueryAsync(runContext, measurement, It.IsAny<CancellationToken>()))
+            .Setup(repository => repository.QueryAsync(runContext, measurement, It.IsAny<CancellationToken>(), It.IsAny<int?>()))
             .ReturnsAsync(rows);
         _metaBuilder
             .Setup(builder => builder.Build(window, runContext, measurement))
             .Returns(new PlotMetaDto("Test", "X", "Y"));
-        _cacheRepository
-            .Setup(repository => repository.SaveAsync(runId, It.IsAny<object>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Guid.NewGuid());
 
         var result = await _sut.HandleAsync(
             new SimpleSeriesQuery { RunId = runId, MaxPoints = "all" },
@@ -104,7 +112,7 @@ public sealed class SimpleSeriesHandlerTests
     }
 
     [Fact]
-    public async Task HandleAsync_WhenMeasurementsExist_SavesCachePayload()
+    public async Task HandleAsync_WhenMeasurementsExist_SchedulesBackgroundCacheWorkThroughUnifiedQueue()
     {
         var runId = Guid.NewGuid();
         var window = new WindowQuery(null, null);
@@ -116,7 +124,7 @@ public sealed class SimpleSeriesHandlerTests
             .Setup(repository => repository.ResolveAsync(runId, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(runContext);
         _measurementsRepository
-            .Setup(repository => repository.QueryAsync(runContext, measurement, It.IsAny<CancellationToken>()))
+            .Setup(repository => repository.QueryAsync(runContext, measurement, It.IsAny<CancellationToken>(), It.IsAny<int?>()))
             .ReturnsAsync(rows);
         _downsampler
             .Setup(downsampler => downsampler.MinMax(It.IsAny<IReadOnlyList<Point>>(), 5000))
@@ -124,9 +132,6 @@ public sealed class SimpleSeriesHandlerTests
         _metaBuilder
             .Setup(builder => builder.Build(window, runContext, measurement))
             .Returns(new PlotMetaDto("Test", "X", "Y"));
-        _cacheRepository
-            .Setup(repository => repository.SaveAsync(runId, It.IsAny<object>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Guid.NewGuid());
 
         var result = await _sut.HandleAsync(
             new SimpleSeriesQuery { RunId = runId, MaxPoints = "5000" },
@@ -136,11 +141,15 @@ public sealed class SimpleSeriesHandlerTests
             CancellationToken.None);
 
         ResultAssertions.HasStatusCode(result, StatusCodes.Status200OK);
-        _cacheRepository.Verify(
-            repository => repository.SaveAsync(
-                runId,
-                It.Is<object>(payload => payload.GetType() == typeof(RowsCacheV2) && ((RowsCacheV2)payload).Series.Count == 1),
+
+        _backgroundCacheCoordinator.Verify(
+            coordinator => coordinator.ReserveOrGetAsync(
+                It.Is<CacheWorkKey>(key => key.Type == "SIMPLE" && key.RunId == runId),
                 It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        _backgroundCacheQueue.Verify(
+            queue => queue.ScheduleAfterResponse(It.IsAny<HttpContext?>(), It.IsAny<BackgroundCacheWorkItem>()),
             Times.Once);
     }
 

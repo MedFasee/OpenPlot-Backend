@@ -1,11 +1,14 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Diagnostics;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using OpenPlot.Core.TimeSeries;
 using OpenPlot.Data.Dtos;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Responses;
 using OpenPlot.Features.Runs.Repositories;
-using OpenPlot.Core.TimeSeries;
+using OpenPlot.Services.BackgroundCache;
 using OpenPlot.Services.UI;
 
 namespace OpenPlot.Features.Runs.Handlers;
@@ -18,8 +21,10 @@ public sealed class CurrentSeriesHandler
     private readonly IPhasorRequestService _phasorRequest;
     private readonly ISeriesAssemblyService _seriesAssembly;
     private readonly ITimeSeriesDownsampler _down = new TimeBucketMinMaxDownsampler();
-    private readonly IAnalysisCacheRepository _cacheRepo;
     private readonly IUiMenuService _uiMenus;
+    private readonly IBackgroundCacheQueue _backgroundCacheQueue;
+    private readonly IBackgroundCacheCoordinator _backgroundCacheCoordinator;
+    private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<CurrentSeriesHandler> _logger;
 
     public CurrentSeriesHandler(
@@ -28,8 +33,10 @@ public sealed class CurrentSeriesHandler
         IPlotMetaBuilder meta,
         IPhasorRequestService phasorRequest,
         ISeriesAssemblyService seriesAssembly,
-        IAnalysisCacheRepository cacheRepo,
         IUiMenuService uiMenus,
+        IBackgroundCacheQueue backgroundCacheQueue,
+        IBackgroundCacheCoordinator backgroundCacheCoordinator,
+        IHttpContextAccessor httpContextAccessor,
         ILogger<CurrentSeriesHandler> logger)
     {
         _runs = runs;
@@ -37,12 +44,13 @@ public sealed class CurrentSeriesHandler
         _meta = meta;
         _phasorRequest = phasorRequest;
         _seriesAssembly = seriesAssembly;
-        _cacheRepo = cacheRepo;
         _uiMenus = uiMenus;
+        _backgroundCacheQueue = backgroundCacheQueue;
+        _backgroundCacheCoordinator = backgroundCacheCoordinator;
+        _httpContextAccessor = httpContextAccessor;
         _logger = logger;
     }
 
-    // Recebe modes já resolvidos no endpoint
     public async Task<IResult> HandleAsync(
         ByRunQuery q,
         WindowQuery w,
@@ -76,7 +84,8 @@ public sealed class CurrentSeriesHandler
             return Results.BadRequest("from < to");
 
         var ctx = await _runs.ResolveAsync(q.RunId, fromUtc, toUtc, ct);
-        if (ctx is null) return Results.NotFound("run_id não encontrado.");
+        if (ctx is null)
+            return Results.NotFound("run_id não encontrado.");
 
         var pmuNames = selection.PmuNames;
 
@@ -88,90 +97,191 @@ public sealed class CurrentSeriesHandler
             PmuNames: tri
                 ? new[] { pmuName }
                 : (pmuNames.Length > 0 ? pmuNames : null),
-            Unit: "A"
-        );
+            Unit: "A");
 
         var frontWatch = Stopwatch.StartNew();
-        _logger.LogInformation("[BYRUN][Current][FRONT][START] runId={RunId} maxPoints={MaxPoints}", q.RunId, noDownsample ? "all" : maxPts);
+        _logger.LogInformation(
+            "[BYRUN][Current][FRONT][START] runId={RunId} maxPoints={MaxPoints}",
+            q.RunId,
+            noDownsample ? "all" : maxPts);
 
-        var frontRows = await _meas.QueryPhasorAsync(ctx, meas, ct, noDownsample ? null : maxPts);
+        var frontRows = await _meas.QueryPhasorAsync(
+            ctx,
+            meas,
+            ct,
+            noDownsample ? null : maxPts);
 
         frontWatch.Stop();
-        _logger.LogInformation("[BYRUN][Current][FRONT][END] runId={RunId} elapsedMs={ElapsedMs} rows={Rows}", q.RunId, frontWatch.ElapsedMilliseconds, frontRows.Count);
+        _logger.LogInformation(
+            "[BYRUN][Current][FRONT][END] runId={RunId} elapsedMs={ElapsedMs} rows={Rows}",
+            q.RunId,
+            frontWatch.ElapsedMilliseconds,
+            frontRows.Count);
 
         if (frontRows.Count == 0)
             return Results.NotFound("Nada encontrado para esse run/filtro no intervalo solicitado.");
 
         var windowFrom = fromUtc ?? frontRows.Min(r => r.Ts);
-        var windowTo2 = toUtc ?? frontRows.Max(r => r.Ts);
-        var cacheId = Guid.NewGuid();
+        var windowTo = toUtc ?? frontRows.Max(r => r.Ts);
+        var cacheWorkKey = CacheWorkKey.Create(
+            "Current",
+            q.RunId,
+            fromUtc,
+            toUtc,
+            ("tri", tri.ToString()),
+            ("phase", uphase),
+            ("pmus", CacheWorkKey.NormalizeCollection(meas.PmuNames)));
+        var reservation = await _backgroundCacheCoordinator.ReserveOrGetAsync(cacheWorkKey, ct);
+        var cacheId = reservation.CacheId;
 
-        _ = Task.Run(async () =>
+        BackgroundCacheWorkItem? workItem = null;
+
+        if (reservation.IsOwner && noDownsample)
         {
-            var bgWatch = Stopwatch.StartNew();
-            var fullRowsCount = 0;
-            var persisted = false;
-            _logger.LogInformation("[BYRUN][Current][CACHE-BG][START] runId={RunId} cacheId={CacheId}", q.RunId, cacheId);
+            var cacheSeriesAlreadyLoaded = frontRows
+                .GroupBy(r => new
+                {
+                    r.SignalId,
+                    Phase = (r.Phase ?? "").Trim(),
+                    Component = (r.Component ?? "").Trim(),
+                    r.PdcPmuId,
+                    r.IdName,
+                    r.PdcName
+                })
+                .Select(g =>
+                {
+                    var first = g.First();
+                    return _seriesAssembly.BuildCacheSeries(
+                        signalId: first.SignalId,
+                        pdcPmuId: first.PdcPmuId,
+                        idName: first.IdName,
+                        pdcName: first.PdcName,
+                        referenceTerminal: null,
+                        unit: "A",
+                        phase: first.Phase,
+                        quantity: "current",
+                        component: first.Component,
+                        points: g.Select(x => (x.Ts, x.Value)));
+                })
+                .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(s => s.Phase, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
-            try
-            {
-                var fullRows = await _meas.QueryPhasorAsync(ctx, meas, CancellationToken.None, null);
-                fullRowsCount = fullRows.Count;
-                if (fullRowsCount == 0)
-                    return;
+            var payloadAlreadyLoaded = _seriesAssembly.BuildCachePayload(
+                windowFrom,
+                windowTo,
+                ctx.SelectRate ?? 0,
+                cacheSeriesAlreadyLoaded);
 
-                var fullWindowFrom = fromUtc ?? fullRows.Min(r => r.Ts);
-                var fullWindowTo = toUtc ?? fullRows.Max(r => r.Ts);
+            workItem = new BackgroundCacheWorkItem(
+                Name: "Current",
+                RunId: q.RunId,
+                CacheId: cacheId,
+                WorkKey: cacheWorkKey,
+                ExecuteAsync: async (sp, bgCt) =>
+                {
+                    var cacheRepo = sp.GetRequiredService<IAnalysisCacheRepository>();
+                    await cacheRepo.SaveAsync(cacheId, q.RunId, cacheWorkKey.CacheKey, payloadAlreadyLoaded, bgCt);
+                });
+        }
+        else if (reservation.IsOwner)
+        {
+            var bgRunId = q.RunId;
+            var bgFromUtc = fromUtc;
+            var bgToUtc = toUtc;
+            var bgMeas = meas;
 
-                var cacheSeriesFull = fullRows
-                    .GroupBy(r => new
-                    {
-                        r.SignalId,
-                        Phase = (r.Phase ?? "").Trim(),
-                        Component = (r.Component ?? "").Trim(),
-                        r.PdcPmuId,
-                        r.IdName,
-                        r.PdcName
-                    })
-                    .Select(g =>
-                    {
-                        var first = g.First();
-                        return _seriesAssembly.BuildCacheSeries(
-                            signalId: first.SignalId,
-                            pdcPmuId: first.PdcPmuId,
-                            idName: first.IdName,
-                            pdcName: first.PdcName,
-                            referenceTerminal: null,
-                            unit: "A",
-                            phase: first.Phase,
-                            quantity: "current",
-                            component: first.Component,
-                            points: g.Select(x => (x.Ts, x.Value)));
-                    })
-                    .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
-                    .ThenBy(s => s.Phase, StringComparer.OrdinalIgnoreCase)
-                    .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
+            workItem = new BackgroundCacheWorkItem(
+                Name: "Current",
+                RunId: bgRunId,
+                CacheId: cacheId,
+                WorkKey: cacheWorkKey,
+                ExecuteAsync: async (sp, bgCt) =>
+                {
+                    var runRepository = sp.GetRequiredService<IRunContextRepository>();
+                    var measurementsRepository = sp.GetRequiredService<IMeasurementsRepository>();
+                    var seriesAssembly = sp.GetRequiredService<ISeriesAssemblyService>();
+                    var cacheRepo = sp.GetRequiredService<IAnalysisCacheRepository>();
+                    var logger = sp.GetRequiredService<ILogger<CurrentSeriesHandler>>();
 
-                var cachePayloadFull = _seriesAssembly.BuildCachePayload(
-                    fullWindowFrom,
-                    fullWindowTo,
-                    ctx.SelectRate ?? 0,
-                    cacheSeriesFull);
+                    var bgCtx = await runRepository.ResolveAsync(
+                        bgRunId,
+                        bgFromUtc,
+                        bgToUtc,
+                        bgCt);
 
-                await _cacheRepo.SaveAsync(cacheId, q.RunId, cachePayloadFull, CancellationToken.None);
-                persisted = true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Falha ao persistir cache assíncrono de current/by-run. runId={RunId}", q.RunId);
-            }
-            finally
-            {
-                bgWatch.Stop();
-                _logger.LogInformation("[BYRUN][Current][CACHE-BG][END] runId={RunId} cacheId={CacheId} elapsedMs={ElapsedMs} rows={Rows} persisted={Persisted}", q.RunId, cacheId, bgWatch.ElapsedMilliseconds, fullRowsCount, persisted);
-            }
-        });
+                    if (bgCtx is null)
+                        throw new InvalidOperationException(
+                            $"Run não encontrado durante cache integral: {bgRunId}");
+
+                    var fullRows = await measurementsRepository.QueryPhasorAsync(
+                        bgCtx,
+                        bgMeas,
+                        bgCt,
+                        maxPoints: null);
+
+                    if (fullRows.Count == 0)
+                        throw new InvalidOperationException(
+                            $"Cache integral Current sem linhas. runId={bgRunId}");
+
+                    var fullWindowFrom = bgFromUtc ?? fullRows.Min(r => r.Ts);
+                    var fullWindowTo = bgToUtc ?? fullRows.Max(r => r.Ts);
+
+                    var cacheSeriesFull = fullRows
+                        .GroupBy(r => new
+                        {
+                            r.SignalId,
+                            Phase = (r.Phase ?? "").Trim(),
+                            Component = (r.Component ?? "").Trim(),
+                            r.PdcPmuId,
+                            r.IdName,
+                            r.PdcName
+                        })
+                        .Select(g =>
+                        {
+                            var first = g.First();
+                            return seriesAssembly.BuildCacheSeries(
+                                signalId: first.SignalId,
+                                pdcPmuId: first.PdcPmuId,
+                                idName: first.IdName,
+                                pdcName: first.PdcName,
+                                referenceTerminal: null,
+                                unit: "A",
+                                phase: first.Phase,
+                                quantity: "current",
+                                component: first.Component,
+                                points: g.Select(x => (x.Ts, x.Value)));
+                        })
+                        .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(s => s.Phase, StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    var fullPayload = seriesAssembly.BuildCachePayload(
+                        fullWindowFrom,
+                        fullWindowTo,
+                        bgCtx.SelectRate ?? 0,
+                        cacheSeriesFull);
+
+                    await cacheRepo.SaveAsync(cacheId, bgRunId, cacheWorkKey.CacheKey, fullPayload, bgCt);
+
+                    logger.LogInformation(
+                        "[BYRUN][Current][CACHE-FULL][PERSISTED] runId={RunId} cacheId={CacheId} rows={Rows}",
+                        bgRunId,
+                        cacheId,
+                        fullRows.Count);
+                });
+        }
+
+        if (reservation.IsOwner &&
+            !_backgroundCacheQueue.ScheduleAfterResponse(
+                _httpContextAccessor.HttpContext,
+                workItem!))
+        {
+            await _backgroundCacheCoordinator.FailAsync(cacheWorkKey, cacheId, ct);
+            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
 
         var series = frontRows
             .GroupBy(r => r.SignalId)
@@ -187,7 +297,7 @@ public sealed class CurrentSeriesHandler
 
                 return new
                 {
-                    pmu = PmuShort(any.IdName), // <<< até o primeiro '|'
+                    pmu = PmuShort(any.IdName),
                     pdc = any.PdcName,
                     signal_id = any.SignalId,
                     pdc_pmu_id = any.PdcPmuId,
@@ -206,11 +316,12 @@ public sealed class CurrentSeriesHandler
             .Select(row => row.IdName)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
+
         var resolvedModes = _uiMenus.RebuildForRun(
             modes,
             new UiMenuContext(
                 WindowFromUtc: windowFrom,
-                WindowToUtc: windowTo2,
+                WindowToUtc: windowTo,
                 SelectRate: ctx.SelectRate,
                 TotalSeriesCount: selectedPmuCount,
                 ValidSeriesCount: selectedPmuCount,
@@ -219,10 +330,12 @@ public sealed class CurrentSeriesHandler
                 Phase: tri ? "abc" : uphase?.Trim().ToLowerInvariant()));
 
         var response = SeriesResponseBuilderExtensions
-            .BuildSeriesResponse(q.RunId, windowFrom, windowTo2, series, plotMeta)
+            .BuildSeriesResponse(q.RunId, windowFrom, windowTo, series, plotMeta)
             .WithModes(resolvedModes)
             .WithCacheId(cacheId)
-            .WithResolved(ctx.PdcName, series.Select(s => s.pmu).Distinct(StringComparer.OrdinalIgnoreCase).Count())
+            .WithResolved(
+                ctx.PdcName,
+                series.Select(s => s.pmu).Distinct(StringComparer.OrdinalIgnoreCase).Count())
             .WithTypeFields(new Dictionary<string, object?>
             {
                 ["unit"] = "raw",

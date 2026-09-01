@@ -6,4 +6,10 @@
 **/*.user
 **/*.suo
 packages/
+logs/
+secrets/
+auth-local/
+.env.dev
+.env.prod
+!*.example
 Config/

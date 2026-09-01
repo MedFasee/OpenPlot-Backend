@@ -123,7 +123,7 @@ Executa analise espectral sobre as series presentes em um cache analitico.
 
 - `200` com payload contendo:
   - `cache_id`;
-  - `meta`;
+  - `plot_meta`;
   - `selectRate`;
   - `window` com `from` e `to` efetivos;
   - `zoom` com `fMin` e `fMax` iniciais;
@@ -136,7 +136,7 @@ Executa analise espectral sobre as series presentes em um cache analitico.
 ```json
 {
   "cache_id": "guid",
-  "meta": {
+  "plot_meta": {
     "title": "Espectro de Freq. ...",
     "xLabel": "Tempo (UTC)",
     "yLabel": "Frequencia (Hz)"
@@ -171,7 +171,7 @@ Executa analise espectral sobre as series presentes em um cache analitico.
 
 - `zoom.fMin` recebe `dft.Zoom.Position`.
 - `zoom.fMax` recebe `dft.Zoom.Size`; semanticamente e o tamanho inicial da janela de zoom, nao o limite superior do espectro completo.
-- O `meta.yLabel` atual e fixado em `Frequencia (Hz)` pelo `DftMetaBuilder`, mesmo que os pontos da serie representem magnitude espectral. A documentacao registra o comportamento implementado hoje.
+- O `plot_meta.yLabel` atual e fixado em `Frequencia (Hz)` pelo `DftMetaBuilder`, mesmo que os pontos da serie representem magnitude espectral. A documentacao registra o comportamento implementado hoje.
 
 ---
 
@@ -216,7 +216,7 @@ Executa identificacao modal via Prony sobre um conjunto de series previamente ar
 
 - `200` com payload contendo:
   - `cache_id`;
-  - `meta`;
+  - `plot_meta`;
   - `selectRate`;
   - `window` com `from` e `to` efetivos;
   - `modeShapeCandidatesHz`;
@@ -233,7 +233,7 @@ Executa identificacao modal via Prony sobre um conjunto de series previamente ar
 ```json
 {
   "cache_id": "guid",
-  "meta": {
+  "plot_meta": {
     "title": "Prony da Frequencia ...",
     "xLabel": "Tempo (UTC)",
     "yLabel": "Hz"
@@ -327,7 +327,7 @@ Executa identificacao modal ambiental via CCA sobre um conjunto de series previa
 
 - `200` com payload contendo:
   - `cache_id`;
-  - `meta`;
+  - `plot_meta`;
   - `selectRate`;
   - `window` com `from` e `to` efetivos;
   - `parameters` com os parametros efetivamente usados;
@@ -347,7 +347,7 @@ Executa identificacao modal ambiental via CCA sobre um conjunto de series previa
 ```json
 {
   "cache_id": "guid",
-  "meta": {
+  "plot_meta": {
     "title": "CCA da Frequencia ...",
     "xLabel": "Tempo (UTC)",
     "frequencyYLabel": "Frequencia (Hz)",

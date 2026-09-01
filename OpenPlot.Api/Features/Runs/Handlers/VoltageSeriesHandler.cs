@@ -1,4 +1,6 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using OpenPlot.Core.TimeSeries;
 using OpenPlot.Data.Dtos;
@@ -6,6 +8,7 @@ using OpenPlot.Features.Runs.Calculations;
 using OpenPlot.Features.Runs.Contracts;
 using OpenPlot.Features.Runs.Handlers.Responses;
 using OpenPlot.Features.Runs.Repositories;
+using OpenPlot.Services.BackgroundCache;
 using OpenPlot.Services.UI;
 
 namespace OpenPlot.Features.Runs.Handlers;
@@ -18,8 +21,10 @@ public sealed class VoltageSeriesHandler
     private readonly IPhasorRequestService _phasorRequest;
     private readonly ISeriesAssemblyService _seriesAssembly;
     private readonly ITimeSeriesDownsampler _down = new TimeBucketMinMaxDownsampler();
-    private readonly IAnalysisCacheRepository _cacheRepo;
     private readonly IUiMenuService _uiMenus;
+    private readonly IBackgroundCacheQueue _backgroundCacheQueue;
+    private readonly IBackgroundCacheCoordinator _backgroundCacheCoordinator;
+    private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<VoltageSeriesHandler> _logger;
 
     public VoltageSeriesHandler(
@@ -28,8 +33,10 @@ public sealed class VoltageSeriesHandler
         IPlotMetaBuilder meta,
         IPhasorRequestService phasorRequest,
         ISeriesAssemblyService seriesAssembly,
-        IAnalysisCacheRepository cacheRepo,
         IUiMenuService uiMenus,
+        IBackgroundCacheQueue backgroundCacheQueue,
+        IBackgroundCacheCoordinator backgroundCacheCoordinator,
+        IHttpContextAccessor httpContextAccessor,
         ILogger<VoltageSeriesHandler> logger)
     {
         _runs = runs;
@@ -37,13 +44,19 @@ public sealed class VoltageSeriesHandler
         _meta = meta;
         _phasorRequest = phasorRequest;
         _seriesAssembly = seriesAssembly;
-        _cacheRepo = cacheRepo;
         _uiMenus = uiMenus;
+        _backgroundCacheQueue = backgroundCacheQueue;
+        _backgroundCacheCoordinator = backgroundCacheCoordinator;
+        _httpContextAccessor = httpContextAccessor;
         _logger = logger;
     }
 
-    // Recebe UI já resolvida no endpoint
-    public async Task<IResult> HandleAsync(ByRunQuery q, WindowQuery w, string[]? pmu, Dictionary<string, object?>? modes, CancellationToken ct)
+    public async Task<IResult> HandleAsync(
+        ByRunQuery q,
+        WindowQuery w,
+        string[]? pmu,
+        Dictionary<string, object?>? modes,
+        CancellationToken ct)
     {
         var normalized = _phasorRequest.Resolve(q, pmu);
         if (!normalized.IsValid)
@@ -67,7 +80,8 @@ public sealed class VoltageSeriesHandler
             return Results.BadRequest("from < to");
 
         var ctx = await _runs.ResolveAsync(q.RunId, fromUtc, toUtc, ct);
-        if (ctx is null) return Results.NotFound("run_id não encontrado.");
+        if (ctx is null)
+            return Results.NotFound("run_id não encontrado.");
 
         var pmuNames = selection.PmuNames;
 
@@ -79,99 +93,201 @@ public sealed class VoltageSeriesHandler
             PmuNames: tri
                 ? new[] { pmuName }
                 : (pmuNames.Length > 0 ? pmuNames : null),
-            Unit: unit
-        );
+            Unit: unit);
 
         var frontWatch = Stopwatch.StartNew();
-        _logger.LogInformation("[BYRUN][Voltage][FRONT][START] runId={RunId} maxPoints={MaxPoints}", q.RunId, noDownsample ? "all" : maxPts);
+        _logger.LogInformation(
+            "[BYRUN][Voltage][FRONT][START] runId={RunId} maxPoints={MaxPoints}",
+            q.RunId,
+            noDownsample ? "all" : maxPts);
 
-        var frontRows = await _meas.QueryPhasorAsync(ctx, meas, ct, noDownsample ? null : maxPts);
+        var frontRows = await _meas.QueryPhasorAsync(
+            ctx,
+            meas,
+            ct,
+            noDownsample ? null : maxPts);
 
         frontWatch.Stop();
-        _logger.LogInformation("[BYRUN][Voltage][FRONT][END] runId={RunId} elapsedMs={ElapsedMs} rows={Rows}", q.RunId, frontWatch.ElapsedMilliseconds, frontRows.Count);
+        _logger.LogInformation(
+            "[BYRUN][Voltage][FRONT][END] runId={RunId} elapsedMs={ElapsedMs} rows={Rows}",
+            q.RunId,
+            frontWatch.ElapsedMilliseconds,
+            frontRows.Count);
 
         if (frontRows.Count == 0)
             return Results.NotFound("Nada encontrado para esse run/filtro no intervalo solicitado.");
 
         var windowFrom = fromUtc ?? frontRows.Min(r => r.Ts);
-        var windowTo2 = toUtc ?? frontRows.Max(r => r.Ts);
-        var cacheId = Guid.NewGuid();
+        var windowTo = toUtc ?? frontRows.Max(r => r.Ts);
+        var cacheWorkKey = CacheWorkKey.Create(
+            "Voltage",
+            q.RunId,
+            fromUtc,
+            toUtc,
+            ("unit", unit),
+            ("tri", tri.ToString()),
+            ("phase", uphase),
+            ("pmus", CacheWorkKey.NormalizeCollection(meas.PmuNames)));
+        var reservation = await _backgroundCacheCoordinator.ReserveOrGetAsync(cacheWorkKey, ct);
+        var cacheId = reservation.CacheId;
 
-        // ===== PROCESSAMENTO DE UNIDADE PARA FRONT =====
         var frontProcessedData = unit == "pu"
             ? frontRows.Select(r => (r, value: PerUnit.ToVoltagePu(r.Value, r.VoltLevel))).ToList()
             : frontRows.Select(r => (r, value: r.Value)).ToList();
 
-        _ = Task.Run(async () =>
+        BackgroundCacheWorkItem? workItem = null;
+
+        if (reservation.IsOwner && noDownsample)
         {
-            var bgWatch = Stopwatch.StartNew();
-            var fullRowsCount = 0;
-            var persisted = false;
-            _logger.LogInformation("[BYRUN][Voltage][CACHE-BG][START] runId={RunId} cacheId={CacheId}", q.RunId, cacheId);
+            var cacheSeriesAlreadyLoaded = frontProcessedData
+                .GroupBy(x => new
+                {
+                    x.r.SignalId,
+                    Phase = (x.r.Phase ?? "").Trim(),
+                    Component = (x.r.Component ?? "").Trim(),
+                    x.r.PdcPmuId,
+                    x.r.IdName,
+                    x.r.PdcName
+                })
+                .Select(g =>
+                {
+                    var first = g.First();
+                    return _seriesAssembly.BuildCacheSeries(
+                        signalId: first.r.SignalId,
+                        pdcPmuId: first.r.PdcPmuId,
+                        idName: first.r.IdName,
+                        pdcName: first.r.PdcName,
+                        referenceTerminal: null,
+                        unit: unit,
+                        phase: first.r.Phase,
+                        quantity: "voltage",
+                        component: first.r.Component,
+                        points: g.Select(x => (x.r.Ts, x.value)));
+                })
+                .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(s => s.Phase, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
-            try
-            {
-                var fullRows = await _meas.QueryPhasorAsync(ctx, meas, CancellationToken.None, null);
-                fullRowsCount = fullRows.Count;
-                if (fullRowsCount == 0)
-                    return;
+            var payloadAlreadyLoaded = _seriesAssembly.BuildCachePayload(
+                windowFrom,
+                windowTo,
+                ctx.SelectRate ?? 0,
+                cacheSeriesAlreadyLoaded);
 
-                var fullWindowFrom = fromUtc ?? fullRows.Min(r => r.Ts);
-                var fullWindowTo = toUtc ?? fullRows.Max(r => r.Ts);
+            workItem = new BackgroundCacheWorkItem(
+                Name: "Voltage",
+                RunId: q.RunId,
+                CacheId: cacheId,
+                WorkKey: cacheWorkKey,
+                ExecuteAsync: async (sp, bgCt) =>
+                {
+                    var cacheRepo = sp.GetRequiredService<IAnalysisCacheRepository>();
+                    await cacheRepo.SaveAsync(cacheId, q.RunId, cacheWorkKey.CacheKey, payloadAlreadyLoaded, bgCt);
+                });
+        }
+        else if (reservation.IsOwner)
+        {
+            var bgRunId = q.RunId;
+            var bgFromUtc = fromUtc;
+            var bgToUtc = toUtc;
+            var bgMeas = meas;
+            var bgUnit = unit;
 
-                var fullProcessed = unit == "pu"
-                    ? fullRows.Select(r => (r, value: PerUnit.ToVoltagePu(r.Value, r.VoltLevel))).ToList()
-                    : fullRows.Select(r => (r, value: r.Value)).ToList();
+            workItem = new BackgroundCacheWorkItem(
+                Name: "Voltage",
+                RunId: bgRunId,
+                CacheId: cacheId,
+                WorkKey: cacheWorkKey,
+                ExecuteAsync: async (sp, bgCt) =>
+                {
+                    var runRepository = sp.GetRequiredService<IRunContextRepository>();
+                    var measurementsRepository = sp.GetRequiredService<IMeasurementsRepository>();
+                    var seriesAssembly = sp.GetRequiredService<ISeriesAssemblyService>();
+                    var cacheRepo = sp.GetRequiredService<IAnalysisCacheRepository>();
+                    var logger = sp.GetRequiredService<ILogger<VoltageSeriesHandler>>();
 
-                var cacheSeriesFull = fullProcessed
-                    .GroupBy(x => new
-                    {
-                        x.r.SignalId,
-                        Phase = (x.r.Phase ?? "").Trim(),
-                        Component = (x.r.Component ?? "").Trim(),
-                        x.r.PdcPmuId,
-                        x.r.IdName,
-                        x.r.PdcName
-                    })
-                    .Select(g =>
-                    {
-                        var first = g.First();
-                        return _seriesAssembly.BuildCacheSeries(
-                            signalId: first.r.SignalId,
-                            pdcPmuId: first.r.PdcPmuId,
-                            idName: first.r.IdName,
-                            pdcName: first.r.PdcName,
-                            referenceTerminal: null,
-                            unit: unit,
-                            phase: first.r.Phase,
-                            quantity: "voltage",
-                            component: first.r.Component,
-                            points: g.Select(x => (x.r.Ts, x.value)));
-                    })
-                    .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
-                    .ThenBy(s => s.Phase, StringComparer.OrdinalIgnoreCase)
-                    .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
+                    var bgCtx = await runRepository.ResolveAsync(
+                        bgRunId,
+                        bgFromUtc,
+                        bgToUtc,
+                        bgCt);
 
-                var cachePayloadFull = _seriesAssembly.BuildCachePayload(
-                    fullWindowFrom,
-                    fullWindowTo,
-                    ctx.SelectRate ?? 0,
-                    cacheSeriesFull);
+                    if (bgCtx is null)
+                        throw new InvalidOperationException(
+                            $"Run não encontrado durante cache integral: {bgRunId}");
 
-                await _cacheRepo.SaveAsync(cacheId, q.RunId, cachePayloadFull, CancellationToken.None);
-                persisted = true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Falha ao persistir cache assíncrono de voltage/by-run. runId={RunId}", q.RunId);
-            }
-            finally
-            {
-                bgWatch.Stop();
-                _logger.LogInformation("[BYRUN][Voltage][CACHE-BG][END] runId={RunId} cacheId={CacheId} elapsedMs={ElapsedMs} rows={Rows} persisted={Persisted}", q.RunId, cacheId, bgWatch.ElapsedMilliseconds, fullRowsCount, persisted);
-            }
-        });
+                    var fullRows = await measurementsRepository.QueryPhasorAsync(
+                        bgCtx,
+                        bgMeas,
+                        bgCt,
+                        maxPoints: null);
+
+                    if (fullRows.Count == 0)
+                        throw new InvalidOperationException(
+                            $"Cache integral Voltage sem linhas. runId={bgRunId}");
+
+                    var fullWindowFrom = bgFromUtc ?? fullRows.Min(r => r.Ts);
+                    var fullWindowTo = bgToUtc ?? fullRows.Max(r => r.Ts);
+
+                    var fullProcessed = bgUnit == "pu"
+                        ? fullRows.Select(r => (r, value: PerUnit.ToVoltagePu(r.Value, r.VoltLevel))).ToList()
+                        : fullRows.Select(r => (r, value: r.Value)).ToList();
+
+                    var cacheSeriesFull = fullProcessed
+                        .GroupBy(x => new
+                        {
+                            x.r.SignalId,
+                            Phase = (x.r.Phase ?? "").Trim(),
+                            Component = (x.r.Component ?? "").Trim(),
+                            x.r.PdcPmuId,
+                            x.r.IdName,
+                            x.r.PdcName
+                        })
+                        .Select(g =>
+                        {
+                            var first = g.First();
+                            return seriesAssembly.BuildCacheSeries(
+                                signalId: first.r.SignalId,
+                                pdcPmuId: first.r.PdcPmuId,
+                                idName: first.r.IdName,
+                                pdcName: first.r.PdcName,
+                                referenceTerminal: null,
+                                unit: bgUnit,
+                                phase: first.r.Phase,
+                                quantity: "voltage",
+                                component: first.r.Component,
+                                points: g.Select(x => (x.r.Ts, x.value)));
+                        })
+                        .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(s => s.Phase, StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(s => s.Component, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    var fullPayload = seriesAssembly.BuildCachePayload(
+                        fullWindowFrom,
+                        fullWindowTo,
+                        bgCtx.SelectRate ?? 0,
+                        cacheSeriesFull);
+
+                    await cacheRepo.SaveAsync(cacheId, bgRunId, cacheWorkKey.CacheKey, fullPayload, bgCt);
+
+                    logger.LogInformation(
+                        "[BYRUN][Voltage][CACHE-FULL][PERSISTED] runId={RunId} cacheId={CacheId} rows={Rows}",
+                        bgRunId,
+                        cacheId,
+                        fullRows.Count);
+                });
+        }
+
+        if (reservation.IsOwner &&
+            !_backgroundCacheQueue.ScheduleAfterResponse(
+                _httpContextAccessor.HttpContext,
+                workItem!))
+        {
+            await _backgroundCacheCoordinator.FailAsync(cacheWorkKey, cacheId, ct);
+            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
 
         var series = frontProcessedData
             .GroupBy(x => x.r.SignalId)
@@ -195,24 +311,26 @@ public sealed class VoltageSeriesHandler
                     {
                         phase = (any.r.Phase ?? "").Trim().ToUpperInvariant(),
                         component = (any.r.Component ?? "").Trim().ToUpperInvariant(),
-                        volt_level_kV = any.r.VoltLevel is null ? (double?)null : any.r.VoltLevel.Value / 1000.0
+                        volt_level_kV = any.r.VoltLevel is null
+                            ? (double?)null
+                            : any.r.VoltLevel.Value / 1000.0
                     },
                     points
                 };
             })
             .ToList();
 
-
         var plotMeta = _meta.Build(w, ctx, meas);
         var selectedPmuCount = frontRows
             .Select(row => row.IdName)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
+
         var resolvedModes = _uiMenus.RebuildForRun(
             modes,
             new UiMenuContext(
                 WindowFromUtc: windowFrom,
-                WindowToUtc: windowTo2,
+                WindowToUtc: windowTo,
                 SelectRate: ctx.SelectRate,
                 TotalSeriesCount: selectedPmuCount,
                 ValidSeriesCount: selectedPmuCount,
@@ -221,7 +339,7 @@ public sealed class VoltageSeriesHandler
                 Phase: tri ? "abc" : uphase?.Trim().ToLowerInvariant()));
 
         var response = SeriesResponseBuilderExtensions
-            .BuildSeriesResponse(q.RunId, windowFrom, windowTo2, series, plotMeta)
+            .BuildSeriesResponse(q.RunId, windowFrom, windowTo, series, plotMeta)
             .WithModes(resolvedModes)
             .WithCacheId(cacheId)
             .WithResolved(ctx.PdcName, series.Select(s => s.pmu).Distinct().Count())

@@ -3,95 +3,160 @@ using OpenPlot.Features.Runs.Repositories;
 
 namespace OpenPlot.Features.Runs.Contracts;
 
-
 public interface IPlotMetaBuilder
 {
-    PlotMetaDto Build(WindowQuery w, RunContext ctx, MeasurementsQuery meas);
+    PlotMetaDto Build(
+        WindowQuery w,
+        RunContext ctx,
+        MeasurementsQuery meas);
 }
 
 public sealed class PlotMetaBuilder : IPlotMetaBuilder
 {
-    public PlotMetaDto Build(WindowQuery w, RunContext ctx, MeasurementsQuery meas)
+    public PlotMetaDto Build(
+        WindowQuery w,
+        RunContext ctx,
+        MeasurementsQuery meas)
     {
         var title = BuildTitle(ctx, meas);
         var xLabel = BuildXLabel(w, ctx);
         var yLabel = BuildYLabel(meas);
 
-        return new PlotMetaDto(title, xLabel, yLabel);
+        return new PlotMetaDto(
+            title,
+            xLabel,
+            yLabel);
     }
 
-    private static string BuildXLabel(WindowQuery w, RunContext ctx)
+    // ============================================================
+    // EIXO X
+    // ============================================================
+
+    private static string BuildXLabel(
+        WindowQuery w,
+        RunContext ctx)
     {
         var from = w.FromUtc ?? ctx.FromUtc;
         var to = w.ToUtc ?? ctx.ToUtc;
 
         if (from.Date == to.Date)
         {
-            var diaStr = from.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+            var diaStr = from.ToString(
+                "dd/MM/yyyy",
+                CultureInfo.InvariantCulture);
+
             return $"Tempo (UTC) - Data {diaStr}";
         }
 
         return "Tempo (UTC)";
     }
 
-    private static string BuildYLabel(MeasurementsQuery meas)
+    // ============================================================
+    // EIXO Y
+    // ============================================================
+
+    private static string BuildYLabel(
+        MeasurementsQuery meas)
     {
         var quantity = Norm(meas.Quantity);
         var component = Norm(meas.Component);
         var unit = Norm(meas.Unit);
-        var phaseMode = InferPhaseMode(meas);
+        var phaseMode = ResolvePhaseMode(meas);
 
+        // Diferença angular
+        if (IsAngle(component))
+            return "Diferença Angular (Graus)";
 
-        if (quantity == "voltage" && component != "thd" && phaseMode != "deseq" && unit != "%")
+        // THD
+        if (component == "thd")
+            return "Distorção Harmônica (%)";
+
+        // Variação de frequência
+        if (
+            component == "dfreq" ||
+            quantity == "dfreq")
         {
-            if (component == "angle") return "Diferença Angular (Graus)";
-            return unit == "pu" ? "Tensão (pu)" : "Tensão (V)";
+            return "Variação de Frequência (Hz/s)";
         }
 
-        if (quantity == "current" && component != "thd" && phaseMode != "deseq")
+        // Frequência
+        if (
+            quantity == "frequency" ||
+            component == "freq")
         {
-            if (component == "angle") return "Diferença Angular (Graus)";
-            return "Corrente (A)";
-        }
-        // dfreq vem como Quantity="frequency" + Component="dfreq"
-        if (component == "dfreq")
-            return "Var. de Frequência (Hz/s)";
-
-        // frequency normal
-        if (quantity == "frequency" || component == "freq")
             return "Frequência (Hz)";
+        }
 
-        if (meas.PhaseMode == PhaseMode.Deseq || component is "unbalance" or "ratio")
-            return "Desequilíbrio (%)";
+        // Desbalanço / VIMB
+        if (
+            phaseMode == PhaseMode.Deseq ||
+            component is "unbalance" or "ratio")
+        {
+            return "Desbalanço de Tensão";
+        }
 
-        if (quantity == "p_active") return "Potência Ativa (MW)";
-        if (quantity == "p_reactive") return "Potência Reativa (MVAr)";
-        if (quantity == "frequency") return "Frequência (Hz)";
-        if (quantity == "dfreq") return "Var. de Frequência (Hz/s)";
-        if (quantity == "digital") return "Nível";
-        if (component == "thd") return "Distorção Harmônica (%)";
+        // Tensão
+        if (quantity == "voltage")
+        {
+            return unit == "pu"
+                ? "Tensão (pu)"
+                : "Tensão (V)";
+        }
+
+        // Corrente
+        if (quantity == "current")
+        {
+            return unit == "pu"
+                ? "Corrente (pu)"
+                : "Corrente (A)";
+        }
+
+        // Potência ativa
+        if (quantity == "p_active")
+            return "Potência (MW)";
+
+        // Potência reativa
+        if (quantity == "p_reactive")
+            return "Potência (Mvar)";
+
+        // CFDS
+        if (
+            quantity == "digital" ||
+            component is "dig" or "cfds")
+        {
+            return
+                "Sinal Digital de Falha de Comutação (Binário)";
+        }
 
         return quantity switch
         {
             "voltage" => "Tensão",
             "current" => "Corrente",
-            "p_active" => "Potência Ativa",
-            "p_reactive" => "Potência Reativa",
+            "p_active" => "Potência",
+            "p_reactive" => "Potência",
             "frequency" => "Frequência",
-            "dfreq" => "Var. de Frequência",
-            "digital" => "Digital",
+            "dfreq" => "Variação de Frequência",
+            "digital" =>
+                "Sinal Digital de Falha de Comutação",
             _ => "Grandeza"
         };
     }
 
-    private static string BuildTitle(RunContext ctx, MeasurementsQuery meas)
+    // ============================================================
+    // TÍTULO
+    // ============================================================
+
+    private static string BuildTitle(
+        RunContext ctx,
+        MeasurementsQuery meas)
     {
         var quantity = Norm(meas.Quantity);
         var component = Norm(meas.Component);
-        var unit = Norm(meas.Unit);
+        var phaseMode = ResolvePhaseMode(meas);
 
-        // No back: PhaseMode é enum; aqui eu converto para rótulos do front.
-        var pmu0 = meas.PmuNames?.FirstOrDefault();
+        var terminal = meas.PmuNames?
+            .FirstOrDefault()?
+            .Trim();
 
         var labelGrandeza = quantity switch
         {
@@ -101,149 +166,423 @@ public sealed class PlotMetaBuilder : IPlotMetaBuilder
             "p_reactive" => "Potência Reativa",
             "frequency" => "Frequência",
             "dfreq" => "Variação de Frequência",
-            "digital" => "Sinal Digital",
+            "digital" =>
+                "Sinal Digital de Falha de Comutação",
             _ => "Grandeza"
         };
 
-        var labelComp = component switch
+        var isDigital =
+            quantity == "digital" ||
+            component is "dig" or "cfds";
+
+        var resSuffix =
+            BuildResolutionSuffix(ctx, isDigital);
+
+        // ========================================================
+        // VARIAÇÃO DE FREQUÊNCIA
+        // ========================================================
+
+        if (
+            component == "dfreq" ||
+            quantity == "dfreq")
         {
-            "mag" => "Módulo",
-            "angle" => "Ângulo",
-            "thd" => "THD",
-            _ => null
-        };
+            return
+                "Variação de Frequência" +
+                resSuffix;
+        }
 
-        var labelDom = GetDomainLabel(meas); // fase / sequência / etc.
-        var resSuffix = BuildResolutionSuffix(ctx);
+        // ========================================================
+        // FREQUÊNCIA
+        // ========================================================
 
-        // -------------------------
-        // Casos sem fase (iguais ao front)
-        // -------------------------
-        // dfreq vem como Quantity="frequency" + Component="dfreq" 
-        if (component == "dfreq")
-            return "Variação de Frequência" + resSuffix;
+        if (
+            quantity == "frequency" ||
+            component == "freq")
+        {
+            return
+                "Frequência" +
+                resSuffix;
+        }
 
-        // frequency "normal"
-        if (quantity == "frequency" || component == "freq")
-            return "Frequência" + resSuffix;
+        // ========================================================
+        // POTÊNCIA ATIVA
+        // ========================================================
 
-        if (quantity == "p_active") return "Potência Ativa" + resSuffix;
-        if (quantity == "p_reactive") return "Potência Reativa" + resSuffix;
-        if (quantity == "digital") return "Sinal Digital" + resSuffix;
+        if (quantity == "p_active")
+        {
+            return
+                "Potência Ativa" +
+                resSuffix;
+        }
 
-        // -------------------------
-        // THD (igual ao front)
-        // -------------------------
+        // ========================================================
+        // POTÊNCIA REATIVA
+        // ========================================================
+
+        if (quantity == "p_reactive")
+        {
+            return
+                "Potência Reativa" +
+                resSuffix;
+        }
+
+        // ========================================================
+        // CFDS
+        // ========================================================
+
+        if (isDigital)
+        {
+            return
+                "Sinal Digital de Falha de Comutação" +
+                resSuffix;
+        }
+
+        // ========================================================
+        // THD
+        // ========================================================
+
         if (component == "thd")
         {
-            var baseThd = $"Distorção de {labelGrandeza} Harmônica Total";
+            var baseTitle =
+                $"Distorção Harmônica Total da {labelGrandeza}";
 
-            // Se for trifásico (ABC), adiciona o nome da PMU
-            if (meas.PhaseMode == PhaseMode.ABC && !string.IsNullOrWhiteSpace(pmu0))
-                return $"{baseThd} - {pmu0}{resSuffix}";
-
-            // Se for monofásico (Single), adiciona a fase (A, B ou C)
-            if (meas.PhaseMode == PhaseMode.Single)
-                return $"{baseThd} - {labelDom}{resSuffix}";
-
-            return baseThd + resSuffix;
-        }
-
-    
-
-        // -------------------------
-        // Desequilíbrio (igual ao front)
-        // -------------------------
-        if (meas.PhaseMode == PhaseMode.Deseq || component is "unbalance" or "ratio")
-            return $"Desequilíbrio de {labelGrandeza}" + resSuffix;
-
-        // -------------------------
-        // Ângulo (igual ao front)
-        // -------------------------
-        if (component == "angle")
-        {
-            var refT = string.IsNullOrWhiteSpace(meas.ReferenceTerminal)
-                ? ""
-                : $" Ref.: {meas.ReferenceTerminal.Trim()}";
-
-            return $"Diferença Angular da {labelGrandeza}{refT}" + resSuffix;
-        }
-
-        // -------------------------
-        // Trifásico "por terminal" (padrão que você quer)
-        // -> "Módulo da Tensão - <PMU> - 100 fasores/s"
-        // -------------------------
-        if (meas.PhaseMode == PhaseMode.ThreePhase)
-        {
-            var left = "Módulo da " + labelGrandeza; // no exemplo do front é sempre "Módulo"
-            if (!string.IsNullOrWhiteSpace(pmu0))
-                return $"{left} - {pmu0}{resSuffix}";
-            return left + resSuffix;
-        }
-
-        // -------------------------
-        // Sequências (padrão que você quer)
-        // -> "Módulo da Tensão - Sequência Positiva - 100 fasores/s"
-        // -------------------------
-        if (meas.PhaseMode is PhaseMode.SeqPos or PhaseMode.SeqNeg or PhaseMode.SeqZero)
-        {
-            var left = "Módulo da " + labelGrandeza;
-
-            var seqLabel = meas.PhaseMode switch
+            // THD por fase
+            if (phaseMode == PhaseMode.Single)
             {
-                PhaseMode.SeqPos => "Sequência Positiva",
-                PhaseMode.SeqNeg => "Sequência Negativa",
-                _ => "Sequência Zero"
-            };
+                var domain =
+                    GetDomainLabel(meas, phaseMode);
 
-            return $"{left} - {seqLabel}{resSuffix}";
+                if (!string.IsNullOrWhiteSpace(domain))
+                {
+                    return
+                        $"{baseTitle} - {domain}" +
+                        resSuffix;
+                }
+            }
+
+            // THD trifásico
+            if (IsThreePhase(phaseMode))
+            {
+                if (!string.IsNullOrWhiteSpace(terminal))
+                {
+                    return
+                        $"{baseTitle} - {terminal}" +
+                        resSuffix;
+                }
+            }
+
+            return baseTitle + resSuffix;
         }
 
-        // -------------------------
-        // Base (igual ao front)
-        // -------------------------
-        string baseTitle;
-        if (!string.IsNullOrWhiteSpace(labelComp) && labelGrandeza != "Grandeza")
-            baseTitle = $"{labelComp} da {labelGrandeza}";
-        else if (labelGrandeza != "Grandeza")
-            baseTitle = labelGrandeza;
-        else
-            baseTitle = "Gráfico";
+        // ========================================================
+        // DESBALANÇO / VIMB
+        // ========================================================
 
-        if (!string.IsNullOrWhiteSpace(labelDom))
-            baseTitle += $" - {labelDom}";
+        if (
+            phaseMode == PhaseMode.Deseq ||
+            component is "unbalance" or "ratio")
+        {
+            return
+                "Desbalanço de Tensão" +
+                resSuffix;
+        }
 
-        return baseTitle + resSuffix;
+        // ========================================================
+        // DIFERENÇA ANGULAR
+        // ========================================================
+
+        if (IsAngle(component))
+        {
+            var title =
+                $"Diferença Angular da {labelGrandeza}";
+
+            var domain =
+                GetDomainLabel(meas, phaseMode);
+
+            if (!string.IsNullOrWhiteSpace(domain))
+            {
+                title += $" - {domain}";
+            }
+
+            if (!string.IsNullOrWhiteSpace(
+                    meas.ReferenceTerminal))
+            {
+                title +=
+                    $" - Ref.: {meas.ReferenceTerminal.Trim()}";
+            }
+
+            return title + resSuffix;
+        }
+
+        // ========================================================
+        // SEQUÊNCIA
+        //
+        // IMPORTANTE:
+        // fica antes do tratamento trifásico/fallback.
+        // ========================================================
+
+        if (
+            phaseMode is
+                PhaseMode.SeqPos or
+                PhaseMode.SeqNeg or
+                PhaseMode.SeqZero)
+        {
+            var seqLabel =
+                GetSequenceLabel(phaseMode);
+
+            return
+                $"Módulo da {labelGrandeza} - {seqLabel}" +
+                resSuffix;
+        }
+
+        // ========================================================
+        // TRIFÁSICO
+        // ========================================================
+
+        if (IsThreePhase(phaseMode))
+        {
+            var title =
+                $"Módulo da {labelGrandeza}";
+
+            if (!string.IsNullOrWhiteSpace(terminal))
+            {
+                title += $" - {terminal}";
+            }
+
+            return title + resSuffix;
+        }
+
+        // ========================================================
+        // MÓDULO POR FASE
+        // ========================================================
+
+        if (
+            IsMagnitude(component) &&
+            phaseMode == PhaseMode.Single)
+        {
+            var title =
+                $"Módulo da {labelGrandeza}";
+
+            var domain =
+                GetDomainLabel(meas, phaseMode);
+
+            if (!string.IsNullOrWhiteSpace(domain))
+            {
+                title += $" - {domain}";
+            }
+
+            return title + resSuffix;
+        }
+
+        // ========================================================
+        // FALLBACK POR FASE
+        //
+        // Mesmo que algum handler não informe "mag",
+        // se é tensão/corrente + Single sabemos que é por fase.
+        // ========================================================
+
+        if (
+            phaseMode == PhaseMode.Single &&
+            quantity is "voltage" or "current")
+        {
+            var title =
+                $"Módulo da {labelGrandeza}";
+
+            var domain =
+                GetDomainLabel(meas, phaseMode);
+
+            if (!string.IsNullOrWhiteSpace(domain))
+            {
+                title += $" - {domain}";
+            }
+
+            return title + resSuffix;
+        }
+
+        // ========================================================
+        // FALLBACK
+        // ========================================================
+
+        if (labelGrandeza != "Grandeza")
+            return labelGrandeza + resSuffix;
+
+        return "Gráfico" + resSuffix;
     }
 
-    // Domínio (fase ou sequência) no mesmo espírito do getDomainLabel do front
-    private static string GetDomainLabel(MeasurementsQuery meas)
-    {
-        var ph = (meas.Phase ?? "").Trim().ToUpperInvariant();
+    // ============================================================
+    // RESOLUÇÃO DO PHASE MODE
+    // ============================================================
 
-        return meas.PhaseMode switch
+    private static PhaseMode ResolvePhaseMode(
+        MeasurementsQuery meas)
+    {
+        var phase = Norm(meas.Phase);
+        var component = Norm(meas.Component);
+
+        // Se o handler já informou corretamente,
+        // respeitamos primeiro o PhaseMode explícito.
+        if (
+            meas.PhaseMode is
+                PhaseMode.Single or
+                PhaseMode.ABC or
+                PhaseMode.ThreePhase or
+                PhaseMode.SeqPos or
+                PhaseMode.SeqNeg or
+                PhaseMode.SeqZero or
+                PhaseMode.Deseq)
         {
-            PhaseMode.Single when ph is "A" or "B" or "C" => $"Fase {ph}",
+            return meas.PhaseMode;
+        }
+
+        // Fallback para handlers/cache que codificam
+        // sequência dentro de Phase.
+        if (
+            phase is
+                "pos" or
+                "positive" or
+                "seq+")
+        {
+            return PhaseMode.SeqPos;
+        }
+
+        if (
+            phase is
+                "neg" or
+                "negative" or
+                "seq-")
+        {
+            return PhaseMode.SeqNeg;
+        }
+
+        if (
+            phase is
+                "zero" or
+                "seq0")
+        {
+            return PhaseMode.SeqZero;
+        }
+
+        // Fase convencional
+        if (phase is "a" or "b" or "c")
+            return PhaseMode.Single;
+
+        // VIMB
+        if (component is "unbalance" or "ratio")
+            return PhaseMode.Deseq;
+
+        return meas.PhaseMode;
+    }
+
+    // ============================================================
+    // DOMÍNIO
+    // ============================================================
+
+    private static string GetDomainLabel(
+        MeasurementsQuery meas,
+        PhaseMode phaseMode)
+    {
+        var phase = Norm(meas.Phase);
+
+        return phaseMode switch
+        {
+            PhaseMode.Single when phase == "a"
+                => "Fase A",
+
+            PhaseMode.Single when phase == "b"
+                => "Fase B",
+
+            PhaseMode.Single when phase == "c"
+                => "Fase C",
+
+            PhaseMode.SeqPos
+                => "Sequência Positiva",
+
+            PhaseMode.SeqNeg
+                => "Sequência Negativa",
+
+            PhaseMode.SeqZero
+                => "Sequência Zero",
+
             _ => ""
         };
     }
 
-
-
-    private static string BuildResolutionSuffix(RunContext ctx)
+    private static string GetSequenceLabel(
+        PhaseMode phaseMode)
     {
-        var sr = ctx.SelectRate;
-        if (sr == 1) return $" - {sr} fasor/s";
-        if (sr > 1) return $" - {sr} fasores/s";
-        return "";
+        return phaseMode switch
+        {
+            PhaseMode.SeqPos
+                => "Sequência Positiva",
+
+            PhaseMode.SeqNeg
+                => "Sequência Negativa",
+
+            PhaseMode.SeqZero
+                => "Sequência Zero",
+
+            _ => ""
+        };
     }
 
-    private static string Norm(string? s) => (s ?? "").Trim().ToLowerInvariant();
+    // ============================================================
+    // TIPOS
+    // ============================================================
 
-    private static string InferPhaseMode(MeasurementsQuery meas)
+    private static bool IsThreePhase(
+        PhaseMode phaseMode)
     {
-        var component = Norm(meas.Component);
-        if (component == "unbalance") return "deseq";
-        return "";
+        return phaseMode is
+            PhaseMode.ABC or
+            PhaseMode.ThreePhase;
+    }
+
+    private static bool IsAngle(
+        string component)
+    {
+        return component is
+            "angle" or
+            "ang" or
+            "angle_diff_phase" or
+            "angle_diff_sequence";
+    }
+
+    private static bool IsMagnitude(
+        string component)
+    {
+        return component is
+            "mag" or
+            "mod" or
+            "magnitude" or
+            "seq";
+    }
+
+    // ============================================================
+    // TAXA
+    // ============================================================
+
+    private static string BuildResolutionSuffix(
+        RunContext ctx,
+        bool isDigital)
+    {
+        var rate = ctx.SelectRate;
+
+        if (rate <= 0)
+            return "";
+
+        var unit = (rate > 1 ? "fasores" : "fasor");
+
+        return $" - {rate} {unit}/s";
+    }
+
+    // ============================================================
+    // NORMALIZAÇÃO
+    // ============================================================
+
+    private static string Norm(string? value)
+    {
+        return (value ?? "")
+            .Trim()
+            .ToLowerInvariant();
     }
 }

@@ -9,6 +9,8 @@ public static class BackgroundCacheServiceCollectionExtensions
     {
         services.AddHttpContextAccessor();
 
+        services.AddSingleton<IBackgroundCacheCoordinator, BackgroundCacheCoordinator>();
+
         services.AddSingleton<BackgroundCacheQueue>();
 
         services.AddSingleton<IBackgroundCacheQueue>(sp =>

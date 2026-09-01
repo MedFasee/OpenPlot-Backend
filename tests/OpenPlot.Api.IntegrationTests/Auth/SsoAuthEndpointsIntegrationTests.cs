@@ -2,21 +2,37 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Mvc.Testing;
 using OpenPlot.Api.IntegrationTests.Infrastructure;
+using OpenPlot.Features.Sso.Repositories;
 
 namespace OpenPlot.Api.IntegrationTests.Auth;
 
 public sealed class SsoAuthEndpointsIntegrationTests(OpenPlotApiFactory factory) : IClassFixture<OpenPlotApiFactory>
 {
+    private static WebApplicationFactory<Program> CreateOnsFactory(OpenPlotApiFactory baseFactory)
+    {
+        return baseFactory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("AuthProvider:Provider", "Ons");
+        });
+    }
+
     [Fact]
     public async Task ConsumeSsoToken_WhenTokenIsValid_ReturnsLoginEnvelopeWithSsoClaims()
     {
+        using var onsFactory = CreateOnsFactory(factory);
         var consultaId = $"consulta-{Guid.NewGuid():N}";
         var token = $"token-{Guid.NewGuid():N}";
-        factory.SsoRepository.SeedLoginToken(token, consultaId, "multiinfeed");
 
-        using var client = factory.CreateClient();
+        using (var scope = onsFactory.Services.CreateScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<ISsoAuthRepository>();
+            ((OpenPlotApiFactory.TestSsoAuthRepository)repository).SeedLoginToken(token, consultaId, "multiinfeed");
+        }
+
+        using var client = onsFactory.CreateClient();
         var response = await client.PostAsJsonAsync("/api/v1/sso/consumir-token", new { token });
 
         response.EnsureSuccessStatusCode();
@@ -44,10 +60,16 @@ public sealed class SsoAuthEndpointsIntegrationTests(OpenPlotApiFactory factory)
     [Fact]
     public async Task Logout_AfterSsoLogin_ClearsSessionAndReturnsOk()
     {
+        using var onsFactory = CreateOnsFactory(factory);
         var token = $"token-{Guid.NewGuid():N}";
-        factory.SsoRepository.SeedLoginToken(token, "consulta-logout", "multiinfeed");
 
-        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        using (var scope = onsFactory.Services.CreateScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<ISsoAuthRepository>();
+            ((OpenPlotApiFactory.TestSsoAuthRepository)repository).SeedLoginToken(token, "consulta-logout", "multiinfeed");
+        }
+
+        using var client = onsFactory.CreateClient(new WebApplicationFactoryClientOptions
         {
             HandleCookies = true
         });

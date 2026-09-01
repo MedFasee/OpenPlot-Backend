@@ -39,7 +39,7 @@ public sealed class SeriesResponseBuilderTests
         Assert.Equal(2, pmuCount);
         Assert.Equal(from, windowFrom);
         Assert.Equal(to, windowTo);
-        Assert.Same(meta, payload["meta"]);
+        Assert.Same(meta, payload["plot_meta"]);
         Assert.Same(series, payload["series"]);
     }
 
@@ -63,7 +63,7 @@ public sealed class SeriesResponseBuilderTests
         Assert.DoesNotContain("cache_id", payload.Keys);
         Assert.Contains("resolved", payload.Keys);
         Assert.Contains("window", payload.Keys);
-        Assert.Contains("meta", payload.Keys);
+        Assert.Contains("plot_meta", payload.Keys);
         Assert.Contains("series", payload.Keys);
     }
 }

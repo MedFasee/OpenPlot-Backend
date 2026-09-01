@@ -11,15 +11,18 @@ public sealed class BackgroundCacheWorker : BackgroundService
     private const int MaxParallelCacheJobs = 2;
 
     private readonly BackgroundCacheQueue _queue;
+    private readonly IBackgroundCacheCoordinator _coordinator;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<BackgroundCacheWorker> _logger;
 
     public BackgroundCacheWorker(
         BackgroundCacheQueue queue,
+        IBackgroundCacheCoordinator coordinator,
         IServiceScopeFactory scopeFactory,
         ILogger<BackgroundCacheWorker> logger)
     {
         _queue = queue;
+        _coordinator = coordinator;
         _scopeFactory = scopeFactory;
         _logger = logger;
     }
@@ -55,11 +58,18 @@ public sealed class BackgroundCacheWorker : BackgroundService
                 // O job ganha um scope próprio e válido até terminar.
                 using var scope = _scopeFactory.CreateScope();
 
+                // Marca a prioridade ambiente como Background para que o
+                // IMeasurementQueryScheduler distinga este trabalho de leituras
+                // interativas (FRONT) feitas por handlers HTTP.
+                using var _ = OpenPlot.Features.Runs.Repositories.MeasurementQueryContext.BeginScope(
+                    OpenPlot.Features.Runs.Repositories.QueryPriority.Background);
+
                 await item.ExecuteAsync(
                     scope.ServiceProvider,
                     stoppingToken);
 
                 _queue.MarkCompleted(item.CacheId);
+                _coordinator.Complete(item.WorkKey, item.CacheId);
 
                 _logger.LogInformation(
                     "[CACHE-WORKER][END] worker={Worker} type={Type} runId={RunId} cacheId={CacheId}",
@@ -72,11 +82,13 @@ public sealed class BackgroundCacheWorker : BackgroundService
                 when (stoppingToken.IsCancellationRequested)
             {
                 _queue.MarkFailed(item.CacheId);
+                await _coordinator.FailAsync(item.WorkKey, item.CacheId, CancellationToken.None);
                 break;
             }
             catch (Exception ex)
             {
                 _queue.MarkFailed(item.CacheId);
+                await _coordinator.FailAsync(item.WorkKey, item.CacheId, CancellationToken.None);
 
                 _logger.LogError(
                     ex,

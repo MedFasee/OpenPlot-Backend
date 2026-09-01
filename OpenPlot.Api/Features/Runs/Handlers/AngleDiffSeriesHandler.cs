@@ -70,6 +70,7 @@ public sealed class AngleDiffSeriesHandler
     private readonly IPlotMetaBuilder _metaBuilder;
     private readonly IUiMenuService _uiMenus;
     private readonly IBackgroundCacheQueue _backgroundCacheQueue;
+    private readonly IBackgroundCacheCoordinator _backgroundCacheCoordinator;
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     public AngleDiffSeriesHandler(
@@ -82,6 +83,7 @@ public sealed class AngleDiffSeriesHandler
         IPlotMetaBuilder metaBuilder,
         IUiMenuService uiMenus,
         IBackgroundCacheQueue backgroundCacheQueue,
+        IBackgroundCacheCoordinator backgroundCacheCoordinator,
         IHttpContextAccessor httpContextAccessor,
         ILogger<AngleDiffSeriesHandler> logger)
     {
@@ -112,6 +114,9 @@ public sealed class AngleDiffSeriesHandler
 
         _backgroundCacheQueue = backgroundCacheQueue
             ?? throw new ArgumentNullException(nameof(backgroundCacheQueue));
+
+        _backgroundCacheCoordinator = backgroundCacheCoordinator
+            ?? throw new ArgumentNullException(nameof(backgroundCacheCoordinator));
 
         _httpContextAccessor = httpContextAccessor
             ?? throw new ArgumentNullException(nameof(httpContextAccessor));
@@ -289,7 +294,18 @@ public sealed class AngleDiffSeriesHandler
             cacheSeries,
             normalizeMissingFrames: false);
 
-        var cacheId = Guid.NewGuid();
+        var cacheWorkKey = CacheWorkKey.Create(
+            "AngleDiff",
+            query.RunId,
+            fromUtc,
+            toUtc,
+            ("kind", kind),
+            ("reference", refPmu),
+            ("phase", normalizedPhase),
+            ("sequence", normalizedSequence),
+            ("targets", CacheWorkKey.NormalizeCollection(selectedTargets)));
+        var reservation = await _backgroundCacheCoordinator.ReserveOrGetAsync(cacheWorkKey, ct);
+        var cacheId = reservation.CacheId;
 
         // Preview não é mais persistido sincronicamente.
         // O cache integral entra na fila somente após o HTTP terminar.
@@ -305,9 +321,9 @@ public sealed class AngleDiffSeriesHandler
         var bgHasPhase = hasPhase;
         var bgComponentLabel = componentLabel;
 
-        BackgroundCacheWorkItem workItem;
+        BackgroundCacheWorkItem? workItem = null;
 
-        if (query.MaxPointsIsAll)
+        if (reservation.IsOwner && query.MaxPointsIsAll)
         {
             // O request já carregou massa integral. Evita reconsulta.
             var fullPayloadAlreadyLoaded = _seriesAssembly.BuildCachePayload(
@@ -320,6 +336,7 @@ public sealed class AngleDiffSeriesHandler
                 Name: "AngleDiff",
                 RunId: bgRunId,
                 CacheId: cacheId,
+                WorkKey: cacheWorkKey,
                 ExecuteAsync: async (sp, bgCt) =>
                 {
                     var cacheRepo =
@@ -327,17 +344,18 @@ public sealed class AngleDiffSeriesHandler
 
                     await cacheRepo.SaveAsync(
                         cacheId,
-                        bgRunId,
+                        bgRunId, cacheWorkKey.CacheKey,
                         fullPayloadAlreadyLoaded,
                         bgCt);
                 });
         }
-        else
+        else if (reservation.IsOwner)
         {
             workItem = new BackgroundCacheWorkItem(
                 Name: "AngleDiff",
                 RunId: bgRunId,
                 CacheId: cacheId,
+                WorkKey: cacheWorkKey,
                 ExecuteAsync: async (sp, bgCt) =>
                 {
                     var runRepository =
@@ -427,7 +445,7 @@ public sealed class AngleDiffSeriesHandler
 
                     await cacheRepo.SaveAsync(
                         cacheId,
-                        bgRunId,
+                        bgRunId, cacheWorkKey.CacheKey,
                         fullPayload,
                         bgCt);
 
@@ -439,10 +457,12 @@ public sealed class AngleDiffSeriesHandler
                 });
         }
 
-        if (!_backgroundCacheQueue.ScheduleAfterResponse(
+        if (reservation.IsOwner &&
+            !_backgroundCacheQueue.ScheduleAfterResponse(
                 _httpContextAccessor.HttpContext,
-                workItem))
+                workItem!))
         {
+            await _backgroundCacheCoordinator.FailAsync(cacheWorkKey, cacheId, ct);
             return Results.StatusCode(
                 StatusCodes.Status503ServiceUnavailable);
         }
@@ -453,10 +473,15 @@ public sealed class AngleDiffSeriesHandler
 
         var measQuery = new MeasurementsQuery(
             Quantity: kind,
-            Component: componentLabel,
+            Component: "angle",
             PhaseMode: hasPhase
                 ? PhaseMode.Single
-                : PhaseMode.Any,
+                : normalizedSequence switch
+                {
+                    "pos" => PhaseMode.SeqPos,
+                    "neg" => PhaseMode.SeqNeg,
+                    _ => PhaseMode.SeqZero
+                },
             Phase: normalizedPhase,
             PmuNames: selectedTargets.Count > 0
                 ? selectedTargets

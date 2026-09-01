@@ -1,7 +1,7 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
 	<ServerGarbageCollection>true</ServerGarbageCollection>
-	<TargetFramework>net9.0</TargetFramework>
+	<TargetFramework>net10.0</TargetFramework>
 	<OutputType>Exe</OutputType>
 	<RootNamespace>OpenPlot.Ingestor.Gsf</RootNamespace>
 	<AssemblyName>OpenPlot.Ingestor.Gsf</AssemblyName>

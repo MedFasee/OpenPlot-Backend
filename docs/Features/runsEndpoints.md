@@ -12,7 +12,7 @@ Os endpoints de serie exigem autenticacao e seguem um padrao de resposta consist
 
 - `run_id`
 - `window` (`from`, `to`)
-- `meta` (titulo e eixos)
+- `plot_meta` (titulo e eixos)
 - `series`
 - `modes` (quando aplicavel)
 - `cache_id` (quando ha persistencia de cache)

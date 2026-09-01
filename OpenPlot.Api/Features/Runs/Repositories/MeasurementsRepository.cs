@@ -1,13 +1,15 @@
 ﻿using Dapper;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
-using System.Data;
-using System.Data.Common;
-using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Data;
+using System.Data.Common;
+using System.Diagnostics;
 
 namespace OpenPlot.Features.Runs.Repositories;
 
@@ -36,8 +38,7 @@ public sealed record MeasurementsQuery(
     string? Phase = null,
     IReadOnlyList<string>? PmuNames = null,
     string? Unit = null,
-    string? ReferenceTerminal = null
-);
+    string? ReferenceTerminal = null);
 
 public sealed record MeasurementRow(
     int SignalId,
@@ -45,8 +46,7 @@ public sealed record MeasurementRow(
     string IdName,
     string PdcName,
     DateTime Ts,
-    double Value
-);
+    double Value);
 
 public sealed record PhasorMeasurementRow(
     int SignalId,
@@ -57,8 +57,7 @@ public sealed record PhasorMeasurementRow(
     string Component,
     int? VoltLevel,
     DateTime Ts,
-    double Value
-);
+    double Value);
 
 public sealed record PhasorAbcRow(
     int SignalId,
@@ -69,16 +68,8 @@ public sealed record PhasorAbcRow(
     string Component,
     double? VoltLevel,
     DateTime Ts,
-    double Value
-);
+    double Value);
 
-
-/// <summary>
-/// Frame Wide para cálculo de diferença angular.
-/// No modo RAW, corresponde diretamente a uma linha de measurements.
-/// No modo amostrado, corresponde à linha real escolhida como representante
-/// do bucket hierárquico. O Ts é sempre um timestamp real do banco.
-/// </summary>
 public sealed record AngleFrameRow(
     int PdcPmuId,
     string IdName,
@@ -90,15 +81,8 @@ public sealed record AngleFrameRow(
     double? BMod,
     double? BAng,
     double? CMod,
-    double? CAng
-);
+    double? CAng);
 
-/// <summary>
-/// Frame Wide para cálculo de potência.
-/// No modo RAW, corresponde diretamente a uma linha de measurements.
-/// No modo amostrado, corresponde à linha real escolhida como representante
-/// de um bucket temporal fixo e hierárquico.
-/// </summary>
 public sealed record PowerFrameRow(
     int PdcPmuId,
     string IdName,
@@ -116,8 +100,7 @@ public sealed record PowerFrameRow(
     double? IbMod,
     double? IbAng,
     double? IcMod,
-    double? IcAng
-);
+    double? IcAng);
 
 public interface IMeasurementsRepository
 {
@@ -133,6 +116,10 @@ public interface IMeasurementsRepository
         CancellationToken ct,
         int? maxPoints = null);
 
+    // Confirmado sem handler ativo (busca no codigo-fonte so encontra esta
+    // interface e a implementacao). Por isso fica fora do
+    // IQueryExecutionCoordinator/IMeasurementMetadataCache ate surgir um
+    // consumidor real; ver AbcQueryKey em MeasurementQueryKeys.cs.
     Task<IReadOnlyList<PhasorAbcRow>> QueryAbcMagAngAsync(
         RunContext ctx,
         string kind,
@@ -160,154 +147,168 @@ public interface IMeasurementsRepository
         CancellationToken ct,
         int? maxPoints = null);
 
-    Task WarmUpAsync(
-        RunContext ctx,
-        CancellationToken ct);
+    Task WarmUpAsync(RunContext ctx, CancellationToken ct);
+}
+
+// Movidas para o nivel do namespace (antes privadas/nested) para que
+// IMeasurementMetadataCache possa expor os mesmos tipos sem duplicar DTOs.
+public sealed class PmuScopeRow
+{
+    public int PdcPmuId { get; set; }
+    public string IdName { get; set; } = string.Empty;
+    public double? VoltLevel { get; set; }
+}
+
+public sealed class SignalScopeRow
+{
+    public int SignalId { get; set; }
+    public int PdcPmuId { get; set; }
+    public string IdName { get; set; } = string.Empty;
+    public string Phase { get; set; } = string.Empty;
+    public string Component { get; set; } = string.Empty;
+    public int? VoltLevel { get; set; }
 }
 
 public sealed class MeasurementsRepository : IMeasurementsRepository
 {
     private const int ByRunMeasurementQuality = 29;
 
-    // O preview atual do OpenPlot trabalha com fontes de até 120 fps.
-    // Este valor é usado APENAS para decidir quando a janela inteira já cabe
-    // em maxPoints e, portanto, deve ser lida RAW sem qualquer agregação.
-    // Se futuramente o PDC expuser a taxa nominal no RunContext, substitua
-    // esta constante pela taxa real da fonte.
-    private const double PreviewMaxExpectedFps = 120.0;
+    // Fallback apenas quando o RunContext não possuir taxa válida.
+    // O planejamento normal usa ctx.SelectRate.
+    private const double PreviewFallbackExpectedFps = 120.0;
 
-    // INVARIANTE TEMPORAL:
-    // todos os níveis de downsampling usam a mesma origem global.
-    // O timestamp devolvido pela API NUNCA é o início do bucket: é sempre
-    // mw.ts de uma linha realmente existente em measurements.
     private static readonly DateTime BucketOriginUtc = DateTime.UnixEpoch;
-
-    // Quantum da hierarquia de seleção. Não é timestamp de saída.
-    // Os níveis são 1, 2, 4, 8, 16, 32... ms, todos aninhados.
     private static readonly TimeSpan DefaultMinBucket = TimeSpan.FromMilliseconds(1);
 
+    private const string RawMeasurementsRelation = "openplot.measurements";
+    private const string Preview128Relation = "openplot.measurements_preview_128ms";
+    private const string Preview1024Relation = "openplot.measurements_preview_1024ms";
+    private const string Preview8192Relation = "openplot.measurements_preview_8192ms";
+    private const string Preview65536Relation = "openplot.measurements_preview_65536ms";
+
+    // Deduplicacao de leituras identicas (Simple/Phasor/AngleFrames/PowerFrames)
+    // e decisao de sampling agora vivem em servicos transversais reutilizaveis
+    // por todas as familias: IQueryExecutionCoordinator e ISamplingExecutionPolicy.
     private readonly IDbConnectionFactory _dbf;
     private readonly ILogger<MeasurementsRepository> _logger;
+    private readonly bool _usePreviewContinuousAggregates;
+    private readonly IQueryExecutionCoordinator _queryExecutionCoordinator;
+    private readonly IMeasurementMetadataCache _metadataCache;
+    private readonly ISamplingExecutionPolicy _samplingPolicy;
+    private readonly IMeasurementQueryScheduler _queryScheduler;
 
     public MeasurementsRepository(
         IDbConnectionFactory dbf,
-        ILogger<MeasurementsRepository> logger)
+        IConfiguration configuration,
+        ILogger<MeasurementsRepository> logger,
+        IQueryExecutionCoordinator queryExecutionCoordinator,
+        IMeasurementMetadataCache metadataCache,
+        ISamplingExecutionPolicy samplingPolicy,
+        IMeasurementQueryScheduler queryScheduler)
     {
         _dbf = dbf ?? throw new ArgumentNullException(nameof(dbf));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _queryExecutionCoordinator = queryExecutionCoordinator ?? throw new ArgumentNullException(nameof(queryExecutionCoordinator));
+        _metadataCache = metadataCache ?? throw new ArgumentNullException(nameof(metadataCache));
+        _samplingPolicy = samplingPolicy ?? throw new ArgumentNullException(nameof(samplingPolicy));
+        _queryScheduler = queryScheduler ?? throw new ArgumentNullException(nameof(queryScheduler));
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        // Rollout seguro: permanece FALSE enquanto os CAGGs ainda não
+        // tiverem sido criados/materializados no banco.
+        _usePreviewContinuousAggregates = bool.TryParse(
+            configuration["OpenPlot:Measurements:UsePreviewContinuousAggregates"],
+            out var usePreviewAggregates) && usePreviewAggregates;
     }
 
-    // ============================================================
-    // SIMPLE
-    // ============================================================
     public async Task<IReadOnlyList<MeasurementRow>> QueryAsync(
         RunContext ctx,
         MeasurementsQuery q,
         CancellationToken ct,
         int? maxPoints = null)
     {
-        var totalWatch = Stopwatch.StartNew();
-        using var db = _dbf.Create();
-        var connectionMs = await EnsureConnectionOpenAsync(db, ct);
-
         var selectedPmus = SelectRunPmus(ctx, q.PmuNames);
         if (selectedPmus.Length == 0)
             return Array.Empty<MeasurementRow>();
 
+        var projection = BuildProjection(q.Quantity, q.Component, q.PhaseMode, q.Phase);
+        var expectedFps = ResolveExpectedFps(ctx);
+
+        var decision = _samplingPolicy.Decide(
+            ctx.FromUtc,
+            ctx.ToUtc,
+            maxPoints,
+            projection.MinimumBucket,
+            projection.ForceSampling,
+            expectedFps,
+            _usePreviewContinuousAggregates);
+
+        var sampling = decision.Plan;
+        var source = decision.Source;
+
+        var key = new SimpleQueryKey(
+            PdcId: ctx.PdcId,
+            Quantity: NormalizeQuantity(q.Quantity),
+            Component: (q.Component ?? string.Empty).Trim().ToUpperInvariant(),
+            PhaseMode: q.PhaseMode.ToString(),
+            Phase: (q.Phase ?? string.Empty).Trim().ToUpperInvariant(),
+            PmuKey: MeasurementKeyNormalization.NormalizePmuKey(selectedPmus),
+            FromTicks: ctx.FromUtc.Ticks,
+            ToTicks: ctx.ToUtc.Ticks,
+            UseRaw: sampling.UseRaw,
+            BucketTicks: sampling.BucketWidth.Ticks,
+            SourceRelation: source.Relation);
+
+        // O CancellationToken do request cancela somente a espera deste
+        // consumidor; a consulta compartilhada nao e cancelada por um unico
+        // consumidor que desistiu.
+        return await _queryExecutionCoordinator.ExecuteAsync(
+            "QueryAsync",
+            key,
+            ct2 => _queryScheduler.ScheduleAsync(
+                MeasurementQueryContext.Priority,
+                ct3 => QueryCoreAsync(ctx, q, selectedPmus, projection, sampling, source, maxPoints, ct3),
+                ct2),
+            ct);
+    }
+
+    private async Task<IReadOnlyList<MeasurementRow>> QueryCoreAsync(
+        RunContext ctx,
+        MeasurementsQuery q,
+        string[] selectedPmus,
+        WideProjection projection,
+        SamplingPlan sampling,
+        SamplingSource source,
+        int? maxPoints,
+        CancellationToken ct)
+    {
+        var totalWatch = Stopwatch.StartNew();
+        using var db = _dbf.Create();
+        var connectionMs = await EnsureConnectionOpenAsync(db, ct);
+
         var metadataWatch = Stopwatch.StartNew();
-        var signals = await ResolveSignalScopeAsync(
-            db,
+        var signals = await _metadataCache.GetOrAddSignalScopeAsync(
             ctx.PdcId,
             selectedPmus,
             q.Quantity,
             q.Component,
             q.PhaseMode,
             q.Phase,
+            ct2 => ResolveSignalScopeAsync(db, ctx.PdcId, selectedPmus, q.Quantity, q.Component, q.PhaseMode, q.Phase, ct2),
             ct);
         metadataWatch.Stop();
 
         if (signals.Count == 0)
             return Array.Empty<MeasurementRow>();
 
-        var projection = BuildProjection(q.Quantity, q.Component, q.PhaseMode, q.Phase);
+        var pdcPmuIds = signals.Select(x => x.PdcPmuId).Distinct().OrderBy(x => x).ToArray();
 
-        var pdcPmuIds = signals
-            .Select(x => x.PdcPmuId)
-            .Distinct()
-            .OrderBy(x => x)
-            .ToArray();
-
-        var sampling = BuildSamplingPlan(
-            ctx.FromUtc,
-            ctx.ToUtc,
-            maxPoints,
-            projection.MinimumBucket,
-            projection.ForceSampling);
-
-        var rawSql = $@"
-SELECT
-    mw.pdc_pmu_id AS PdcPmuId,
-    mw.ts AS Ts,
-    {projection.RawSelectSql}
-FROM openplot.measurements mw
-WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
-  AND mw.ts >= @from_utc
-  AND mw.ts <  @to_utc
-  AND (mw.quality = @quality OR mw.quality IS NULL)
-ORDER BY
-    mw.pdc_pmu_id,
-    mw.ts;";
-
-        var sampledSql = $@"
-WITH bounds AS (
-    SELECT
-        time_bucket(
-            @bucket_width::interval,
-            @from_utc::timestamptz,
-            @bucket_origin::timestamptz
-        ) AS aligned_from,
-        time_bucket(
-            @bucket_width::interval,
-            @to_utc::timestamptz,
-            @bucket_origin::timestamptz
-        ) + @bucket_width::interval AS aligned_to
-),
-representatives AS (
-    SELECT
-        mw.pdc_pmu_id AS pdc_pmu_id,
-        min(mw.ts) AS ts
-    FROM openplot.measurements mw
-    CROSS JOIN bounds b
-    WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
-      AND mw.ts >= b.aligned_from
-      AND mw.ts <  b.aligned_to
-      AND (mw.quality = @quality OR mw.quality IS NULL)
-    GROUP BY
-        mw.pdc_pmu_id,
-        time_bucket(
-            @bucket_width::interval,
-            mw.ts,
-            @bucket_origin::timestamptz
-        )
-)
-SELECT
-    mw.pdc_pmu_id AS PdcPmuId,
-    mw.ts AS Ts,
-    {projection.RawSelectSql}
-FROM representatives r
-JOIN openplot.measurements mw
-  ON mw.pdc_pmu_id = r.pdc_pmu_id
- AND mw.ts = r.ts
-WHERE r.ts >= @from_utc
-  AND r.ts <  @to_utc
-ORDER BY
-    mw.pdc_pmu_id,
-    mw.ts;";
-
-        var sql = sampling.UseRaw ? rawSql : sampledSql;
+        var sql = sampling.UseRaw
+            ? BuildRawSql(projection.RawSelectSql)
+            : BuildSampledSql(projection.RawSelectSql, source);
 
         _logger.LogInformation(
-            "[DATA-REQ][QueryAsync][START] pdc={Pdc} quantity={Quantity} component={Component} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3}",
+            "[DATA-REQ][QueryAsync][START] pdc={Pdc} quantity={Quantity} component={Component} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} source={Source} expectedFps={ExpectedFps:F3}",
             ctx.PdcName,
             q.Quantity,
             q.Component,
@@ -317,25 +318,73 @@ ORDER BY
             pdcPmuIds.Length,
             maxPoints,
             sampling.UseRaw ? "raw" : "hierarchical",
-            sampling.UseRaw ? 0d : sampling.BucketWidth.TotalMilliseconds);
+            sampling.UseRaw ? 0d : sampling.BucketWidth.TotalMilliseconds,
+            source.Relation,
+            ResolveExpectedFps(ctx));
 
         var queryWatch = Stopwatch.StartNew();
-        var sampled = (await db.QueryAsync<WideSampleRow>(
-            new CommandDefinition(
-                sql,
-                new
-                {
-                    pdc_pmu_ids = pdcPmuIds,
-                    from_utc = ctx.FromUtc,
-                    to_utc = ctx.ToUtc,
-                    quality = ByRunMeasurementQuality,
-                    bucket_width = sampling.BucketWidth,
-                    bucket_origin = BucketOriginUtc
-                },
-                commandTimeout: 120,
-                cancellationToken: ct)))
-            .ToList();
-        queryWatch.Stop();
+        List<WideSampleRow> sampled;
+
+        try
+        {
+            sampled = (await db.QueryAsync<WideSampleRow>(
+                BuildCommand(
+                    sql,
+                    pdcPmuIds,
+                    ctx.FromUtc,
+                    ctx.ToUtc,
+                    sampling,
+                    ct)))
+                .ToList();
+
+            queryWatch.Stop();
+        }
+        catch (OperationCanceledException ex)
+        {
+            queryWatch.Stop();
+
+            _logger.LogError(
+                ex,
+                "[DATA-REQ][QueryAsync][CANCELLED] pdc={Pdc} quantity={Quantity} component={Component} window=[{From:o}..{To:o}] pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} source={Source} expectedFps={ExpectedFps:F3} queryMs={QueryMs} ctCancelled={CtCancelled}",
+                ctx.PdcName,
+                q.Quantity,
+                q.Component,
+                ctx.FromUtc,
+                ctx.ToUtc,
+                pdcPmuIds.Length,
+                maxPoints,
+                sampling.UseRaw ? "raw" : "hierarchical",
+                sampling.UseRaw ? 0d : sampling.BucketWidth.TotalMilliseconds,
+                source.Relation,
+                ResolveExpectedFps(ctx),
+                queryWatch.ElapsedMilliseconds,
+                ct.IsCancellationRequested);
+
+            throw;
+        }
+        catch (Exception ex)
+        {
+            queryWatch.Stop();
+
+            _logger.LogError(
+                ex,
+                "[DATA-REQ][QueryAsync][ERROR] pdc={Pdc} quantity={Quantity} component={Component} window=[{From:o}..{To:o}] pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} source={Source} expectedFps={ExpectedFps:F3} queryMs={QueryMs} ctCancelled={CtCancelled}",
+                ctx.PdcName,
+                q.Quantity,
+                q.Component,
+                ctx.FromUtc,
+                ctx.ToUtc,
+                pdcPmuIds.Length,
+                maxPoints,
+                sampling.UseRaw ? "raw" : "hierarchical",
+                sampling.UseRaw ? 0d : sampling.BucketWidth.TotalMilliseconds,
+                source.Relation,
+                ResolveExpectedFps(ctx),
+                queryWatch.ElapsedMilliseconds,
+                ct.IsCancellationRequested);
+
+            throw;
+        }
 
         var byPdcPmu = signals
             .GroupBy(x => x.PdcPmuId)
@@ -365,7 +414,6 @@ ORDER BY
         }
 
         totalWatch.Stop();
-
         _logger.LogInformation(
             "[DATA-REQ][QueryAsync][END] connectionMs={ConnectionMs} metadataMs={MetadataMs} queryMs={QueryMs} totalMs={TotalMs} sampledFrames={SampledFrames} rows={Rows}",
             connectionMs,
@@ -378,117 +426,91 @@ ORDER BY
         return output;
     }
 
-    // ============================================================
-    // PHASOR
-    // ============================================================
     public async Task<IReadOnlyList<PhasorMeasurementRow>> QueryPhasorAsync(
         RunContext ctx,
         MeasurementsQuery q,
         CancellationToken ct,
         int? maxPoints = null)
     {
-        var totalWatch = Stopwatch.StartNew();
-        using var db = _dbf.Create();
-        var connectionMs = await EnsureConnectionOpenAsync(db, ct);
-
         var selectedPmus = SelectRunPmus(ctx, q.PmuNames);
         if (selectedPmus.Length == 0)
             return Array.Empty<PhasorMeasurementRow>();
 
+        var projection = BuildProjection(q.Quantity, q.Component, q.PhaseMode, q.Phase);
+        var expectedFps = ResolveExpectedFps(ctx);
+
+        var decision = _samplingPolicy.Decide(
+            ctx.FromUtc,
+            ctx.ToUtc,
+            maxPoints,
+            projection.MinimumBucket,
+            projection.ForceSampling,
+            expectedFps,
+            _usePreviewContinuousAggregates);
+
+        var sampling = decision.Plan;
+        var source = decision.Source;
+
+        var key = new PhasorQueryKey(
+            PdcId: ctx.PdcId,
+            Quantity: NormalizeQuantity(q.Quantity),
+            Component: (q.Component ?? string.Empty).Trim().ToUpperInvariant(),
+            PhaseMode: q.PhaseMode.ToString(),
+            Phase: (q.Phase ?? string.Empty).Trim().ToUpperInvariant(),
+            PmuKey: MeasurementKeyNormalization.NormalizePmuKey(selectedPmus),
+            FromTicks: ctx.FromUtc.Ticks,
+            ToTicks: ctx.ToUtc.Ticks,
+            UseRaw: sampling.UseRaw,
+            BucketTicks: sampling.BucketWidth.Ticks,
+            SourceRelation: source.Relation);
+
+        return await _queryExecutionCoordinator.ExecuteAsync(
+            "QueryPhasorAsync",
+            key,
+            ct2 => _queryScheduler.ScheduleAsync(
+                MeasurementQueryContext.Priority,
+                ct3 => QueryPhasorCoreAsync(ctx, q, selectedPmus, projection, sampling, source, maxPoints, ct3),
+                ct2),
+            ct);
+    }
+
+    private async Task<IReadOnlyList<PhasorMeasurementRow>> QueryPhasorCoreAsync(
+        RunContext ctx,
+        MeasurementsQuery q,
+        string[] selectedPmus,
+        WideProjection projection,
+        SamplingPlan sampling,
+        SamplingSource source,
+        int? maxPoints,
+        CancellationToken ct)
+    {
+        var totalWatch = Stopwatch.StartNew();
+        using var db = _dbf.Create();
+        var connectionMs = await EnsureConnectionOpenAsync(db, ct);
+
         var metadataWatch = Stopwatch.StartNew();
-        var signals = await ResolveSignalScopeAsync(
-            db,
+        var signals = await _metadataCache.GetOrAddSignalScopeAsync(
             ctx.PdcId,
             selectedPmus,
             q.Quantity,
             q.Component,
             q.PhaseMode,
             q.Phase,
+            ct2 => ResolveSignalScopeAsync(db, ctx.PdcId, selectedPmus, q.Quantity, q.Component, q.PhaseMode, q.Phase, ct2),
             ct);
         metadataWatch.Stop();
 
         if (signals.Count == 0)
             return Array.Empty<PhasorMeasurementRow>();
 
-        var projection = BuildProjection(q.Quantity, q.Component, q.PhaseMode, q.Phase);
+        var pdcPmuIds = signals.Select(x => x.PdcPmuId).Distinct().OrderBy(x => x).ToArray();
 
-        var pdcPmuIds = signals
-            .Select(x => x.PdcPmuId)
-            .Distinct()
-            .OrderBy(x => x)
-            .ToArray();
-
-        var sampling = BuildSamplingPlan(
-            ctx.FromUtc,
-            ctx.ToUtc,
-            maxPoints,
-            projection.MinimumBucket,
-            projection.ForceSampling);
-
-        var rawSql = $@"
-SELECT
-    mw.pdc_pmu_id AS PdcPmuId,
-    mw.ts AS Ts,
-    {projection.RawSelectSql}
-FROM openplot.measurements mw
-WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
-  AND mw.ts >= @from_utc
-  AND mw.ts <  @to_utc
-  AND (mw.quality = @quality OR mw.quality IS NULL)
-ORDER BY
-    mw.pdc_pmu_id,
-    mw.ts;";
-
-        var sampledSql = $@"
-WITH bounds AS (
-    SELECT
-        time_bucket(
-            @bucket_width::interval,
-            @from_utc::timestamptz,
-            @bucket_origin::timestamptz
-        ) AS aligned_from,
-        time_bucket(
-            @bucket_width::interval,
-            @to_utc::timestamptz,
-            @bucket_origin::timestamptz
-        ) + @bucket_width::interval AS aligned_to
-),
-representatives AS (
-    SELECT
-        mw.pdc_pmu_id AS pdc_pmu_id,
-        min(mw.ts) AS ts
-    FROM openplot.measurements mw
-    CROSS JOIN bounds b
-    WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
-      AND mw.ts >= b.aligned_from
-      AND mw.ts <  b.aligned_to
-      AND (mw.quality = @quality OR mw.quality IS NULL)
-    GROUP BY
-        mw.pdc_pmu_id,
-        time_bucket(
-            @bucket_width::interval,
-            mw.ts,
-            @bucket_origin::timestamptz
-        )
-)
-SELECT
-    mw.pdc_pmu_id AS PdcPmuId,
-    mw.ts AS Ts,
-    {projection.RawSelectSql}
-FROM representatives r
-JOIN openplot.measurements mw
-  ON mw.pdc_pmu_id = r.pdc_pmu_id
- AND mw.ts = r.ts
-WHERE r.ts >= @from_utc
-  AND r.ts <  @to_utc
-ORDER BY
-    mw.pdc_pmu_id,
-    mw.ts;";
-
-        var sql = sampling.UseRaw ? rawSql : sampledSql;
+        var sql = sampling.UseRaw
+            ? BuildRawSql(projection.RawSelectSql)
+            : BuildSampledSql(projection.RawSelectSql, source);
 
         _logger.LogInformation(
-            "[DATA-REQ][QueryPhasorAsync][START] pdc={Pdc} quantity={Quantity} component={Component} phase={Phase} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3}",
+            "[DATA-REQ][QueryPhasorAsync][START] pdc={Pdc} quantity={Quantity} component={Component} phase={Phase} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} source={Source} expectedFps={ExpectedFps:F3}",
             ctx.PdcName,
             q.Quantity,
             q.Component,
@@ -499,23 +521,13 @@ ORDER BY
             pdcPmuIds.Length,
             maxPoints,
             sampling.UseRaw ? "raw" : "hierarchical",
-            sampling.UseRaw ? 0d : sampling.BucketWidth.TotalMilliseconds);
+            sampling.UseRaw ? 0d : sampling.BucketWidth.TotalMilliseconds,
+            source.Relation,
+            ResolveExpectedFps(ctx));
 
         var queryWatch = Stopwatch.StartNew();
         var sampled = (await db.QueryAsync<WideSampleRow>(
-            new CommandDefinition(
-                sql,
-                new
-                {
-                    pdc_pmu_ids = pdcPmuIds,
-                    from_utc = ctx.FromUtc,
-                    to_utc = ctx.ToUtc,
-                    quality = ByRunMeasurementQuality,
-                    bucket_width = sampling.BucketWidth,
-                    bucket_origin = BucketOriginUtc
-                },
-                commandTimeout: 120,
-                cancellationToken: ct)))
+            BuildCommand(sql, pdcPmuIds, ctx.FromUtc, ctx.ToUtc, sampling, ct)))
             .ToList();
         queryWatch.Stop();
 
@@ -550,7 +562,6 @@ ORDER BY
         }
 
         totalWatch.Stop();
-
         _logger.LogInformation(
             "[DATA-REQ][QueryPhasorAsync][END] connectionMs={ConnectionMs} metadataMs={MetadataMs} queryMs={QueryMs} totalMs={TotalMs} sampledFrames={SampledFrames} rows={Rows}",
             connectionMs,
@@ -563,13 +574,8 @@ ORDER BY
         return output;
     }
 
-    // ============================================================
-    // ABC MAG+ANG
-    //
-    // O catálogo é resolvido em consulta pequena.
-    // A consulta pesada toca SOMENTE measurements por pdc_pmu_id[].
-    // A expansão em 6 SignalIds acontece em C# depois da seleção da linha real.
-    // ============================================================
+    // Ver comentario na declaracao da interface: metodo confirmado sem
+    // handler ativo, propositalmente nao migrado para a nova infra.
     public async Task<IReadOnlyList<PhasorAbcRow>> QueryAbcMagAngAsync(
         RunContext ctx,
         string kind,
@@ -589,34 +595,26 @@ ORDER BY
 
         var effFrom = fromUtc ?? ctx.FromUtc;
         var effTo = toUtc ?? ctx.ToUtc;
-
         var selectedPmus = SelectRunPmus(ctx, pmuNames);
+
         if (selectedPmus.Length == 0)
             return Array.Empty<PhasorAbcRow>();
 
         var metadataWatch = Stopwatch.StartNew();
-        var signals = await ResolveAbcSignalScopeAsync(
-            db,
-            ctx.PdcId,
-            selectedPmus,
-            k,
-            ct);
+        var signals = await ResolveAbcSignalScopeAsync(db, ctx.PdcId, selectedPmus, k, ct);
         metadataWatch.Stop();
 
         if (signals.Count == 0)
             return Array.Empty<PhasorAbcRow>();
 
-        var pdcPmuIds = signals
-            .Select(x => x.PdcPmuId)
-            .Distinct()
-            .OrderBy(x => x)
-            .ToArray();
-
+        var pdcPmuIds = signals.Select(x => x.PdcPmuId).Distinct().OrderBy(x => x).ToArray();
         var sampling = BuildSamplingPlan(
             effFrom,
             effTo,
             maxPoints,
-            DefaultMinBucket);
+            DefaultMinBucket,
+            forceSampling: false,
+            ResolveExpectedFps(ctx));
 
         var rawColumns = k == "voltage"
             ? @"mw.va_mod_v   AS AMag,
@@ -632,70 +630,13 @@ ORDER BY
                 mw.ic_mod_a   AS CMag,
                 mw.ic_ang_deg AS CAng";
 
-        var rawSql = $@"
-SELECT
-    mw.pdc_pmu_id AS PdcPmuId,
-    mw.ts AS Ts,
-    {rawColumns}
-FROM openplot.measurements mw
-WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
-  AND mw.ts >= @from_utc
-  AND mw.ts <  @to_utc
-  AND (mw.quality = @quality OR mw.quality IS NULL)
-ORDER BY
-    mw.pdc_pmu_id,
-    mw.ts;";
-
-        var sampledSql = $@"
-WITH bounds AS (
-    SELECT
-        time_bucket(
-            @bucket_width::interval,
-            @from_utc::timestamptz,
-            @bucket_origin::timestamptz
-        ) AS aligned_from,
-        time_bucket(
-            @bucket_width::interval,
-            @to_utc::timestamptz,
-            @bucket_origin::timestamptz
-        ) + @bucket_width::interval AS aligned_to
-),
-representatives AS (
-    SELECT
-        mw.pdc_pmu_id AS pdc_pmu_id,
-        min(mw.ts) AS ts
-    FROM openplot.measurements mw
-    CROSS JOIN bounds b
-    WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
-      AND mw.ts >= b.aligned_from
-      AND mw.ts <  b.aligned_to
-      AND (mw.quality = @quality OR mw.quality IS NULL)
-    GROUP BY
-        mw.pdc_pmu_id,
-        time_bucket(
-            @bucket_width::interval,
-            mw.ts,
-            @bucket_origin::timestamptz
-        )
-)
-SELECT
-    mw.pdc_pmu_id AS PdcPmuId,
-    mw.ts AS Ts,
-    {rawColumns}
-FROM representatives r
-JOIN openplot.measurements mw
-  ON mw.pdc_pmu_id = r.pdc_pmu_id
- AND mw.ts = r.ts
-WHERE r.ts >= @from_utc
-  AND r.ts <  @to_utc
-ORDER BY
-    mw.pdc_pmu_id,
-    mw.ts;";
-
-        var sql = sampling.UseRaw ? rawSql : sampledSql;
+        var source = ResolveSamplingSource(sampling, _usePreviewContinuousAggregates);
+        var sql = sampling.UseRaw
+            ? BuildRawSql(rawColumns)
+            : BuildSampledSql(rawColumns, source);
 
         _logger.LogInformation(
-            "[DATA-REQ][QueryAbcMagAngAsync][START] pdc={Pdc} kind={Kind} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} hotQuery=direct_pdc_pmu_array",
+            "[DATA-REQ][QueryAbcMagAngAsync][START] pdc={Pdc} kind={Kind} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} source={Source} hotQuery=direct_pdc_pmu_array",
             ctx.PdcName,
             k,
             effFrom,
@@ -704,23 +645,12 @@ ORDER BY
             pdcPmuIds.Length,
             maxPoints,
             sampling.UseRaw ? "raw" : "hierarchical",
-            sampling.UseRaw ? 0d : sampling.BucketWidth.TotalMilliseconds);
+            sampling.UseRaw ? 0d : sampling.BucketWidth.TotalMilliseconds,
+            source.Relation);
 
         var queryWatch = Stopwatch.StartNew();
         var sampled = (await db.QueryAsync<AbcWideSampleRow>(
-            new CommandDefinition(
-                sql,
-                new
-                {
-                    pdc_pmu_ids = pdcPmuIds,
-                    from_utc = effFrom,
-                    to_utc = effTo,
-                    quality = ByRunMeasurementQuality,
-                    bucket_width = sampling.BucketWidth,
-                    bucket_origin = BucketOriginUtc
-                },
-                commandTimeout: 120,
-                cancellationToken: ct)))
+            BuildCommand(sql, pdcPmuIds, effFrom, effTo, sampling, ct)))
             .ToList();
         queryWatch.Stop();
 
@@ -755,7 +685,6 @@ ORDER BY
         }
 
         totalWatch.Stop();
-
         _logger.LogInformation(
             "[DATA-REQ][QueryAbcMagAngAsync][END] connectionMs={ConnectionMs} metadataMs={MetadataMs} queryMs={QueryMs} totalMs={TotalMs} sampledFrames={SampledFrames} rows={Rows}",
             connectionMs,
@@ -768,18 +697,6 @@ ORDER BY
         return output;
     }
 
-
-    // ============================================================
-    // ANGLE DIFF
-    //
-    // Retorna UMA linha Wide por PMU/frame selecionado.
-    //
-    // - não expande A/B/C MAG+ANG em 6 PhasorAbcRow;
-    // - usa o mesmo SamplingPlan hierárquico das demais consultas;
-    // - o timestamp devolvido é SEMPRE mw.ts de uma linha real;
-    // - no preview seleciona a linha representante do bucket;
-    // - com maxPoints == null lê RAW, preservando a massa integral.
-    // ============================================================
     public async Task<IReadOnlyList<AngleFrameRow>> QueryAngleFramesAsync(
         RunContext ctx,
         string kind,
@@ -790,11 +707,6 @@ ORDER BY
         int? maxPoints = null,
         string? phase = null)
     {
-        var totalWatch = Stopwatch.StartNew();
-
-        using var db = _dbf.Create();
-        var connectionMs = await EnsureConnectionOpenAsync(db, ct);
-
         var k = NormalizeQuantity(kind);
         if (k is not ("voltage" or "current"))
             throw new ArgumentException(
@@ -816,16 +728,90 @@ ORDER BY
         var effFrom = fromUtc ?? ctx.FromUtc;
         var effTo = toUtc ?? ctx.ToUtc;
 
+        if (effTo <= effFrom)
+            throw new ArgumentException(
+                "A janela deve satisfazer fromUtc < toUtc.");
+
         var selectedPmus = SelectRunPmus(ctx, pmuNames);
         if (selectedPmus.Length == 0)
             return Array.Empty<AngleFrameRow>();
 
+        var expectedFps = ResolveExpectedFps(ctx);
+
+        var decision = _samplingPolicy.Decide(
+            effFrom,
+            effTo,
+            maxPoints,
+            DefaultMinBucket,
+            forceSampling: false,
+            expectedFps,
+            _usePreviewContinuousAggregates);
+
+        var sampling = decision.Plan;
+        var source = decision.Source;
+
+        var key = new AngleFramesQueryKey(
+            PdcId: ctx.PdcId,
+            Kind: k,
+            Phase: normalizedPhase ?? string.Empty,
+            FromTicks: effFrom.Ticks,
+            ToTicks: effTo.Ticks,
+            PmuKey: MeasurementKeyNormalization.NormalizePmuKey(selectedPmus),
+            UseRaw: sampling.UseRaw,
+            BucketTicks: sampling.BucketWidth.Ticks,
+            SourceRelation: source.Relation);
+
+        // O CancellationToken do request cancela somente a espera deste
+        // consumidor. A consulta compartilhada nao e cancelada por um
+        // consumidor individual, pois pode estar atendendo outros handlers.
+        return await _queryExecutionCoordinator.ExecuteAsync(
+            "QueryAngleFramesAsync",
+            key,
+            ct2 => _queryScheduler.ScheduleAsync(
+                MeasurementQueryContext.Priority,
+                ct3 => QueryAngleFramesCoreAsync(
+                    ctx,
+                    k,
+                    normalizedPhase,
+                    selectedPmus,
+                    effFrom,
+                    effTo,
+                    maxPoints,
+                    sampling,
+                    source,
+                    expectedFps,
+                    ct3),
+                ct2),
+            ct);
+    }
+
+    private async Task<IReadOnlyList<AngleFrameRow>>
+        QueryAngleFramesCoreAsync(
+            RunContext ctx,
+            string normalizedKind,
+            string? normalizedPhase,
+            string[] selectedPmus,
+            DateTime effFrom,
+            DateTime effTo,
+            int? maxPoints,
+            SamplingPlan sampling,
+            SamplingSource source,
+            double expectedFps,
+            CancellationToken ct)
+    {
+        var totalWatch = Stopwatch.StartNew();
+
+        using var db = _dbf.Create();
+        var connectionMs = await EnsureConnectionOpenAsync(
+            db,
+            ct);
+
         var metadataWatch = Stopwatch.StartNew();
 
-        var pmus = await ResolvePmuScopeAsync(
-            db,
+        var pmus = await _metadataCache.GetOrAddPmuScopeAsync(
             ctx.PdcId,
             selectedPmus,
+            ct2 => ResolvePmuScopeAsync(db, ctx.PdcId, selectedPmus, ct2),
             ct);
 
         metadataWatch.Stop();
@@ -839,82 +825,20 @@ ORDER BY
             .OrderBy(x => x)
             .ToArray();
 
-        var sampling = BuildSamplingPlan(
-            effFrom,
-            effTo,
-            maxPoints,
-            DefaultMinBucket);
-
-        var rawColumns = BuildAngleFrameColumns(k, normalizedPhase);
-
-        var rawSql = $@"
-SELECT
-    mw.pdc_pmu_id AS PdcPmuId,
-    mw.ts AS Ts,
-    {rawColumns}
-FROM openplot.measurements mw
-WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
-  AND mw.ts >= @from_utc
-  AND mw.ts <  @to_utc
-  AND (mw.quality = @quality OR mw.quality IS NULL)
-ORDER BY
-    mw.pdc_pmu_id,
-    mw.ts;";
-
-        var sampledSql = $@"
-WITH bounds AS (
-    SELECT
-        time_bucket(
-            @bucket_width::interval,
-            @from_utc::timestamptz,
-            @bucket_origin::timestamptz
-        ) AS aligned_from,
-        time_bucket(
-            @bucket_width::interval,
-            @to_utc::timestamptz,
-            @bucket_origin::timestamptz
-        ) + @bucket_width::interval AS aligned_to
-),
-representatives AS (
-    SELECT
-        mw.pdc_pmu_id AS pdc_pmu_id,
-        min(mw.ts) AS ts
-    FROM openplot.measurements mw
-    CROSS JOIN bounds b
-    WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
-      AND mw.ts >= b.aligned_from
-      AND mw.ts <  b.aligned_to
-      AND (mw.quality = @quality OR mw.quality IS NULL)
-    GROUP BY
-        mw.pdc_pmu_id,
-        time_bucket(
-            @bucket_width::interval,
-            mw.ts,
-            @bucket_origin::timestamptz
-        )
-)
-SELECT
-    mw.pdc_pmu_id AS PdcPmuId,
-    mw.ts AS Ts,
-    {rawColumns}
-FROM representatives r
-JOIN openplot.measurements mw
-  ON mw.pdc_pmu_id = r.pdc_pmu_id
- AND mw.ts = r.ts
-WHERE r.ts >= @from_utc
-  AND r.ts <  @to_utc
-ORDER BY
-    mw.pdc_pmu_id,
-    mw.ts;";
+        var rawColumns = BuildAngleFrameColumns(
+            normalizedKind,
+            normalizedPhase);
 
         var sql = sampling.UseRaw
-            ? rawSql
-            : sampledSql;
+            ? BuildRawSql(rawColumns)
+            : BuildSampledSql(
+                rawColumns,
+                source);
 
         _logger.LogInformation(
-            "[DATA-REQ][QueryAngleFramesAsync][START] pdc={Pdc} kind={Kind} phase={Phase} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} hotQuery=angle_wide_frame",
+            "[DATA-REQ][QueryAngleFramesAsync][START] pdc={Pdc} kind={Kind} phase={Phase} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} source={Source} expectedFps={ExpectedFps:F3} hotQuery=angle_wide_frame",
             ctx.PdcName,
-            k,
+            normalizedKind,
             normalizedPhase ?? "SEQ",
             effFrom,
             effTo,
@@ -922,36 +846,41 @@ ORDER BY
             pdcPmuIds.Length,
             maxPoints,
             sampling.UseRaw ? "raw" : "hierarchical",
-            sampling.UseRaw ? 0d : sampling.BucketWidth.TotalMilliseconds);
+            sampling.UseRaw
+                ? 0d
+                : sampling.BucketWidth.TotalMilliseconds,
+            source.Relation,
+            expectedFps);
 
         var queryWatch = Stopwatch.StartNew();
 
         var sampled = (await db.QueryAsync<AngleWideSampleRow>(
-            new CommandDefinition(
+            BuildCommand(
                 sql,
-                new
-                {
-                    pdc_pmu_ids = pdcPmuIds,
-                    from_utc = effFrom,
-                    to_utc = effTo,
-                    quality = ByRunMeasurementQuality,
-                    bucket_width = sampling.BucketWidth,
-                    bucket_origin = BucketOriginUtc
-                },
-                commandTimeout: 120,
-                cancellationToken: ct)))
+                pdcPmuIds,
+                effFrom,
+                effTo,
+                sampling,
+                ct)))
             .ToList();
 
         queryWatch.Stop();
 
-        var pmuMap = pmus.ToDictionary(x => x.PdcPmuId);
+        var pmuMap = pmus.ToDictionary(
+            x => x.PdcPmuId);
 
-        var output = new List<AngleFrameRow>(sampled.Count);
+        var output =
+            new List<AngleFrameRow>(
+                sampled.Count);
 
         foreach (var row in sampled)
         {
-            if (!pmuMap.TryGetValue(row.PdcPmuId, out var pmu))
+            if (!pmuMap.TryGetValue(
+                    row.PdcPmuId,
+                    out var pmu))
+            {
                 continue;
+            }
 
             output.Add(new AngleFrameRow(
                 row.PdcPmuId,
@@ -980,12 +909,6 @@ ORDER BY
         return output;
     }
 
-    // ============================================================
-    // POWER
-    //
-    // V e I são lidos juntos em UMA única passagem pela Wide.
-    // Não usa signal na consulta pesada.
-    // ============================================================
     public async Task<IReadOnlyList<PowerFrameRow>> QueryPowerFramesAsync(
         RunContext ctx,
         IReadOnlyList<string>? pmuNames,
@@ -994,132 +917,91 @@ ORDER BY
         CancellationToken ct,
         int? maxPoints = null)
     {
+        var effFrom = fromUtc ?? ctx.FromUtc;
+        var effTo = toUtc ?? ctx.ToUtc;
+        var selectedPmus = SelectRunPmus(ctx, pmuNames);
+
+        if (selectedPmus.Length == 0)
+            return Array.Empty<PowerFrameRow>();
+
+        var expectedFps = ResolveExpectedFps(ctx);
+        var decision = _samplingPolicy.Decide(
+            effFrom,
+            effTo,
+            maxPoints,
+            DefaultMinBucket,
+            forceSampling: false,
+            expectedFps,
+            _usePreviewContinuousAggregates);
+
+        var sampling = decision.Plan;
+        var source = decision.Source;
+
+        var key = new PowerFramesQueryKey(
+            PdcId: ctx.PdcId,
+            PmuKey: MeasurementKeyNormalization.NormalizePmuKey(selectedPmus),
+            FromTicks: effFrom.Ticks,
+            ToTicks: effTo.Ticks,
+            UseRaw: sampling.UseRaw,
+            BucketTicks: sampling.BucketWidth.Ticks,
+            SourceRelation: source.Relation);
+
+        return await _queryExecutionCoordinator.ExecuteAsync(
+            "QueryPowerFramesAsync",
+            key,
+            ct2 => _queryScheduler.ScheduleAsync(
+                MeasurementQueryContext.Priority,
+                ct3 => QueryPowerFramesCoreAsync(ctx, selectedPmus, effFrom, effTo, maxPoints, sampling, source, ct3),
+                ct2),
+            ct);
+    }
+
+    private async Task<IReadOnlyList<PowerFrameRow>> QueryPowerFramesCoreAsync(
+        RunContext ctx,
+        string[] selectedPmus,
+        DateTime effFrom,
+        DateTime effTo,
+        int? maxPoints,
+        SamplingPlan sampling,
+        SamplingSource source,
+        CancellationToken ct)
+    {
         var totalWatch = Stopwatch.StartNew();
         using var db = _dbf.Create();
         var connectionMs = await EnsureConnectionOpenAsync(db, ct);
 
-        var effFrom = fromUtc ?? ctx.FromUtc;
-        var effTo = toUtc ?? ctx.ToUtc;
-
-        var selectedPmus = SelectRunPmus(ctx, pmuNames);
-        if (selectedPmus.Length == 0)
-            return Array.Empty<PowerFrameRow>();
-
         var metadataWatch = Stopwatch.StartNew();
-        var pmus = await ResolvePmuScopeAsync(
-            db,
+        var pmus = await _metadataCache.GetOrAddPmuScopeAsync(
             ctx.PdcId,
             selectedPmus,
+            ct2 => ResolvePmuScopeAsync(db, ctx.PdcId, selectedPmus, ct2),
             ct);
         metadataWatch.Stop();
 
         if (pmus.Count == 0)
             return Array.Empty<PowerFrameRow>();
 
-        var pdcPmuIds = pmus
-            .Select(x => x.PdcPmuId)
-            .Distinct()
-            .OrderBy(x => x)
-            .ToArray();
+        var pdcPmuIds = pmus.Select(x => x.PdcPmuId).Distinct().OrderBy(x => x).ToArray();
 
-        var sampling = BuildSamplingPlan(
-            effFrom,
-            effTo,
-            maxPoints,
-            DefaultMinBucket);
-
-        const string rawSql = @"
-SELECT
-    mw.pdc_pmu_id AS PdcPmuId,
-    mw.ts AS Ts,
-
-    mw.va_mod_v   AS VaMod,
+        const string columns = @"mw.va_mod_v   AS VaMod,
     mw.va_ang_deg AS VaAng,
     mw.vb_mod_v   AS VbMod,
     mw.vb_ang_deg AS VbAng,
     mw.vc_mod_v   AS VcMod,
     mw.vc_ang_deg AS VcAng,
-
     mw.ia_mod_a   AS IaMod,
     mw.ia_ang_deg AS IaAng,
     mw.ib_mod_a   AS IbMod,
     mw.ib_ang_deg AS IbAng,
     mw.ic_mod_a   AS IcMod,
-    mw.ic_ang_deg AS IcAng
+    mw.ic_ang_deg AS IcAng";
 
-FROM openplot.measurements mw
-WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
-  AND mw.ts >= @from_utc
-  AND mw.ts <  @to_utc
-  AND (mw.quality = @quality OR mw.quality IS NULL)
-ORDER BY
-    mw.pdc_pmu_id,
-    mw.ts;";
-
-        const string sampledSql = @"
-WITH bounds AS (
-    SELECT
-        time_bucket(
-            @bucket_width::interval,
-            @from_utc::timestamptz,
-            @bucket_origin::timestamptz
-        ) AS aligned_from,
-        time_bucket(
-            @bucket_width::interval,
-            @to_utc::timestamptz,
-            @bucket_origin::timestamptz
-        ) + @bucket_width::interval AS aligned_to
-),
-representatives AS (
-    SELECT
-        mw.pdc_pmu_id AS pdc_pmu_id,
-        min(mw.ts) AS ts
-    FROM openplot.measurements mw
-    CROSS JOIN bounds b
-    WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
-      AND mw.ts >= b.aligned_from
-      AND mw.ts <  b.aligned_to
-      AND (mw.quality = @quality OR mw.quality IS NULL)
-    GROUP BY
-        mw.pdc_pmu_id,
-        time_bucket(
-            @bucket_width::interval,
-            mw.ts,
-            @bucket_origin::timestamptz
-        )
-)
-SELECT
-    mw.pdc_pmu_id AS PdcPmuId,
-    mw.ts AS Ts,
-
-    mw.va_mod_v   AS VaMod,
-    mw.va_ang_deg AS VaAng,
-    mw.vb_mod_v   AS VbMod,
-    mw.vb_ang_deg AS VbAng,
-    mw.vc_mod_v   AS VcMod,
-    mw.vc_ang_deg AS VcAng,
-
-    mw.ia_mod_a   AS IaMod,
-    mw.ia_ang_deg AS IaAng,
-    mw.ib_mod_a   AS IbMod,
-    mw.ib_ang_deg AS IbAng,
-    mw.ic_mod_a   AS IcMod,
-    mw.ic_ang_deg AS IcAng
-
-FROM representatives r
-JOIN openplot.measurements mw
-  ON mw.pdc_pmu_id = r.pdc_pmu_id
- AND mw.ts = r.ts
-WHERE r.ts >= @from_utc
-  AND r.ts <  @to_utc
-ORDER BY
-    mw.pdc_pmu_id,
-    mw.ts;";
-
-        var sql = sampling.UseRaw ? rawSql : sampledSql;
+        var sql = sampling.UseRaw
+            ? BuildRawSql(columns)
+            : BuildSampledSql(columns, source);
 
         _logger.LogInformation(
-            "[DATA-REQ][QueryPowerFramesAsync][START] pdc={Pdc} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} hotQuery=one_scan_vi",
+            "[DATA-REQ][QueryPowerFramesAsync][START] pdc={Pdc} window=[{From:o}..{To:o}] pmus={Pmus} pdcPmuCount={PdcPmuCount} maxPoints={MaxPoints} sampling={SamplingMode} bucketMs={BucketMs:F3} source={Source} hotQuery=one_scan_vi",
             ctx.PdcName,
             effFrom,
             effTo,
@@ -1127,34 +1009,21 @@ ORDER BY
             pdcPmuIds.Length,
             maxPoints,
             sampling.UseRaw ? "raw" : "hierarchical",
-            sampling.UseRaw ? 0d : sampling.BucketWidth.TotalMilliseconds);
+            sampling.UseRaw ? 0d : sampling.BucketWidth.TotalMilliseconds,
+            source.Relation);
 
         var queryWatch = Stopwatch.StartNew();
         var sampled = (await db.QueryAsync<PowerWideSampleRow>(
-            new CommandDefinition(
-                sql,
-                new
-                {
-                    pdc_pmu_ids = pdcPmuIds,
-                    from_utc = effFrom,
-                    to_utc = effTo,
-                    quality = ByRunMeasurementQuality,
-                    bucket_width = sampling.BucketWidth,
-                    bucket_origin = BucketOriginUtc
-                },
-                commandTimeout: 120,
-                cancellationToken: ct)))
+            BuildCommand(sql, pdcPmuIds, effFrom, effTo, sampling, ct)))
             .ToList();
         queryWatch.Stop();
 
         var pmuMap = pmus.ToDictionary(x => x.PdcPmuId);
-
         var output = sampled
             .Where(x => pmuMap.ContainsKey(x.PdcPmuId))
             .Select(x =>
             {
                 var pmu = pmuMap[x.PdcPmuId];
-
                 return new PowerFrameRow(
                     x.PdcPmuId,
                     pmu.IdName,
@@ -1177,7 +1046,6 @@ ORDER BY
             .ToList();
 
         totalWatch.Stop();
-
         _logger.LogInformation(
             "[DATA-REQ][QueryPowerFramesAsync][END] connectionMs={ConnectionMs} metadataMs={MetadataMs} queryMs={QueryMs} totalMs={TotalMs} frames={Frames}",
             connectionMs,
@@ -1189,17 +1057,16 @@ ORDER BY
         return output;
     }
 
-    // ============================================================
-    // WARM-UP
-    // ============================================================
-    public async Task WarmUpAsync(
-        RunContext ctx,
-        CancellationToken ct)
+    public async Task WarmUpAsync(RunContext ctx, CancellationToken ct)
     {
         using var db = _dbf.Create();
         await EnsureConnectionOpenAsync(db, ct);
 
-        var pmuScope = await ResolvePmuScopeAsync(db, ctx.PdcId, ctx.PmuNames, ct);
+        var pmuScope = await _metadataCache.GetOrAddPmuScopeAsync(
+            ctx.PdcId,
+            ctx.PmuNames,
+            ct2 => ResolvePmuScopeAsync(db, ctx.PdcId, ctx.PmuNames, ct2),
+            ct);
         if (pmuScope.Count == 0)
             return;
 
@@ -1219,20 +1086,218 @@ LIMIT 1";
                 new
                 {
                     pdc_pmu_ids = pdcPmuIds,
-                    from_utc    = ctx.FromUtc,
-                    to_utc      = ctx.ToUtc
+                    from_utc = ctx.FromUtc,
+                    to_utc = ctx.ToUtc
                 },
                 commandTimeout: 60,
                 cancellationToken: ct));
 
         _logger.LogDebug(
             "[WARM-UP] measurements aquecida: pdc={Pdc} pmuCount={Count} window=[{From:o}..{To:o}]",
-            ctx.PdcName, pdcPmuIds.Length, ctx.FromUtc, ctx.ToUtc);
+            ctx.PdcName,
+            pdcPmuIds.Length,
+            ctx.FromUtc,
+            ctx.ToUtc);
     }
 
-    // ============================================================
-    // METADATA RESOLUTION
-    // ============================================================
+    private static string BuildRawSql(string selectColumns) => $@"
+SELECT
+    mw.pdc_pmu_id AS PdcPmuId,
+    mw.ts AS Ts,
+    {selectColumns}
+FROM {RawMeasurementsRelation} mw
+WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
+  AND mw.ts >= @from_utc
+  AND mw.ts <  @to_utc
+  AND (mw.quality = @quality OR mw.quality IS NULL)
+ORDER BY
+    mw.pdc_pmu_id,
+    mw.ts;";
+
+    private static string BuildSampledSql(
+        string selectColumns,
+        SamplingSource source)
+    {
+        var qualityPredicate = source.QualityAlreadyFiltered
+            ? string.Empty
+            : "AND (mw.quality = @quality OR mw.quality IS NULL)";
+
+        return $@"
+WITH bounds AS (
+    SELECT
+        time_bucket(
+            @bucket_width::interval,
+            @from_utc::timestamptz,
+            @bucket_origin::timestamptz
+        ) AS aligned_from,
+        time_bucket(
+            @bucket_width::interval,
+            @to_utc::timestamptz,
+            @bucket_origin::timestamptz
+        ) + @bucket_width::interval AS aligned_to
+),
+representatives AS (
+    SELECT
+        mw.pdc_pmu_id AS pdc_pmu_id,
+        min(mw.ts) AS ts
+    FROM {source.Relation} mw
+    CROSS JOIN bounds b
+    WHERE mw.pdc_pmu_id = ANY(@pdc_pmu_ids)
+      AND mw.ts >= b.aligned_from
+      AND mw.ts <  b.aligned_to
+      {qualityPredicate}
+    GROUP BY
+        mw.pdc_pmu_id,
+        time_bucket(
+            @bucket_width::interval,
+            mw.ts,
+            @bucket_origin::timestamptz
+        )
+)
+SELECT
+    mw.pdc_pmu_id AS PdcPmuId,
+    mw.ts AS Ts,
+    {selectColumns}
+FROM representatives r
+JOIN {source.Relation} mw
+  ON mw.pdc_pmu_id = r.pdc_pmu_id
+ AND mw.ts = r.ts
+WHERE r.ts >= @from_utc
+  AND r.ts <  @to_utc
+ORDER BY
+    mw.pdc_pmu_id,
+    mw.ts;";
+    }
+
+    private static CommandDefinition BuildCommand(
+        string sql,
+        int[] pdcPmuIds,
+        DateTime fromUtc,
+        DateTime toUtc,
+        SamplingPlan sampling,
+        CancellationToken ct)
+    {
+        return new CommandDefinition(
+            sql,
+            new
+            {
+                pdc_pmu_ids = pdcPmuIds,
+                from_utc = fromUtc,
+                to_utc = toUtc,
+                quality = ByRunMeasurementQuality,
+                bucket_width = sampling.BucketWidth,
+                bucket_origin = BucketOriginUtc
+            },
+            commandTimeout: 120,
+            cancellationToken: ct);
+    }
+
+    private static double ResolveExpectedFps(RunContext ctx) =>
+        ctx.SelectRate is > 0
+            ? ctx.SelectRate.Value
+            : PreviewFallbackExpectedFps;
+
+
+    public readonly record struct SamplingPlan(bool UseRaw, TimeSpan BucketWidth);
+
+    public readonly record struct SamplingSource(
+        string Relation,
+        bool QualityAlreadyFiltered);
+
+    // Acesso publico: reaproveitado por SamplingExecutionPolicy, que centraliza
+    // o ponto de decisao RAW_DB/SAMPLED_DB para todas as familias de series.
+    internal static SamplingSource ResolveSamplingSource(
+        SamplingPlan sampling,
+        bool usePreviewContinuousAggregates)
+    {
+        if (sampling.UseRaw || !usePreviewContinuousAggregates)
+            return new SamplingSource(RawMeasurementsRelation, false);
+
+        var bucketTicks = sampling.BucketWidth.Ticks;
+
+        if (bucketTicks >= TimeSpan.FromMilliseconds(65536).Ticks)
+            return new SamplingSource(Preview65536Relation, true);
+
+        if (bucketTicks >= TimeSpan.FromMilliseconds(8192).Ticks)
+            return new SamplingSource(Preview8192Relation, true);
+
+        if (bucketTicks >= TimeSpan.FromMilliseconds(1024).Ticks)
+            return new SamplingSource(Preview1024Relation, true);
+
+        if (bucketTicks >= TimeSpan.FromMilliseconds(128).Ticks)
+            return new SamplingSource(Preview128Relation, true);
+
+        return new SamplingSource(RawMeasurementsRelation, false);
+    }
+
+    internal static SamplingPlan BuildSamplingPlan(
+        DateTime fromUtc,
+        DateTime toUtc,
+        int? maxPoints,
+        TimeSpan minimumBucket,
+        bool forceSampling = false,
+        double? expectedFps = null)
+    {
+        if (toUtc <= fromUtc)
+            throw new ArgumentException("A janela deve satisfazer fromUtc < toUtc.");
+
+        if (minimumBucket <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(
+                nameof(minimumBucket),
+                "minimumBucket deve ser maior que zero.");
+
+        if (maxPoints is null || maxPoints <= 0)
+        {
+            return forceSampling
+                ? new SamplingPlan(false, minimumBucket)
+                : new SamplingPlan(true, minimumBucket);
+        }
+
+        var effectiveFps = expectedFps is > 0
+            ? expectedFps.Value
+            : PreviewFallbackExpectedFps;
+
+        var expectedRawPointsPerPmu =
+            (toUtc - fromUtc).TotalSeconds * effectiveFps;
+
+        if (!forceSampling && expectedRawPointsPerPmu <= maxPoints.Value)
+            return new SamplingPlan(true, minimumBucket);
+
+        return new SamplingPlan(
+            false,
+            ComputeHierarchicalBucketWidth(
+                fromUtc,
+                toUtc,
+                maxPoints.Value,
+                minimumBucket));
+    }
+
+    private static TimeSpan ComputeHierarchicalBucketWidth(
+        DateTime fromUtc,
+        DateTime toUtc,
+        int maxPoints,
+        TimeSpan minimumBucket)
+    {
+        if (maxPoints <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxPoints));
+
+        var targetBuckets = Math.Max(1, maxPoints - 1);
+        var requiredTicks = Math.Max(
+            minimumBucket.Ticks,
+            (long)Math.Ceiling((toUtc - fromUtc).Ticks / (double)targetBuckets));
+
+        var bucketTicks = minimumBucket.Ticks;
+        while (bucketTicks < requiredTicks)
+        {
+            if (bucketTicks > TimeSpan.MaxValue.Ticks / 2)
+                throw new OverflowException("Bucket temporal excedeu TimeSpan.MaxValue.");
+
+            bucketTicks *= 2;
+        }
+
+        return TimeSpan.FromTicks(bucketTicks);
+    }
+
     private async Task<List<PmuScopeRow>> ResolvePmuScopeAsync(
         IDbConnection db,
         int pdcId,
@@ -1254,11 +1319,7 @@ ORDER BY pp.pdc_pmu_id;";
         return (await db.QueryAsync<PmuScopeRow>(
             new CommandDefinition(
                 sql,
-                new
-                {
-                    pdc_id = pdcId,
-                    pmu_names = pmuNames.ToArray()
-                },
+                new { pdc_id = pdcId, pmu_names = pmuNames.ToArray() },
                 commandTimeout: 30,
                 cancellationToken: ct)))
             .ToList();
@@ -1285,12 +1346,12 @@ ORDER BY pp.pdc_pmu_id;";
 
         const string sql = @"
 SELECT
-    s.signal_id                    AS SignalId,
-    s.pdc_pmu_id                   AS PdcPmuId,
-    p.id_name                      AS IdName,
+    s.signal_id                          AS SignalId,
+    s.pdc_pmu_id                         AS PdcPmuId,
+    p.id_name                            AS IdName,
     UPPER(COALESCE(s.phase::text,''))     AS Phase,
     UPPER(COALESCE(s.component::text,'')) AS Component,
-    p.volt_level                   AS VoltLevel
+    p.volt_level                         AS VoltLevel
 FROM openplot.pdc_pmu pp
 JOIN openplot.pmu p
   ON p.pmu_id = pp.pmu_id
@@ -1345,12 +1406,12 @@ ORDER BY
     {
         const string sql = @"
 SELECT
-    s.signal_id                    AS SignalId,
-    s.pdc_pmu_id                   AS PdcPmuId,
-    p.id_name                      AS IdName,
-    UPPER(s.phase::text)           AS Phase,
-    UPPER(s.component::text)       AS Component,
-    p.volt_level                   AS VoltLevel
+    s.signal_id              AS SignalId,
+    s.pdc_pmu_id             AS PdcPmuId,
+    p.id_name                AS IdName,
+    UPPER(s.phase::text)     AS Phase,
+    UPPER(s.component::text) AS Component,
+    p.volt_level             AS VoltLevel
 FROM openplot.pdc_pmu pp
 JOIN openplot.pmu p
   ON p.pmu_id = pp.pmu_id
@@ -1371,20 +1432,12 @@ ORDER BY
         return (await db.QueryAsync<SignalScopeRow>(
             new CommandDefinition(
                 sql,
-                new
-                {
-                    pdc_id = pdcId,
-                    pmu_names = pmuNames.ToArray(),
-                    kind
-                },
+                new { pdc_id = pdcId, pmu_names = pmuNames.ToArray(), kind },
                 commandTimeout: 30,
                 cancellationToken: ct)))
             .ToList();
     }
 
-    // ============================================================
-    // HELPERS
-    // ============================================================
     private async Task<long> EnsureConnectionOpenAsync(
         IDbConnection db,
         CancellationToken ct)
@@ -1414,108 +1467,12 @@ ORDER BY
             requested.Where(x => !string.IsNullOrWhiteSpace(x)),
             StringComparer.OrdinalIgnoreCase);
 
-        return ctx.PmuNames
-            .Where(requestedSet.Contains)
-            .ToArray();
-    }
-
-    private readonly record struct SamplingPlan(
-        bool UseRaw,
-        TimeSpan BucketWidth);
-
-    private static SamplingPlan BuildSamplingPlan(
-        DateTime fromUtc,
-        DateTime toUtc,
-        int? maxPoints,
-        TimeSpan minimumBucket,
-        bool forceSampling = false)
-    {
-        if (toUtc <= fromUtc)
-            throw new ArgumentException("A janela deve satisfazer fromUtc < toUtc.");
-
-        if (minimumBucket <= TimeSpan.Zero)
-            throw new ArgumentOutOfRangeException(
-                nameof(minimumBucket),
-                "minimumBucket deve ser maior que zero.");
-
-        // Sem limite de preview, normalmente o consumidor pede fidelidade
-        // integral. FREQ/DFREQ são a exceção: são produtos a 1 fps e, por
-        // isso, continuam amostrados mesmo quando maxPoints=null.
-        if (maxPoints is null || maxPoints <= 0)
-        {
-            return forceSampling
-                ? new SamplingPlan(
-                    UseRaw: false,
-                    BucketWidth: minimumBucket)
-                : new SamplingPlan(
-                    UseRaw: true,
-                    BucketWidth: minimumBucket);
-        }
-
-        // Para as fontes atuais de até 120 fps, se toda a janela já cabe no
-        // orçamento, a consulta RAW é simultaneamente mais fiel e mais barata
-        // que GROUP BY + time_bucket. Produtos com forceSampling nunca usam
-        // este atalho.
-        var expectedRawPointsPerPmu =
-            (toUtc - fromUtc).TotalSeconds * PreviewMaxExpectedFps;
-
-        if (!forceSampling &&
-            expectedRawPointsPerPmu <= maxPoints.Value)
-        {
-            return new SamplingPlan(
-                UseRaw: true,
-                BucketWidth: minimumBucket);
-        }
-
-        return new SamplingPlan(
-            UseRaw: false,
-            BucketWidth: ComputeHierarchicalBucketWidth(
-                fromUtc,
-                toUtc,
-                maxPoints.Value,
-                minimumBucket));
-    }
-
-    private static TimeSpan ComputeHierarchicalBucketWidth(
-        DateTime fromUtc,
-        DateTime toUtc,
-        int maxPoints,
-        TimeSpan minimumBucket)
-    {
-        if (maxPoints <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maxPoints));
-
-        // Reservamos uma posição para o efeito de borda da grade global.
-        // Isso evita ultrapassar o orçamento apenas porque a janela começa
-        // no meio de um bucket.
-        var targetBuckets = Math.Max(1, maxPoints - 1);
-
-        var requiredTicks = Math.Max(
-            minimumBucket.Ticks,
-            (long)Math.Ceiling(
-                (toUtc - fromUtc).Ticks / (double)targetBuckets));
-
-        // Hierarquia estritamente aninhada: minimumBucket * 2^N.
-        // Como todos os níveis usam BucketOriginUtc, um representante de um
-        // nível grosso é também representante de algum bucket do nível fino.
-        // Logo, o zoom só revela/remove registros; não recompõe timestamps.
-        var bucketTicks = minimumBucket.Ticks;
-
-        while (bucketTicks < requiredTicks)
-        {
-            if (bucketTicks > TimeSpan.MaxValue.Ticks / 2)
-                throw new OverflowException("Bucket temporal excedeu TimeSpan.MaxValue.");
-
-            bucketTicks *= 2;
-        }
-
-        return TimeSpan.FromTicks(bucketTicks);
+        return ctx.PmuNames.Where(requestedSet.Contains).ToArray();
     }
 
     private static string NormalizeQuantity(string quantity)
     {
         var q = (quantity ?? string.Empty).Trim().ToLowerInvariant();
-
         return q switch
         {
             "v" => "voltage",
@@ -1524,23 +1481,6 @@ ORDER BY
             "d" => "digital",
             _ => q
         };
-    }
-
-    private sealed class PmuScopeRow
-    {
-        public int PdcPmuId { get; set; }
-        public string IdName { get; set; } = string.Empty;
-        public double? VoltLevel { get; set; }
-    }
-
-    private sealed class SignalScopeRow
-    {
-        public int SignalId { get; set; }
-        public int PdcPmuId { get; set; }
-        public string IdName { get; set; } = string.Empty;
-        public string Phase { get; set; } = string.Empty;
-        public string Component { get; set; } = string.Empty;
-        public int? VoltLevel { get; set; }
     }
 
     private sealed record WideProjection(
@@ -1563,7 +1503,7 @@ ORDER BY
             return new WideProjection(
                 "mw.frequency_hz AS ValueAny",
                 DefaultMinBucket,
-                true,
+                false,
                 (row, _) => row.ValueAny);
         }
 
@@ -1572,7 +1512,7 @@ ORDER BY
             return new WideProjection(
                 "mw.delta_freq_hz AS ValueAny",
                 DefaultMinBucket,
-                true,
+                false,
                 (row, _) => row.ValueAny);
         }
 
@@ -1589,18 +1529,9 @@ ORDER BY
         {
             return c switch
             {
-                "MAG" => PhaseProjection(
-                    "va_mod_v", "vb_mod_v", "vc_mod_v",
-                    phaseMode, phase),
-
-                "ANG" => PhaseProjection(
-                    "va_ang_deg", "vb_ang_deg", "vc_ang_deg",
-                    phaseMode, phase),
-
-                "THD" => PhaseProjection(
-                    "vthd_a_pct", "vthd_b_pct", "vthd_c_pct",
-                    phaseMode, phase),
-
+                "MAG" => PhaseProjection("va_mod_v", "vb_mod_v", "vc_mod_v", phaseMode, phase),
+                "ANG" => PhaseProjection("va_ang_deg", "vb_ang_deg", "vc_ang_deg", phaseMode, phase),
+                "THD" => PhaseProjection("vthd_a_pct", "vthd_b_pct", "vthd_c_pct", phaseMode, phase),
                 _ => throw new NotSupportedException(
                     $"Componente de tensão não suportado na Wide: '{component}'.")
             };
@@ -1610,18 +1541,9 @@ ORDER BY
         {
             return c switch
             {
-                "MAG" => PhaseProjection(
-                    "ia_mod_a", "ib_mod_a", "ic_mod_a",
-                    phaseMode, phase),
-
-                "ANG" => PhaseProjection(
-                    "ia_ang_deg", "ib_ang_deg", "ic_ang_deg",
-                    phaseMode, phase),
-
-                "THD" => PhaseProjection(
-                    "cthd_a_pct", "cthd_b_pct", "cthd_c_pct",
-                    phaseMode, phase),
-
+                "MAG" => PhaseProjection("ia_mod_a", "ib_mod_a", "ic_mod_a", phaseMode, phase),
+                "ANG" => PhaseProjection("ia_ang_deg", "ib_ang_deg", "ic_ang_deg", phaseMode, phase),
+                "THD" => PhaseProjection("cthd_a_pct", "cthd_b_pct", "cthd_c_pct", phaseMode, phase),
                 _ => throw new NotSupportedException(
                     $"Componente de corrente não suportado na Wide: '{component}'.")
             };
@@ -1638,12 +1560,9 @@ ORDER BY
         PhaseMode phaseMode,
         string? phase)
     {
-        // Em PhaseMode.Single a hypertable columnar deve descomprimir somente
-        // a coluna física realmente pedida.
         if (phaseMode == PhaseMode.Single)
         {
             var p = (phase ?? string.Empty).Trim().ToUpperInvariant();
-
             var selectedColumn = p switch
             {
                 "A" => colA,
@@ -1748,7 +1667,6 @@ ORDER BY
         public double? CMag { get; set; }
         public double? CAng { get; set; }
     }
-
 
     private sealed class AngleWideSampleRow
     {

@@ -33,6 +33,7 @@ public sealed class PowerSeriesHandler
     private readonly ISeriesAssemblyService _seriesAssembly;
     private readonly IUiMenuService _uiMenus;
     private readonly IBackgroundCacheQueue _backgroundCacheQueue;
+    private readonly IBackgroundCacheCoordinator _backgroundCacheCoordinator;
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     public PowerSeriesHandler(
@@ -45,6 +46,7 @@ public sealed class PowerSeriesHandler
         ISeriesAssemblyService seriesAssembly,
         IUiMenuService uiMenus,
         IBackgroundCacheQueue backgroundCacheQueue,
+        IBackgroundCacheCoordinator backgroundCacheCoordinator,
         IHttpContextAccessor httpContextAccessor,
         ILogger<PowerSeriesHandler> logger)
     {
@@ -57,6 +59,7 @@ public sealed class PowerSeriesHandler
         _seriesAssembly = seriesAssembly ?? throw new ArgumentNullException(nameof(seriesAssembly));
         _uiMenus = uiMenus ?? throw new ArgumentNullException(nameof(uiMenus));
         _backgroundCacheQueue = backgroundCacheQueue ?? throw new ArgumentNullException(nameof(backgroundCacheQueue));
+        _backgroundCacheCoordinator = backgroundCacheCoordinator ?? throw new ArgumentNullException(nameof(backgroundCacheCoordinator));
         _httpContextAccessor = httpContextAccessor ?? throw new ArgumentNullException(nameof(httpContextAccessor));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -172,7 +175,19 @@ public sealed class PowerSeriesHandler
             cacheSeries,
             normalizeMissingFrames: false);
 
-        var cacheId = Guid.NewGuid();
+        var cacheWorkKey = CacheWorkKey.Create(
+            "Power",
+            query.RunId,
+            fromUtc,
+            toUtc,
+            ("which", which),
+            ("unit", unit),
+            ("tri", tri.ToString()),
+            ("total", total.ToString()),
+            ("phase", phase),
+            ("pmus", CacheWorkKey.NormalizeCollection(pmuFilter)));
+        var reservation = await _backgroundCacheCoordinator.ReserveOrGetAsync(cacheWorkKey, ct);
+        var cacheId = reservation.CacheId;
 
         // Não persistimos mais o preview no caminho crítico.
         // O cache_id fica "pending" até o worker persistir a massa integral.
@@ -192,9 +207,9 @@ public sealed class PowerSeriesHandler
         var bgUnit = unit;
         var bgUnitDisplay = unitDisplay;
 
-        BackgroundCacheWorkItem workItem;
+        BackgroundCacheWorkItem? workItem = null;
 
-        if (query.MaxPointsIsAll)
+        if (reservation.IsOwner && query.MaxPointsIsAll)
         {
             // Quando o próprio request já pediu massa integral, não consultamos
             // o banco novamente. Apenas persistimos o payload integral já montado.
@@ -204,6 +219,7 @@ public sealed class PowerSeriesHandler
                 Name: "Power",
                 RunId: bgRunId,
                 CacheId: cacheId,
+                WorkKey: cacheWorkKey,
                 ExecuteAsync: async (sp, bgCt) =>
                 {
                     var cacheRepo =
@@ -211,17 +227,18 @@ public sealed class PowerSeriesHandler
 
                     await cacheRepo.SaveAsync(
                         cacheId,
-                        bgRunId,
+                        bgRunId, cacheWorkKey.CacheKey,
                         fullPayloadAlreadyLoaded,
                         bgCt);
                 });
         }
-        else
+        else if (reservation.IsOwner)
         {
             workItem = new BackgroundCacheWorkItem(
                 Name: "Power",
                 RunId: bgRunId,
                 CacheId: cacheId,
+                WorkKey: cacheWorkKey,
                 ExecuteAsync: async (sp, bgCt) =>
                 {
                     var runRepository =
@@ -309,7 +326,7 @@ public sealed class PowerSeriesHandler
 
                     await cacheRepo.SaveAsync(
                         cacheId,
-                        bgRunId,
+                        bgRunId, cacheWorkKey.CacheKey,
                         fullPayload,
                         bgCt);
 
@@ -321,10 +338,12 @@ public sealed class PowerSeriesHandler
                 });
         }
 
-        if (!_backgroundCacheQueue.ScheduleAfterResponse(
+        if (reservation.IsOwner &&
+            !_backgroundCacheQueue.ScheduleAfterResponse(
                 _httpContextAccessor.HttpContext,
-                workItem))
+                workItem!))
         {
+            await _backgroundCacheCoordinator.FailAsync(cacheWorkKey, cacheId, ct);
             return Results.StatusCode(
                 StatusCodes.Status503ServiceUnavailable);
         }

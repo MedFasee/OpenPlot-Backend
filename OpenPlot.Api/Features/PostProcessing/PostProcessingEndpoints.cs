@@ -82,7 +82,7 @@ public static class PostProcessingEndpoints
             return Results.Ok(new
             {
                 cache_id,
-                meta = plotMeta,
+                plot_meta = plotMeta,
                 selectRate = payload.SelectRate,
                 window = new
                 {
@@ -215,7 +215,7 @@ public static class PostProcessingEndpoints
                 return Results.Ok(new
                 {
                     cache_id,
-                    meta = plotMeta,
+                    plot_meta = plotMeta,
                     selectRate = payload.SelectRate,
                     window = new
                     {
@@ -278,7 +278,7 @@ public static class PostProcessingEndpoints
                     return Results.Ok(new
                     {
                         cache_id,
-                        meta,
+                        plot_meta = meta,
                         selectRate = payload.SelectRate,
                         window = new { from = cca.FromUtc, to = cca.ToUtc },
                         parameters = new

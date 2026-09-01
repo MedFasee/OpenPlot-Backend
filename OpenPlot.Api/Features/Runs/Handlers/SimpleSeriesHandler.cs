@@ -1,85 +1,188 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using System.Diagnostics;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using OpenPlot.Core.TimeSeries;
 using OpenPlot.Data.Dtos;
 using OpenPlot.Features.Runs.Contracts;
-using OpenPlot.Features.Runs.Handlers.Abstractions;
-using OpenPlot.Features.Runs.Handlers.Base;
+using OpenPlot.Features.Runs.Handlers.Responses;
 using OpenPlot.Features.Runs.Repositories;
+using OpenPlot.Services.BackgroundCache;
 using OpenPlot.Services.UI;
 
 namespace OpenPlot.Features.Runs.Handlers;
 
 /// <summary>
-/// Handler para séries simples (frequência, dfreq, digital, etc).
-/// Características: não requerem cálculos complexos, apenas passthrough dos valores.
+/// Handler para series simples (frequency, dfreq, digital). Segue a mesma
+/// arquitetura de CurrentSeriesHandler/SeqSeriesHandler: cache semantico via
+/// IBackgroundCacheCoordinator/IBackgroundCacheQueue, sem Task.Run proprio.
 /// </summary>
-public sealed class SimpleSeriesHandler : BaseSeriesHandler<SimpleSeriesQuery>
+public sealed class SimpleSeriesHandler
 {
-    private readonly IMeasurementsRepository _measRepository;
+    private readonly IRunContextRepository _runs;
+    private readonly IMeasurementsRepository _meas;
     private readonly ITimeSeriesDownsampler _downsampler;
+    private readonly IPlotMetaBuilder _meta;
     private readonly ISeriesAssemblyService _seriesAssembly;
-    private MeasurementsQuery? _currentMeasurement; // Armazenado durante execução
+    private readonly IUiMenuService _uiMenus;
+    private readonly IBackgroundCacheQueue _backgroundCacheQueue;
+    private readonly IBackgroundCacheCoordinator _backgroundCacheCoordinator;
+    private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly ILogger<SimpleSeriesHandler> _logger;
 
     public SimpleSeriesHandler(
-        IRunContextRepository runRepository,
-        IMeasurementsRepository measRepository,
+        IRunContextRepository runs,
+        IMeasurementsRepository meas,
         ITimeSeriesDownsampler downsampler,
-        IPlotMetaBuilder metaBuilder,
+        IPlotMetaBuilder meta,
         ISeriesAssemblyService seriesAssembly,
-        IAnalysisCacheRepository cacheRepository,
         IUiMenuService uiMenus,
+        IBackgroundCacheQueue backgroundCacheQueue,
+        IBackgroundCacheCoordinator backgroundCacheCoordinator,
+        IHttpContextAccessor httpContextAccessor,
         ILogger<SimpleSeriesHandler> logger)
-        : base(runRepository, metaBuilder, ConvertCacheRepo(cacheRepository), uiMenus, logger)
     {
-        _measRepository = measRepository ?? throw new ArgumentNullException(nameof(measRepository));
+        _runs = runs ?? throw new ArgumentNullException(nameof(runs));
+        _meas = meas ?? throw new ArgumentNullException(nameof(meas));
         _downsampler = downsampler ?? throw new ArgumentNullException(nameof(downsampler));
+        _meta = meta ?? throw new ArgumentNullException(nameof(meta));
         _seriesAssembly = seriesAssembly ?? throw new ArgumentNullException(nameof(seriesAssembly));
+        _uiMenus = uiMenus ?? throw new ArgumentNullException(nameof(uiMenus));
+        _backgroundCacheQueue = backgroundCacheQueue ?? throw new ArgumentNullException(nameof(backgroundCacheQueue));
+        _backgroundCacheCoordinator = backgroundCacheCoordinator ?? throw new ArgumentNullException(nameof(backgroundCacheCoordinator));
+        _httpContextAccessor = httpContextAccessor ?? throw new ArgumentNullException(nameof(httpContextAccessor));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    /// <summary>
-    /// Sobrecarga que permite especificar MeasurementsQuery customizada.
-    /// </summary>
     public async Task<IResult> HandleAsync(
-        SimpleSeriesQuery q,
-        WindowQuery w,
+        SimpleSeriesQuery query,
+        WindowQuery window,
         MeasurementsQuery meas,
         Dictionary<string, object?>? modes,
         CancellationToken ct)
     {
-        _currentMeasurement = meas;
-        return await base.HandleAsync(q, w, modes, ct);
-    }
+        if (query.RunId == Guid.Empty)
+            return Results.BadRequest("run_id é obrigatório.");
 
-    protected override async Task<IReadOnlyList<MeasurementRow>> QueryDataAsync(
-        SimpleSeriesQuery query,
-        RunContext runContext,
-        WindowQuery window,
-        CancellationToken ct,
-        int? maxPoints)
-    {
+        if (window.FromUtc.HasValue && window.ToUtc.HasValue && window.FromUtc >= window.ToUtc)
+            return Results.BadRequest("from deve ser menor que to.");
+
+        var noDownsample = query.MaxPointsIsAll;
+        var maxPts = query.ResolveMaxPoints(@default: 5000);
+
+        var ctx = await _runs.ResolveAsync(query.RunId, window.FromUtc, window.ToUtc, ct);
+        if (ctx is null)
+            return Results.NotFound("run_id não encontrado.");
+
+        var frontWatch = Stopwatch.StartNew();
         _logger.LogInformation(
-        "[SIMPLE] quantity={Quantity} component={Component} phaseMode={PhaseMode} phase={Phase} pmus={Pmus}",
-        _currentMeasurement.Quantity,
-        _currentMeasurement.Component,
-        _currentMeasurement.PhaseMode,
-        _currentMeasurement.Phase,
-        _currentMeasurement.PmuNames is null
-            ? "<null>"
-            : string.Join(",", _currentMeasurement.PmuNames));
-        if (_currentMeasurement is null)
+            "[BYRUN][Simple][FRONT][START] runId={RunId} quantity={Quantity} component={Component} maxPoints={MaxPoints}",
+            query.RunId,
+            meas.Quantity,
+            meas.Component,
+            noDownsample ? "all" : maxPts);
+
+        var frontRows = await _meas.QueryAsync(ctx, meas, ct, noDownsample ? null : maxPts);
+
+        frontWatch.Stop();
+        _logger.LogInformation(
+            "[BYRUN][Simple][FRONT][END] runId={RunId} elapsedMs={ElapsedMs} rows={Rows}",
+            query.RunId,
+            frontWatch.ElapsedMilliseconds,
+            frontRows.Count);
+
+        if (frontRows.Count == 0)
+            return Results.NotFound("Nada encontrado para esse run/filtro.");
+
+        var windowFrom = window.FromUtc ?? frontRows.Min(r => r.Ts);
+        var windowTo = window.ToUtc ?? frontRows.Max(r => r.Ts);
+
+        var cacheWorkKey = CacheWorkKey.Create(
+            "Simple",
+            query.RunId,
+            window.FromUtc,
+            window.ToUtc,
+            ("quantity", meas.Quantity),
+            ("component", meas.Component),
+            ("pmus", CacheWorkKey.NormalizeCollection(meas.PmuNames)));
+
+        var reservation = await _backgroundCacheCoordinator.ReserveOrGetAsync(cacheWorkKey, ct);
+        var cacheId = reservation.CacheId;
+        BackgroundCacheWorkItem? workItem = null;
+
+        if (reservation.IsOwner && noDownsample)
         {
-            throw new InvalidOperationException("MeasurementsQuery não foi configurada.");
+            var cacheSeriesAlreadyLoaded = BuildCacheSeries(frontRows, meas, _seriesAssembly);
+
+            var payloadAlreadyLoaded = _seriesAssembly.BuildCachePayload(
+                windowFrom,
+                windowTo,
+                ctx.SelectRate ?? 0,
+                cacheSeriesAlreadyLoaded);
+
+            workItem = new BackgroundCacheWorkItem(
+                Name: "Simple",
+                RunId: query.RunId,
+                CacheId: cacheId,
+                WorkKey: cacheWorkKey,
+                ExecuteAsync: async (sp, bgCt) =>
+                {
+                    var cacheRepo = sp.GetRequiredService<IAnalysisCacheRepository>();
+                    await cacheRepo.SaveAsync(cacheId, query.RunId, cacheWorkKey.CacheKey, payloadAlreadyLoaded, bgCt);
+                });
+        }
+        else if (reservation.IsOwner)
+        {
+            var bgRunId = query.RunId;
+            var bgFromUtc = window.FromUtc;
+            var bgToUtc = window.ToUtc;
+            var bgMeas = meas;
+
+            workItem = new BackgroundCacheWorkItem(
+                Name: "Simple",
+                RunId: bgRunId,
+                CacheId: cacheId,
+                WorkKey: cacheWorkKey,
+                ExecuteAsync: async (sp, bgCt) =>
+                {
+                    var runRepository = sp.GetRequiredService<IRunContextRepository>();
+                    var measurementsRepository = sp.GetRequiredService<IMeasurementsRepository>();
+                    var seriesAssembly = sp.GetRequiredService<ISeriesAssemblyService>();
+                    var cacheRepo = sp.GetRequiredService<IAnalysisCacheRepository>();
+
+                    var bgCtx = await runRepository.ResolveAsync(bgRunId, bgFromUtc, bgToUtc, bgCt);
+                    if (bgCtx is null)
+                        throw new InvalidOperationException(
+                            $"Run não encontrado durante cache integral: {bgRunId}");
+
+                    var fullRows = await measurementsRepository.QueryAsync(bgCtx, bgMeas, bgCt, maxPoints: null);
+                    if (fullRows.Count == 0)
+                        throw new InvalidOperationException(
+                            $"Cache integral Simple sem linhas. runId={bgRunId}");
+
+                    var fullWindowFrom = bgFromUtc ?? fullRows.Min(r => r.Ts);
+                    var fullWindowTo = bgToUtc ?? fullRows.Max(r => r.Ts);
+
+                    var cacheSeriesFull = BuildCacheSeries(fullRows, bgMeas, seriesAssembly);
+
+                    var fullPayload = seriesAssembly.BuildCachePayload(
+                        fullWindowFrom,
+                        fullWindowTo,
+                        bgCtx.SelectRate ?? 0,
+                        cacheSeriesFull);
+
+                    await cacheRepo.SaveAsync(cacheId, bgRunId, cacheWorkKey.CacheKey, fullPayload, bgCt);
+                });
         }
 
-        return await _measRepository.QueryAsync(runContext, _currentMeasurement, ct, maxPoints);
-    }
+        if (reservation.IsOwner &&
+            !_backgroundCacheQueue.ScheduleAfterResponse(_httpContextAccessor.HttpContext, workItem!))
+        {
+            await _backgroundCacheCoordinator.FailAsync(cacheWorkKey, cacheId, ct);
+            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
 
-    protected override List<object> TransformData(
-        IReadOnlyList<MeasurementRow> rows,
-        int maxPoints,
-        bool noDownsample)
-    {
-        return rows
+        var series = frontRows
             .GroupBy(r => r.SignalId)
             .Select(g =>
             {
@@ -87,7 +190,7 @@ public sealed class SimpleSeriesHandler : BaseSeriesHandler<SimpleSeriesQuery>
                 var points = _seriesAssembly.BuildPoints(
                     g.Select(x => (x.Ts, x.Value)),
                     true,
-                    maxPoints,
+                    maxPts,
                     _downsampler);
 
                 return new SeriesDto(
@@ -95,119 +198,66 @@ public sealed class SimpleSeriesHandler : BaseSeriesHandler<SimpleSeriesQuery>
                     Pmu: first.IdName,
                     SignalId: first.SignalId,
                     PdcPmuId: first.PdcPmuId,
-                    Unit: _currentMeasurement?.Unit ?? "raw",
+                    Unit: meas.Unit ?? "raw",
                     Meta: null,
-                    Points: points
-                );
+                    Points: points);
             })
             .Cast<object>()
             .ToList();
+
+        var plotMeta = _meta.Build(window, ctx, meas);
+
+        var groupedRows = frontRows
+            .GroupBy(row => row.IdName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var pmuCount = groupedRows.Count;
+        var availablePointCount = groupedRows.Count == 0 ? 0 : groupedRows.Min(g => g.Count());
+
+        var menuContext = new UiMenuContext(
+            WindowFromUtc: windowFrom,
+            WindowToUtc: windowTo,
+            SelectRate: ctx.SelectRate,
+            TotalSeriesCount: pmuCount,
+            ValidSeriesCount: pmuCount,
+            AvailablePointCount: availablePointCount,
+            Quantity: meas.Quantity,
+            Component: meas.Component,
+            Phase: meas.Phase);
+
+        var resolvedModes = _uiMenus.RebuildForRun(modes, menuContext);
+
+        var response = SeriesResponseBuilderExtensions
+            .BuildSeriesResponse(query.RunId, windowFrom, windowTo, series, plotMeta)
+            .WithModes(resolvedModes)
+            .WithCacheId(cacheId)
+            .WithResolved(frontRows.First().PdcName, pmuCount)
+            .Build();
+
+        return Results.Ok(response);
     }
 
-    protected override RowsCacheV2? BuildCachePayload(
+    private static List<RowsCacheSeries> BuildCacheSeries(
         IReadOnlyList<MeasurementRow> rows,
-        DateTime windowFrom,
-        DateTime windowTo,
-        RunContext runContext)
-    {
-        var cacheSeries = rows
+        MeasurementsQuery meas,
+        ISeriesAssemblyService seriesAssembly) =>
+        rows
             .GroupBy(r => r.SignalId)
             .Select(g =>
             {
                 var first = g.First();
-                return _seriesAssembly.BuildCacheSeries(
+                return seriesAssembly.BuildCacheSeries(
                     signalId: first.SignalId,
                     pdcPmuId: first.PdcPmuId,
                     idName: first.IdName,
                     pdcName: first.PdcName,
                     referenceTerminal: null,
-                    unit: _currentMeasurement?.Unit,
+                    unit: meas.Unit,
                     phase: null,
-                    quantity: _currentMeasurement?.Quantity,
-                    component: _currentMeasurement?.Component,
+                    quantity: meas.Quantity,
+                    component: meas.Component,
                     points: g.Select(x => (x.Ts, x.Value)));
             })
             .OrderBy(s => s.IdName, StringComparer.OrdinalIgnoreCase)
             .ToList();
-
-        return _seriesAssembly.BuildCachePayload(
-            windowFrom,
-            windowTo,
-            runContext.SelectRate ?? 0,
-            cacheSeries);
-    }
-
-    protected override UiMenuContext BuildUiMenuContext(
-        RunContext runContext,
-        DateTime windowFrom,
-        DateTime windowTo,
-        IReadOnlyList<MeasurementRow> rows)
-    {
-        var groupedRows = rows
-            .GroupBy(row => row.IdName, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var pmuCount = groupedRows.Count;
-        var availablePointCount = groupedRows.Count == 0
-            ? 0
-            : groupedRows.Min(group => group.Count());
-
-        return new UiMenuContext(
-            WindowFromUtc: windowFrom,
-            WindowToUtc: windowTo,
-            SelectRate: runContext.SelectRate,
-            TotalSeriesCount: pmuCount,
-            ValidSeriesCount: pmuCount,
-            AvailablePointCount: availablePointCount,
-            Quantity: _currentMeasurement?.Quantity,
-            Component: _currentMeasurement?.Component,
-            Phase: _currentMeasurement?.Phase);
-    }
-
-    protected override PlotMetaDto BuildPlotMeta(
-        RunContext runContext,
-        SimpleSeriesQuery query,
-        WindowQuery window)
-    {
-        if (_currentMeasurement is null)
-        {
-            return base.BuildPlotMeta(runContext, query, window);
-        }
-
-        return _metaBuilder.Build(window, runContext, _currentMeasurement);
-    }
-
-    protected override string GetEmptyDataMessage() =>
-        "Nada encontrado para esse run/filtro.";
-
-    /// <summary>
-    /// Conversor adaptador para ISeriesCacheService.
-    /// </summary>
-    private static ISeriesCacheService ConvertCacheRepo(IAnalysisCacheRepository repo)
-    {
-        return new CacheServiceAdapter(repo);
-    }
-
-    /// <summary>
-    /// Adaptador para converter IAnalysisCacheRepository em ISeriesCacheService.
-    /// </summary>
-    private sealed class CacheServiceAdapter : ISeriesCacheService
-    {
-        private readonly IAnalysisCacheRepository _innerRepo;
-
-        public CacheServiceAdapter(IAnalysisCacheRepository innerRepo)
-        {
-            _innerRepo = innerRepo;
-        }
-
-        public async Task<object?> SaveAsync(Guid runId, RowsCacheV2 payload, CancellationToken ct)
-        {
-            return await _innerRepo.SaveAsync(runId, payload, ct);
-        }
-
-        public async Task<object?> SaveAsync(Guid cacheId, Guid runId, RowsCacheV2 payload, CancellationToken ct)
-        {
-            return await _innerRepo.SaveAsync(cacheId, runId, payload, ct);
-        }
-    }
 }
+

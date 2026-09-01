@@ -1,62 +1,75 @@
 services:
-  db:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: openplot
-      POSTGRES_USER: openplot
-      POSTGRES_PASSWORD: openplot
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      # se você quer rodar init SQL automaticamente:
-      - ./init_SQL:/docker-entrypoint-initdb.d/init.sql:ro
+  openplot-api:
+    image: openplot-api:${OPENPLOT_VERSION:-dev}
 
-  api:
     build:
       context: .
       dockerfile: OpenPlot.Api/Dockerfile
-    environment:
-      ASPNETCORE_URLS: http://+:5173
-      ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__Default: Host=db;Port=5432;Database=openplot;Username=openplot;Password=openplot
-    ports:
-      - "5173:5173"
-    depends_on:
-      - db
+      args:
+        NUGET_CONFIG: ${OPENPLOT_NUGET_CONFIG:-NuGet.dev.config}
+        ENABLE_ONS_CONFIGIT: ${OPENPLOT_ENABLE_ONS_CONFIGIT:-false}
 
-  ingestor:
-    build:
-      context: .
-      dockerfile: OpenPlot.Ingestor.Gsf/Dockerfile
+    env_file:
+      - ${OPENPLOT_ENV_FILE:-.env.dev}
+
     environment:
-      ConnectionStrings__Default: Host=db;Port=5432;Database=openplot;Username=openplot;Password=openplot
-    depends_on:
-      - db
+      ASPNETCORE_URLS: http://+:7011
+      XmlFolder: /data/xml
+
+    ports:
+      - "${OPENPLOT_API_PORT:-7011}:7011"
+    
+    volumes:
+      - type: bind
+        source: ${OPENPLOT_DATA_ROOT:-./data}/xml
+        target: /data/xml
+
+      - type: bind
+        source: ${OPENPLOT_DATA_ROOT:-./data}/logs/api
+        target: /app/logs
+
+      - type: bind
+        source: ${OPENPLOT_DATA_ROOT:-./data}/exports
+        target: /data/exports
+
+      - type: bind
+        source: ./OpenPlot.Api/Auth/users.json
+        target: /app/Auth/users.json
+        read_only: true
+    
+
     restart: unless-stopped
 
-  exportworker:
+
+  openplot-export-worker:
+    image: openplot-export-worker:${OPENPLOT_VERSION:-dev}
+
     build:
       context: .
       dockerfile: OpenPlot.ExportWorker/Dockerfile
+
+    env_file:
+      - ${OPENPLOT_ENV_FILE:-.env.dev}
+
     environment:
-      ConnectionStrings__Default: Host=db;Port=5432;Database=openplot;Username=openplot;Password=openplot
-    depends_on:
-      - db
+      Exports__RootDir: /data/exports
+
+    volumes:
+      - type: bind
+        source: ${OPENPLOT_DATA_ROOT:-./data}/exports
+        target: /data/exports
+
     restart: unless-stopped
 
-  xmlimporter:
+
+  openplot-ingestor-gsf:
+    image: openplot-ingestor-gsf:${OPENPLOT_VERSION:-dev}
+
     build:
       context: .
-      dockerfile: OpenPlot.XmlImporter/Dockerfile
-    environment:
-      ConnectionStrings__Default: Host=db;Port=5432;Database=openplot;Username=openplot;Password=openplot
-    depends_on:
-      - db
-    restart: "no"
-    # se seu importer precisa de um diretório de XMLs, monte volume:
-    # volumes:
-    #   - ./Config:/imports:ro
+      dockerfile: OpenPlot.Ingestor.Gsf/Dockerfile
 
-volumes:
-  pgdata:
+    env_file:
+      - ${OPENPLOT_ENV_FILE:-.env.dev}
+
+    restart: unless-stopped

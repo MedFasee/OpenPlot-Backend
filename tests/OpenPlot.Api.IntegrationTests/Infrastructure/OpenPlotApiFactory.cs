@@ -27,6 +27,12 @@ public sealed class OpenPlotApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
+        builder.UseSetting("AuthProvider:Provider", "OpenPlot");
+        builder.UseSetting("Jwt:SigningKey", "integration-test-signing-key-openplot-only");
+        builder.UseSetting("ConnectionStrings:Db", "Host=localhost;Port=5432;Database=openplot_tests;Username=test;Password=test");
+        builder.UseSetting("SsoClients:0:ClientId", "multiinfeed");
+        builder.UseSetting("SsoClients:0:Secret", "integration-test-secret");
+        builder.UseSetting("SsoClients:0:TechnicalUsername", "MIF_robo");
 
         builder.ConfigureServices(services =>
         {

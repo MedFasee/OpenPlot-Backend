@@ -49,7 +49,7 @@ public sealed class PostProcessingEndpointsIntegrationTests(OpenPlotApiFactory f
         Assert.Equal(cacheId.ToString(), root.GetProperty("cache_id").GetString());
         Assert.Equal(1, root.GetProperty("selectRate").GetInt32());
         Assert.True(root.GetProperty("series").GetArrayLength() > 0);
-        Assert.Contains("Espectro de Freq.", root.GetProperty("meta").GetProperty("title").GetString() ?? string.Empty);
+        Assert.Contains("Espectro de Freq.", root.GetProperty("plot_meta").GetProperty("title").GetString() ?? string.Empty);
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public sealed class PostProcessingEndpointsIntegrationTests(OpenPlotApiFactory f
         Assert.True(firstSeries.GetProperty("originalPoints").GetArrayLength() > 0);
         Assert.True(firstSeries.GetProperty("estimatedPoints").GetArrayLength() > 0);
 
-        Assert.Contains("Prony", root.GetProperty("meta").GetProperty("title").GetString() ?? string.Empty);
+        Assert.Contains("Prony", root.GetProperty("plot_meta").GetProperty("title").GetString() ?? string.Empty);
     }
 
     [Fact]
@@ -184,7 +184,7 @@ public sealed class PostProcessingEndpointsIntegrationTests(OpenPlotApiFactory f
         Assert.True(root.GetProperty("energySeries").GetArrayLength() > 0);
         Assert.True(root.GetProperty("idmSeries").GetArrayLength() > 0);
         Assert.True(root.GetProperty("windows").GetArrayLength() > 0);
-        Assert.Equal("CCA", root.GetProperty("meta").GetProperty("title").GetString()?.Split(' ')[0]);
+        Assert.Equal("CCA", root.GetProperty("plot_meta").GetProperty("title").GetString()?.Split(' ')[0]);
 
         var firstWindow = root.GetProperty("windows")[0];
         Assert.True(firstWindow.GetProperty("allModes").GetArrayLength() > 0);

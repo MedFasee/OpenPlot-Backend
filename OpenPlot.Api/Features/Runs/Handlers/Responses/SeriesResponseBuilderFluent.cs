@@ -4,19 +4,19 @@ using System.Globalization;
 namespace OpenPlot.Features.Runs.Handlers.Responses;
 
 /// <summary>
-/// Construtor fluente para respostas padronizadas de série temporal.
-/// Garante consistência em todos os endpoints /series/{type}/by-run
+/// Construtor fluente para respostas padronizadas de sï¿½rie temporal.
+/// Garante consistï¿½ncia em todos os endpoints /series/{type}/by-run
 /// 
-/// Padrão de resposta:
+/// Padrï¿½o de resposta:
 /// {
 ///   modes?: {...},                                    // UI modes (opcional)
-///   run_id: guid,                                     // ID da série
+///   run_id: guid,                                     // ID da sï¿½rie
 ///   data: "dd/MM/yyyy",                               // Data
 ///   cache_id?: string,                                // ID do cache (opcional)
-///   [campos-específicos-tipo]: unit, tri, phase, etc. // Por tipo de série
+///   [campos-especï¿½ficos-tipo]: unit, tri, phase, etc. // Por tipo de sï¿½rie
 ///   resolved: { pdc, pmu_count },                     // Resolvidos
 ///   window: { from, to },                             // Janela temporal
-///   meta: { title, x_label, y_label },                // Metadados
+///   plot_meta: { title, x_label, y_label },           // Metadados
 ///   series: [...]                                     // Dados
 /// }
 /// </summary>
@@ -35,7 +35,7 @@ public sealed class SeriesResponseBuilderFluent
     private int _pmuCount;
 
     /// <summary>
-    /// Inicia construtor para resposta de série.
+    /// Inicia construtor para resposta de sï¿½rie.
     /// </summary>
     public SeriesResponseBuilderFluent(
         Guid runId,
@@ -80,7 +80,7 @@ public sealed class SeriesResponseBuilderFluent
     }
 
     /// <summary>
-    /// Adiciona um campo específico do tipo de série.
+    /// Adiciona um campo especï¿½fico do tipo de sï¿½rie.
     /// </summary>
     public SeriesResponseBuilderFluent WithTypeField(string name, object? value)
     {
@@ -89,7 +89,7 @@ public sealed class SeriesResponseBuilderFluent
     }
 
     /// <summary>
-    /// Adiciona múltiplos campos específicos do tipo.
+    /// Adiciona mï¿½ltiplos campos especï¿½ficos do tipo.
     /// </summary>
     public SeriesResponseBuilderFluent WithTypeFields(Dictionary<string, object?> fields)
     {
@@ -101,7 +101,7 @@ public sealed class SeriesResponseBuilderFluent
     }
 
     /// <summary>
-    /// Constrói a resposta final.
+    /// Constrï¿½i a resposta final.
     /// </summary>
     public object Build()
     {
@@ -142,7 +142,7 @@ public sealed class SeriesResponseBuilderFluent
         };
 
         // 7. Meta
-        response["meta"] = _meta;
+        response["plot_meta"] = _meta;
 
         // 8. Series
         response["series"] = _series;
@@ -152,12 +152,12 @@ public sealed class SeriesResponseBuilderFluent
 }
 
 /// <summary>
-/// Extensões para simplificar criação de builders.
+/// Extensï¿½es para simplificar criaï¿½ï¿½o de builders.
 /// </summary>
 public static class SeriesResponseBuilderExtensions
 {
     /// <summary>
-    /// Cria novo builder para resposta de série.
+    /// Cria novo builder para resposta de sï¿½rie.
     /// </summary>
     public static SeriesResponseBuilderFluent BuildSeriesResponse(
         Guid runId,
