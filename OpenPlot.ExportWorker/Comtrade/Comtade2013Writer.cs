@@ -127,7 +127,7 @@ public sealed class Comtrade2013Writer
             sw.WriteLine(
                 $"{c.Index}," +
                 $"{PadRightCsv(c.Name, 40)}" +
-                $",,,{c.Unit}," +
+                $",{c.Phase},,{c.Unit}," +
                 $"{a.ToString("G17", inv)}," +
                 $"{b.ToString("G17", inv)}," +
                 $"0.0,{-ScaleMax},{ScaleMax},1.0,1.0,P");

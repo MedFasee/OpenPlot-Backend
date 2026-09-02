@@ -47,8 +47,25 @@ public sealed class ComtradeBuildService
             int aIdx = 1;
             int dIdx = 1;
 
-            foreach (var sigGrp in group.GroupBy(x => x.SignalId).OrderBy(g => g.Key))
+            // Ordenação semântica para que o CFG seja gerado como:
+            // MAG A/B/C -> ANG A/B/C -> THD A/B/C -> FREQ -> DFREQ.
+            // O SignalId fica apenas como desempate estável.
+            var signalGroups = group
+                .GroupBy(x => x.SignalId)
+                .Select(g => new
+                {
+                    Group = g,
+                    Meta = g.First()
+                })
+                .OrderBy(x => SignalNaming.IsDigital(x.Meta) ? 1 : 0)
+                .ThenBy(x => SignalNaming.IsDigital(x.Meta)
+                    ? x.Meta.SignalId
+                    : SignalNaming.GetAnalogSortOrder(x.Meta))
+                .ThenBy(x => x.Meta.SignalId);
+
+            foreach (var ordered in signalGroups)
             {
+                var sigGrp = ordered.Group;
                 var list = sigGrp.OrderBy(x => x.Ts).ToList();
                 if (list.Count == 0) continue;
 
@@ -85,6 +102,7 @@ public sealed class ComtradeBuildService
                 else
                 {
                     var chName = SignalNaming.MapAnalogName(meta);
+                    var phase  = SignalNaming.MapAnalogPhase(meta);
                     var unit   = SignalNaming.MapAnalogUnit(meta);
                     var values = new double[n];
                     double last = 0.0;
@@ -100,7 +118,7 @@ public sealed class ComtradeBuildService
                         values[i] = hasLast ? last : 0.0;
                     }
 
-                    analogs.Add(new AnalogSeries(aIdx++, chName, unit, values));
+                    analogs.Add(new AnalogSeries(aIdx++, chName, phase, unit, values));
                 }
             }
 

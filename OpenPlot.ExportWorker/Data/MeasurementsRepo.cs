@@ -23,14 +23,10 @@ public sealed class MeasurementsRepo
     /// encontra os sinais associados a cada PDC/PMU
     /// e busca os valores na measurements.
     ///
-    /// A fase dos canais é obtida exclusivamente de openplot.signal.phase.
-    ///
-    /// Para Voltage / Current / THD:
-    /// A -> Am
-    /// B -> Bm
-    /// C -> Cm
-    ///
-    /// Frequency / DFREQ / Digital não possuem fase no CFG.
+    /// A fase física dos canais é obtida exclusivamente de openplot.signal.phase.
+    /// O repositório preserva A/B/C sem convertê-los para códigos COMTRADE.
+    /// A transformação para Am/Bm/Cm, Aa/Ba/Ca etc. pertence à camada
+    /// de nomenclatura COMTRADE (SignalNaming).
     /// </summary>
     public async Task<List<MeasurementRow>> LoadMeasurementsForComtradeAsync(
         Guid runId,
@@ -424,41 +420,11 @@ sig AS
         UPPER(s.component::text) AS component,
 
         -- --------------------------------------------------------
-        -- Fase original do catálogo.
-        -- É ela que também determina a coluna da measurements.
+        -- Fase física original do catálogo.
+        -- É ela que determina a coluna da measurements e é mantida
+        -- como A/B/C até a camada COMTRADE.
         -- --------------------------------------------------------
         UPPER(s.phase::text) AS phase_raw,
-
-        -- --------------------------------------------------------
-        -- Fase que será enviada para o gerador COMTRADE.
-        --
-        -- Somente Voltage / Current e THD possuem fase.
-        --
-        -- A -> Am
-        -- B -> Bm
-        -- C -> Cm
-        --
-        -- Frequency / DFREQ / Digital => NULL
-        -- --------------------------------------------------------
-        CASE
-            WHEN LOWER(s.quantity::text)
-                     IN ('voltage', 'v', 'current', 'i')
-
-                 AND UPPER(s.component::text)
-                     IN ('MAG', 'ANG', 'THD')
-
-                 AND UPPER(s.phase::text)
-                     IN ('A', 'B', 'C')
-
-            THEN
-                CASE UPPER(s.phase::text)
-                    WHEN 'A' THEN 'Am'
-                    WHEN 'B' THEN 'Bm'
-                    WHEN 'C' THEN 'Cm'
-                END
-
-            ELSE NULL
-        END AS comtrade_phase,
 
         c.id_name,
         c.pdc_name
@@ -546,9 +512,8 @@ SELECT
     s.quantity        AS Quantity,
     s.component       AS Component,
 
-    -- Valor que será utilizado pelo COMTRADE:
-    -- Am / Bm / Cm ou NULL
-    s.comtrade_phase  AS Phase,
+    -- Fase física original (A/B/C) ou NULL para canais sem fase.
+    s.phase_raw       AS Phase,
 
     NULL              AS Unit,
 
