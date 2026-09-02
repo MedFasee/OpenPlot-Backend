@@ -38,8 +38,12 @@ public sealed class ComtradeBuildService
                 onProgress(p, $"Montando PMU {done}/{total} ({group.Key})...").GetAwaiter().GetResult();
             }
 
-            var pmuName = group.Key;
-            var pmuSafe = Naming.SafeFileBase(pmuName);
+            var pmuFullName = group.Key;
+            var pmuName = GetPmuDisplayName(pmuFullName);
+
+            // Mantém o identificador completo apenas para o nome físico
+            // do ZIP interno da PMU. O station_name do CFG usa pmuName.
+            var pmuSafe = Naming.SafeFileBase(pmuFullName);
 
             var analogs = new List<AnalogSeries>();
             var digitals = new List<DigitalSeries>();
@@ -135,6 +139,18 @@ public sealed class ComtradeBuildService
         }
 
         return pmus;
+    }
+
+    private static string GetPmuDisplayName(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return "PMU";
+
+        var name = raw.Trim();
+        var markerIndex = name.IndexOf("-PMU_", StringComparison.OrdinalIgnoreCase);
+
+        // Ex.: UFAC-PMU_Rio_Branco_AC -> UFAC
+        return markerIndex > 0 ? name[..markerIndex] : name;
     }
 
     /// <summary>
